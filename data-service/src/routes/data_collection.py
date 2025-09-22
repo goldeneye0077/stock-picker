@@ -1,0 +1,218 @@
+from fastapi import APIRouter, HTTPException, BackgroundTasks
+from ..data_sources.tushare_client import TushareClient
+from ..utils.database import get_database
+from loguru import logger
+import pandas as pd
+from datetime import datetime, timedelta
+
+router = APIRouter()
+
+@router.post("/fetch-stocks")
+async def fetch_stock_list(background_tasks: BackgroundTasks):
+    """Fetch and update stock list from Tushare"""
+    try:
+        tushare_client = TushareClient()
+        if not tushare_client.is_available():
+            raise HTTPException(status_code=400, detail="Tushare client not available")
+
+        # Run in background
+        background_tasks.add_task(fetch_stocks_task)
+
+        return {
+            "success": True,
+            "message": "Stock list fetch started in background"
+        }
+    except Exception as e:
+        logger.error(f"Error starting stock fetch: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+async def fetch_stocks_task():
+    """Background task to fetch stocks"""
+    try:
+        tushare_client = TushareClient()
+        df = await tushare_client.get_stock_basic()
+
+        if df is None or df.empty:
+            logger.warning("No stock data received from Tushare")
+            return
+
+        async with get_database() as db:
+            for _, row in df.iterrows():
+                # Convert ts_code (000001.SZ) to simple code (000001)
+                code = row['ts_code'].split('.')[0]
+
+                await db.execute("""
+                    INSERT OR REPLACE INTO stocks
+                    (code, name, exchange, industry, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+                """, (
+                    code,
+                    row['name'],
+                    row['exchange'],
+                    row.get('industry', '')
+                ))
+
+            await db.commit()
+            logger.info(f"Successfully updated {len(df)} stocks")
+
+    except Exception as e:
+        logger.error(f"Error in fetch_stocks_task: {e}")
+
+@router.post("/fetch-klines/{stock_code}")
+async def fetch_stock_klines(stock_code: str, background_tasks: BackgroundTasks, days: int = 30):
+    """Fetch K-line data for a specific stock"""
+    try:
+        tushare_client = TushareClient()
+        if not tushare_client.is_available():
+            raise HTTPException(status_code=400, detail="Tushare client not available")
+
+        # Add task to background
+        background_tasks.add_task(fetch_klines_task, stock_code, days)
+
+        return {
+            "success": True,
+            "message": f"K-line data fetch started for {stock_code}"
+        }
+    except Exception as e:
+        logger.error(f"Error starting K-line fetch: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+async def fetch_klines_task(stock_code: str, days: int = 30):
+    """Background task to fetch K-line data"""
+    try:
+        tushare_client = TushareClient()
+
+        # Convert code to ts_code format
+        ts_code = f"{stock_code}.SZ" if stock_code.startswith('00') else f"{stock_code}.SH"
+
+        # Calculate date range
+        end_date = datetime.now().strftime('%Y%m%d')
+        start_date = (datetime.now() - timedelta(days=days)).strftime('%Y%m%d')
+
+        df = await tushare_client.get_daily_data(ts_code, start_date, end_date)
+
+        if df is None or df.empty:
+            logger.warning(f"No K-line data received for {stock_code}")
+            return
+
+        async with get_database() as db:
+            for _, row in df.iterrows():
+                await db.execute("""
+                    INSERT OR REPLACE INTO klines
+                    (stock_code, date, open, high, low, close, volume, amount, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                """, (
+                    stock_code,
+                    row['trade_date'].strftime('%Y-%m-%d'),
+                    float(row['open']),
+                    float(row['high']),
+                    float(row['low']),
+                    float(row['close']),
+                    int(row['vol']),
+                    float(row['amount'])
+                ))
+
+            await db.commit()
+            logger.info(f"Successfully updated {len(df)} K-line records for {stock_code}")
+
+    except Exception as e:
+        logger.error(f"Error in fetch_klines_task: {e}")
+
+@router.post("/analyze-volume/{stock_code}")
+async def analyze_stock_volume(stock_code: str, background_tasks: BackgroundTasks):
+    """Analyze volume for a specific stock"""
+    try:
+        background_tasks.add_task(analyze_volume_task, stock_code)
+
+        return {
+            "success": True,
+            "message": f"Volume analysis started for {stock_code}"
+        }
+    except Exception as e:
+        logger.error(f"Error starting volume analysis: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+async def analyze_volume_task(stock_code: str):
+    """Background task to analyze volume"""
+    try:
+        async with get_database() as db:
+            # Get recent K-line data
+            cursor = await db.execute("""
+                SELECT * FROM klines
+                WHERE stock_code = ?
+                ORDER BY date DESC
+                LIMIT 30
+            """, (stock_code,))
+
+            rows = await cursor.fetchall()
+            if not rows:
+                logger.warning(f"No K-line data found for volume analysis: {stock_code}")
+                return
+
+            # Convert to DataFrame
+            df = pd.DataFrame([dict(row) for row in rows])
+            df = df.sort_values('date')
+
+            # Calculate volume analysis
+            if len(df) >= 20:
+                df['avg_volume_20'] = df['volume'].rolling(window=20).mean()
+                df['volume_ratio'] = df['volume'] / df['avg_volume_20']
+                df['is_volume_surge'] = df['volume_ratio'] > 2.0
+
+                # Save analysis results
+                for _, row in df.iterrows():
+                    if pd.notna(row['volume_ratio']):
+                        await db.execute("""
+                            INSERT OR REPLACE INTO volume_analysis
+                            (stock_code, date, volume_ratio, avg_volume_20, is_volume_surge, analysis_result, created_at)
+                            VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+                        """, (
+                            stock_code,
+                            row['date'],
+                            float(row['volume_ratio']),
+                            int(row['avg_volume_20']),
+                            bool(row['is_volume_surge']),
+                            f"量比{row['volume_ratio']:.2f}倍" + ("，异常放量" if row['is_volume_surge'] else "")
+                        ))
+
+                await db.commit()
+                logger.info(f"Volume analysis completed for {stock_code}")
+
+    except Exception as e:
+        logger.error(f"Error in analyze_volume_task: {e}")
+
+@router.get("/status")
+async def get_collection_status():
+    """Get data collection status"""
+    try:
+        async with get_database() as db:
+            # Count total stocks
+            cursor = await db.execute("SELECT COUNT(*) as count FROM stocks")
+            stock_count = await cursor.fetchone()
+
+            # Count stocks with recent data
+            cursor = await db.execute("""
+                SELECT COUNT(DISTINCT stock_code) as count FROM klines
+                WHERE date >= date('now', '-7 days')
+            """)
+            recent_data_count = await cursor.fetchone()
+
+            # Count volume analysis records
+            cursor = await db.execute("""
+                SELECT COUNT(*) as count FROM volume_analysis
+                WHERE date >= date('now', '-7 days')
+            """)
+            analysis_count = await cursor.fetchone()
+
+            return {
+                "success": True,
+                "data": {
+                    "total_stocks": stock_count[0] if stock_count else 0,
+                    "stocks_with_recent_data": recent_data_count[0] if recent_data_count else 0,
+                    "recent_analysis_count": analysis_count[0] if analysis_count else 0,
+                    "last_update": datetime.now().isoformat()
+                }
+            }
+    except Exception as e:
+        logger.error(f"Error getting collection status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

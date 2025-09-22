@@ -1,0 +1,29 @@
+{
+  "name": "stock-picker",
+  "version": "1.0.0",
+  "description": "智能选股系统 - 基于成交量和K线走势分析主力资金介入",
+  "private": true,
+  "scripts": {
+    "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install",
+    "install:python": "cd data-service && pip install -r requirements.txt",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\" \"npm run dev:data-service\"",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:data-service": "cd data-service && python -m uvicorn src.main:app --reload --port 8001",
+    "setup": "npm run install:all && npm run install:python",
+    "build": "npm run build:frontend && npm run build:backend",
+    "build:frontend": "cd frontend && npm run build",
+    "build:backend": "cd backend && npm run build",
+    "test": "npm run test:frontend && npm run test:backend && npm run test:data-service",
+    "test:frontend": "cd frontend && npm test",
+    "test:backend": "cd backend && npm test",
+    "test:data-service": "cd data-service && python -m pytest"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "workspaces": [
+    "frontend",
+    "backend"
+  ]
+}

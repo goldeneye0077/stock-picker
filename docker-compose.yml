@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  # Redis 缓存
+  redis:
+    image: redis:7-alpine
+    container_name: stock-picker-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - stock-picker-network
+
+  # 后端 API 服务
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: stock-picker-backend
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: sqlite:./data/stock_picker.db
+      REDIS_URL: redis://redis:6379
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - redis
+    networks:
+      - stock-picker-network
+
+  # Python 数据处理服务
+  data-service:
+    build:
+      context: ./data-service
+      dockerfile: Dockerfile
+    container_name: stock-picker-data-service
+    ports:
+      - "8001:8001"
+    environment:
+      DATABASE_URL: sqlite:./data/stock_picker.db
+      REDIS_URL: redis://redis:6379
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - redis
+    networks:
+      - stock-picker-network
+
+volumes:
+
+networks:
+  stock-picker-network:
+    driver: bridge
