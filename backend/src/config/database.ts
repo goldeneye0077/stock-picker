@@ -2,7 +2,7 @@ import sqlite3 from 'sqlite3';
 import { promisify } from 'util';
 import path from 'path';
 
-const dbPath = path.join(__dirname, '../../../data/stock_picker.db');
+const dbPath = path.join(process.cwd(), '../data/stock_picker.db');
 
 // Enable verbose mode for debugging
 sqlite3.verbose();

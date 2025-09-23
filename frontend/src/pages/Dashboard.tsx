@@ -1,7 +1,100 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Row, Col, Statistic, List, Tag, message } from 'antd';
-import { ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons';
+import { Card, Row, Col, Statistic, List, Tag, message, Progress, Space, Typography } from 'antd';
+import { ArrowUpOutlined, ArrowDownOutlined, RiseOutlined, FundOutlined } from '@ant-design/icons';
 import { API_BASE_URL, API_ENDPOINTS } from '../config/api';
+
+const { Text, Title } = Typography;
+
+// 市场概览内容组件
+const MarketOverviewContent: React.FC<{ stats: any[], signals: any[] }> = ({ stats, signals }) => {
+  const getMarketStatus = () => {
+    const totalStocks = stats[0]?.value || 0;
+    const todaySignals = stats[1]?.value || 0;
+    const volumeSurges = stats[2]?.value || 0;
+
+    if (totalStocks === 0) return { status: '数据加载中', color: '#666' };
+    if (todaySignals >= 5) return { status: '活跃', color: '#52c41a' };
+    if (volumeSurges >= 3) return { status: '异动', color: '#faad14' };
+    return { status: '平稳', color: '#1890ff' };
+  };
+
+  const marketStatus = getMarketStatus();
+
+  return (
+    <div style={{ padding: '12px 0' }}>
+      <Space direction="vertical" size="large" style={{ width: '100%' }}>
+        {/* 市场状态 */}
+        <div style={{ textAlign: 'center' }}>
+          <Title level={4} style={{ margin: 0, color: marketStatus.color }}>
+            <FundOutlined style={{ marginRight: 8 }} />
+            市场状态：{marketStatus.status}
+          </Title>
+        </div>
+
+        {/* 活跃度指标 */}
+        <Row gutter={16}>
+          <Col span={12}>
+            <Text type="secondary">信号活跃度</Text>
+            <Progress
+              percent={Math.min((stats[1]?.value || 0) * 20, 100)}
+              strokeColor={marketStatus.color}
+              size="small"
+              format={(percent) => `${stats[1]?.value || 0}个`}
+            />
+          </Col>
+          <Col span={12}>
+            <Text type="secondary">成交量异动</Text>
+            <Progress
+              percent={Math.min((stats[2]?.value || 0) * 15, 100)}
+              strokeColor="#faad14"
+              size="small"
+              format={(percent) => `${stats[2]?.value || 0}个`}
+            />
+          </Col>
+        </Row>
+
+        {/* 热点板块 */}
+        <div>
+          <Text strong style={{ color: '#1890ff' }}>
+            <RiseOutlined style={{ marginRight: 4 }} />
+            今日热点
+          </Text>
+          <div style={{ marginTop: 8 }}>
+            {signals.length > 0 ? (
+              <Space wrap>
+                {signals.slice(0, 3).map((signal: any, index) => (
+                  <Tag key={index} color="blue" style={{ margin: '2px' }}>
+                    {signal.stock} {signal.name}
+                  </Tag>
+                ))}
+              </Space>
+            ) : (
+              <Text type="secondary">暂无热点数据</Text>
+            )}
+          </div>
+        </div>
+
+        {/* 市场趋势简要分析 */}
+        <div style={{
+          backgroundColor: '#001529',
+          padding: '12px',
+          borderRadius: '6px',
+          border: '1px solid #d9d9d9'
+        }}>
+          <Text style={{
+            fontSize: '13px',
+            color: '#ffffff',
+            fontWeight: '500'
+          }}>
+            📊 基于当前数据分析：监控 <span style={{ color: '#52c41a', fontWeight: 'bold' }}>{stats[0]?.value || 0}</span> 只股票，
+            发现 <span style={{ color: '#faad14', fontWeight: 'bold' }}>{stats[1]?.value || 0}</span> 个买入信号，
+            <span style={{ color: '#ff4d4f', fontWeight: 'bold' }}>{stats[2]?.value || 0}</span> 只股票出现成交量异动
+          </Text>
+        </div>
+      </Space>
+    </div>
+  );
+};
 
 const Dashboard: React.FC = () => {
   const [stats, setStats] = useState([
@@ -109,15 +202,7 @@ const Dashboard: React.FC = () => {
         </Col>
         <Col span={12}>
           <Card title="市场概览" style={{ height: '300px' }} loading={loading}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              height: '200px',
-              color: '#666'
-            }}>
-              <span>图表组件位置 - 待接入TradingView</span>
-            </div>
+            <MarketOverviewContent stats={stats} signals={signals} />
           </Card>
         </Col>
       </Row>
