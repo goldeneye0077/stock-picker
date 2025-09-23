@@ -1,40 +1,77 @@
-import React from 'react';
-import { Table, Card, Tag, Button, Space, Input } from 'antd';
+import React, { useState, useEffect } from 'react';
+import { Table, Card, Tag, Button, Space, Input, message } from 'antd';
 import { SearchOutlined, ReloadOutlined } from '@ant-design/icons';
+import { API_BASE_URL, API_ENDPOINTS } from '../config/api';
 
 const StockList: React.FC = () => {
-  const mockData = [
-    {
-      key: '1',
-      code: '000001',
-      name: '平安银行',
-      price: 12.85,
-      change: '+2.15%',
-      volume: '5.2亿',
-      status: '主力介入',
-      signal: '买入',
-    },
-    {
-      key: '2',
-      code: '000002',
-      name: '万科A',
-      price: 18.20,
-      change: '-1.08%',
-      volume: '3.8亿',
-      status: '观察',
-      signal: '持有',
-    },
-    {
-      key: '3',
-      code: '600036',
-      name: '招商银行',
-      price: 35.60,
-      change: '+3.22%',
-      volume: '8.9亿',
-      status: '资金流入',
-      signal: '关注',
-    },
-  ];
+  const [stockData, setStockData] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const fetchStocks = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}${API_ENDPOINTS.STOCKS}`);
+      const result = await response.json();
+
+      if (result.success && result.data) {
+        const formattedData = result.data.map((stock: any, index: number) => ({
+          key: index.toString(),
+          code: stock.code,
+          name: stock.name,
+          price: stock.current_price || 0,
+          change: stock.change_percent ? `${stock.change_percent > 0 ? '+' : ''}${stock.change_percent.toFixed(2)}%` : '0.00%',
+          volume: stock.volume ? `${(stock.volume / 100000000).toFixed(1)}亿` : '0亿',
+          status: stock.is_volume_surge ? '成交量异动' : (stock.latest_signal || '观察'),
+          signal: stock.latest_signal || '持有',
+        }));
+        setStockData(formattedData);
+      } else {
+        message.error('获取股票数据失败');
+      }
+    } catch (error) {
+      console.error('Error fetching stocks:', error);
+      message.error('网络请求失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchStocks();
+  }, []);
+
+  const handleSearch = async (value: string) => {
+    if (!value.trim()) {
+      fetchStocks();
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}${API_ENDPOINTS.STOCKS}/search/${value}`);
+      const result = await response.json();
+
+      if (result.success && result.data) {
+        const formattedData = result.data.map((stock: any, index: number) => ({
+          key: index.toString(),
+          code: stock.code,
+          name: stock.name,
+          price: 0, // Search results may not have price data
+          change: '0.00%',
+          volume: '0亿',
+          status: '观察',
+          signal: '持有',
+        }));
+        setStockData(formattedData);
+      }
+    } catch (error) {
+      console.error('Error searching stocks:', error);
+      message.error('搜索失败');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const columns = [
     {
@@ -112,16 +149,20 @@ const StockList: React.FC = () => {
               placeholder="搜索股票代码或名称"
               style={{ width: 200 }}
               prefix={<SearchOutlined />}
+              onSearch={handleSearch}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
             />
-            <Button icon={<ReloadOutlined />}>刷新</Button>
+            <Button icon={<ReloadOutlined />} onClick={fetchStocks} loading={loading}>刷新</Button>
           </Space>
         }
       >
         <Table
           columns={columns}
-          dataSource={mockData}
+          dataSource={stockData}
           pagination={{ pageSize: 10 }}
           scroll={{ x: 800 }}
+          loading={loading}
         />
       </Card>
     </div>
