@@ -1,8 +1,16 @@
 import sqlite3 from 'sqlite3';
 import { promisify } from 'util';
 import path from 'path';
+import fs from 'fs';
 
-const dbPath = path.join(process.cwd(), '../data/stock_picker.db');
+// 使用 __dirname 的上两级目录定位数据库路径
+const dbPath = path.resolve(__dirname, '../../..', 'data', 'stock_picker.db');
+
+// 确保数据目录存在
+const dataDir = path.dirname(dbPath);
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+}
 
 // Enable verbose mode for debugging
 sqlite3.verbose();
@@ -141,6 +149,56 @@ export async function initDatabase(): Promise<void> {
       FOREIGN KEY (stock_code) REFERENCES stocks (code)
     )
   `);
+
+  // 实时行情表（保存每只股票的最新行情）
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS realtime_quotes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      stock_code TEXT UNIQUE NOT NULL,
+      ts_code TEXT,
+      name TEXT,
+      pre_close REAL,
+      open REAL,
+      high REAL,
+      low REAL,
+      close REAL,
+      vol INTEGER,
+      amount REAL,
+      num INTEGER,
+      ask_volume1 INTEGER,
+      bid_volume1 INTEGER,
+      change_percent REAL,
+      change_amount REAL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (stock_code) REFERENCES stocks (code)
+    )
+  `);
+
+  // 历史行情快照表（保存所有历史记录）
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS quote_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      stock_code TEXT NOT NULL,
+      pre_close REAL,
+      open REAL,
+      high REAL,
+      low REAL,
+      close REAL,
+      vol INTEGER,
+      amount REAL,
+      num INTEGER,
+      change_percent REAL,
+      snapshot_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (stock_code) REFERENCES stocks (code)
+    )
+  `);
+
+  // 创建索引优化查询性能
+  await db.run('CREATE INDEX IF NOT EXISTS idx_realtime_stock_code ON realtime_quotes(stock_code)');
+  await db.run('CREATE INDEX IF NOT EXISTS idx_realtime_updated_at ON realtime_quotes(updated_at)');
+  await db.run('CREATE INDEX IF NOT EXISTS idx_history_stock_code ON quote_history(stock_code)');
+  await db.run('CREATE INDEX IF NOT EXISTS idx_history_snapshot_time ON quote_history(snapshot_time)');
+  await db.run('CREATE INDEX IF NOT EXISTS idx_history_stock_time ON quote_history(stock_code, snapshot_time)');
 
   console.log('Database tables created successfully');
 }

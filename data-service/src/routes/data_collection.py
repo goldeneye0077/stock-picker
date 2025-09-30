@@ -181,6 +181,155 @@ async def analyze_volume_task(stock_code: str):
     except Exception as e:
         logger.error(f"Error in analyze_volume_task: {e}")
 
+@router.post("/batch-collect-7days")
+async def batch_collect_7days(background_tasks: BackgroundTasks, include_moneyflow: bool = True):
+    """
+    批量采集最近 7 天 A 股全量数据
+
+    采用批量接口，大幅减少 API 调用次数（约 15 次）
+
+    Args:
+        include_moneyflow: 是否包含资金流向数据
+    """
+    try:
+        tushare_client = TushareClient()
+        if not tushare_client.is_available():
+            raise HTTPException(status_code=400, detail="Tushare client not available")
+
+        # 添加后台任务
+        background_tasks.add_task(batch_collect_7days_task, include_moneyflow)
+
+        return {
+            "success": True,
+            "message": "7 天批量数据采集任务已启动，将在后台执行"
+        }
+    except Exception as e:
+        logger.error(f"Error starting batch collection: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def batch_collect_7days_task(include_moneyflow: bool = True):
+    """批量采集 7 天数据的后台任务"""
+    import time as time_module
+
+    try:
+        logger.info("开始批量采集最近 7 天 A 股数据...")
+        start_time = time_module.time()
+
+        tushare_client = TushareClient()
+
+        # 1. 获取交易日历
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=14)  # 取 14 天确保覆盖 7 个交易日
+
+        cal_df = await tushare_client.get_trade_cal(
+            start_date.strftime('%Y%m%d'),
+            end_date.strftime('%Y%m%d')
+        )
+
+        if cal_df is None or cal_df.empty:
+            logger.warning("无法获取交易日历，使用最近 7 个自然日")
+            trading_days = [(end_date - timedelta(days=i)).strftime('%Y%m%d') for i in range(7)]
+        else:
+            trading_days = cal_df[cal_df['is_open'] == 1]['cal_date'].tolist()
+            trading_days = [d.strftime('%Y%m%d') for d in sorted(trading_days, reverse=True)][:7]
+
+        logger.info(f"将采集以下交易日数据: {', '.join(trading_days)}")
+
+        # 2. 下载股票基本信息
+        logger.info("下载股票基本信息...")
+        stocks_df = await tushare_client.get_stock_basic()
+        if stocks_df is not None and not stocks_df.empty:
+            async with get_database() as db:
+                for _, row in stocks_df.iterrows():
+                    code = row['ts_code'].split('.')[0]
+                    await db.execute("""
+                        INSERT OR REPLACE INTO stocks
+                        (code, name, exchange, industry, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+                    """, (code, row['name'], row['exchange'], row.get('industry', '')))
+                await db.commit()
+            logger.info(f"股票基本信息更新完成: {len(stocks_df)} 只")
+
+        time_module.sleep(0.5)  # API 限流
+
+        # 3. 批量下载日线数据
+        logger.info("开始批量下载日线数据...")
+        total_klines = 0
+        for i, trade_date in enumerate(trading_days, 1):
+            logger.info(f"[{i}/{len(trading_days)}] 下载 {trade_date} 日线数据...")
+
+            df = await tushare_client.get_daily_data_by_date(trade_date)
+            if df is not None and not df.empty:
+                async with get_database() as db:
+                    for _, row in df.iterrows():
+                        stock_code = row['ts_code'].split('.')[0]
+                        await db.execute("""
+                            INSERT OR REPLACE INTO klines
+                            (stock_code, date, open, high, low, close, volume, amount, created_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                        """, (
+                            stock_code,
+                            row['trade_date'].strftime('%Y-%m-%d'),
+                            float(row['open']),
+                            float(row['high']),
+                            float(row['low']),
+                            float(row['close']),
+                            int(row['vol'] * 100),
+                            float(row['amount'] * 1000)
+                        ))
+                    await db.commit()
+                total_klines += len(df)
+                logger.info(f"  成功插入 {len(df)} 条K线数据")
+
+            time_module.sleep(0.5)  # API 限流
+
+        # 4. 批量下载资金流向数据（可选）
+        total_flows = 0
+        if include_moneyflow:
+            logger.info("开始批量下载资金流向数据...")
+            for i, trade_date in enumerate(trading_days, 1):
+                logger.info(f"[{i}/{len(trading_days)}] 下载 {trade_date} 资金流向...")
+
+                df = await tushare_client.get_moneyflow_by_date(trade_date)
+                if df is not None and not df.empty:
+                    async with get_database() as db:
+                        for _, row in df.iterrows():
+                            stock_code = row['ts_code'].split('.')[0]
+
+                            total_amount = abs(row['buy_lg_amount']) + abs(row['sell_lg_amount']) + \
+                                           abs(row['buy_elg_amount']) + abs(row['sell_elg_amount'])
+                            small_amount = abs(row['buy_sm_amount']) + abs(row['sell_sm_amount']) + \
+                                           abs(row['buy_md_amount']) + abs(row['sell_md_amount'])
+                            large_order_ratio = total_amount / (total_amount + small_amount) if (total_amount + small_amount) > 0 else 0
+
+                            await db.execute("""
+                                INSERT OR REPLACE INTO fund_flow
+                                (stock_code, date, main_fund_flow, retail_fund_flow, institutional_flow, large_order_ratio, created_at)
+                                VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+                            """, (
+                                stock_code,
+                                row['trade_date'].strftime('%Y-%m-%d'),
+                                float(row['main_fund_flow']),
+                                float(row['retail_fund_flow']),
+                                float(row['large_net_flow']),
+                                round(large_order_ratio, 4)
+                            ))
+                        await db.commit()
+                    total_flows += len(df)
+                    logger.info(f"  成功插入 {len(df)} 条资金流向数据")
+
+                time_module.sleep(0.5)  # API 限流
+
+        elapsed_time = time_module.time() - start_time
+        logger.info(f"批量数据采集完成！K线: {total_klines} 条, 资金流向: {total_flows} 条, 耗时: {elapsed_time:.1f}秒")
+
+    except Exception as e:
+        logger.error(f"批量数据采集任务失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+
+
 @router.get("/status")
 async def get_collection_status():
     """Get data collection status"""

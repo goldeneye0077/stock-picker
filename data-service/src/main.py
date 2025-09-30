@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 from loguru import logger
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
 from .data_sources.tushare_client import TushareClient
@@ -11,9 +12,11 @@ from .analyzers.volume.volume_analyzer import VolumeAnalyzer
 from .analyzers.funds.fund_flow_analyzer import FundFlowAnalyzer
 from .models.predictor import BuySignalPredictor
 from .utils.database import init_database
-from .routes import stocks, analysis, signals, data_collection
+from .routes import stocks, analysis, signals, data_collection, quotes
 
-load_dotenv()
+# Load .env file from data-service directory
+env_path = Path(__file__).parent.parent / '.env'
+load_dotenv(dotenv_path=env_path)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -61,6 +64,7 @@ app.include_router(stocks.router, prefix="/api/stocks", tags=["stocks"])
 app.include_router(analysis.router, prefix="/api/analysis", tags=["analysis"])
 app.include_router(signals.router, prefix="/api/signals", tags=["signals"])
 app.include_router(data_collection.router, prefix="/api/data", tags=["data-collection"])
+app.include_router(quotes.router, prefix="/api/quotes", tags=["quotes"])
 
 @app.get("/")
 async def root():

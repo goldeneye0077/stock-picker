@@ -5,9 +5,16 @@ from loguru import logger
 
 DATABASE_PATH = Path(__file__).parent.parent.parent.parent / "data" / "stock_picker.db"
 
-async def get_database():
-    """Get database connection"""
-    return await aiosqlite.connect(DATABASE_PATH)
+def get_database():
+    """
+    Get database connection as async context manager
+
+    Usage:
+        async with get_database() as db:
+            cursor = await db.execute("SELECT * FROM stocks")
+            ...
+    """
+    return aiosqlite.connect(DATABASE_PATH)
 
 async def init_database():
     """Initialize database tables"""
@@ -88,6 +95,56 @@ async def init_database():
                 FOREIGN KEY (stock_code) REFERENCES stocks (code)
             )
         """)
+
+        # 实时行情表（保存每只股票的最新行情）
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS realtime_quotes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                stock_code TEXT UNIQUE NOT NULL,
+                ts_code TEXT,
+                name TEXT,
+                pre_close REAL,
+                open REAL,
+                high REAL,
+                low REAL,
+                close REAL,
+                vol INTEGER,
+                amount REAL,
+                num INTEGER,
+                ask_volume1 INTEGER,
+                bid_volume1 INTEGER,
+                change_percent REAL,
+                change_amount REAL,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (stock_code) REFERENCES stocks (code)
+            )
+        """)
+
+        # 历史行情快照表（保存所有历史记录）
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS quote_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                stock_code TEXT NOT NULL,
+                pre_close REAL,
+                open REAL,
+                high REAL,
+                low REAL,
+                close REAL,
+                vol INTEGER,
+                amount REAL,
+                num INTEGER,
+                change_percent REAL,
+                snapshot_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (stock_code) REFERENCES stocks (code)
+            )
+        """)
+
+        # 创建索引优化查询性能
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_realtime_stock_code ON realtime_quotes(stock_code)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_realtime_updated_at ON realtime_quotes(updated_at)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_history_stock_code ON quote_history(stock_code)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_history_snapshot_time ON quote_history(snapshot_time)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_history_stock_time ON quote_history(stock_code, snapshot_time)")
 
         await db.commit()
         logger.info("Database initialized successfully")

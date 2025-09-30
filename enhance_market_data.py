@@ -62,10 +62,14 @@ def enhance_buy_signals():
     conn = sqlite3.connect('data/stock_picker.db')
     cursor = conn.cursor()
 
-    # 获取前20只股票
+    # 获取有成交量异动的股票（更有意义的买入信号）
     cursor.execute("""
-        SELECT code, name FROM stocks
-        ORDER BY code LIMIT 20
+        SELECT DISTINCT s.code, s.name
+        FROM stocks s
+        INNER JOIN volume_analysis va ON s.code = va.stock_code
+        WHERE va.is_volume_surge = 1
+        ORDER BY RANDOM()
+        LIMIT 100
     """)
 
     stocks = cursor.fetchall()
@@ -121,10 +125,12 @@ def enhance_fund_flow():
     conn = sqlite3.connect('data/stock_picker.db')
     cursor = conn.cursor()
 
-    # 获取前10只股票
+    # 获取所有有K线数据的股票
     cursor.execute("""
-        SELECT code, name FROM stocks
-        ORDER BY code LIMIT 10
+        SELECT DISTINCT s.code, s.name
+        FROM stocks s
+        INNER JOIN klines k ON s.code = k.stock_code
+        ORDER BY s.code
     """)
 
     stocks = cursor.fetchall()

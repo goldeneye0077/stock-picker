@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 import { ConfigProvider, theme } from 'antd';
 import { ProLayout } from '@ant-design/pro-layout';
 import {
@@ -38,6 +38,54 @@ const menuItems = [
   },
 ];
 
+function AppLayout() {
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  return (
+    <div style={{ width: '100vw', height: '100vh', overflow: 'hidden' }}>
+      <ProLayout
+        title="智能选股系统"
+        logo={<img src="/logo(1).png" alt="logo" style={{ height: '32px' }} />}
+        route={{
+          routes: menuItems,
+        }}
+        location={{
+          pathname: location.pathname,
+        }}
+        selectedKeys={[location.pathname]}
+        fixSiderbar
+        fixedHeader
+        layout="side"
+        siderWidth={200}
+        contentStyle={{
+          margin: 0,
+          padding: 0,
+          height: '100%',
+          overflow: 'auto',
+        }}
+        menuItemRender={(item, dom) => (
+          <a
+            onClick={() => {
+              navigate(item.path || '/');
+            }}
+          >
+            {dom}
+          </a>
+        )}
+        style={{ minHeight: '100vh' }}
+      >
+        <Routes>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/stocks" element={<StockList />} />
+          <Route path="/analysis" element={<Analysis />} />
+          <Route path="/settings" element={<Settings />} />
+        </Routes>
+      </ProLayout>
+    </div>
+  );
+}
+
 function App() {
   return (
     <ConfigProvider
@@ -51,34 +99,7 @@ function App() {
       }}
     >
       <Router>
-        <ProLayout
-          title="智能选股系统"
-          logo="📈"
-          route={{
-            routes: menuItems,
-          }}
-          location={{
-            pathname: window.location.pathname,
-          }}
-          menuItemRender={(item, dom) => (
-            <a
-              onClick={() => {
-                window.history.pushState({}, '', item.path);
-                window.dispatchEvent(new PopStateEvent('popstate'));
-              }}
-            >
-              {dom}
-            </a>
-          )}
-          style={{ minHeight: '100vh' }}
-        >
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/stocks" element={<StockList />} />
-            <Route path="/analysis" element={<Analysis />} />
-            <Route path="/settings" element={<Settings />} />
-          </Routes>
-        </ProLayout>
+        <AppLayout />
       </Router>
     </ConfigProvider>
   );

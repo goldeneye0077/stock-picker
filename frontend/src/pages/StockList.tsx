@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Table, Card, Tag, Button, Space, Input, message, Modal, Descriptions, Tabs, Row, Col, Statistic } from 'antd';
-import { SearchOutlined, ReloadOutlined, LineChartOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { Table, Card, Tag, Button, Space, Input, message, Modal, Descriptions, Tabs, Row, Col, Statistic, DatePicker, Alert, AutoComplete } from 'antd';
+import { SearchOutlined, ReloadOutlined, LineChartOutlined, InfoCircleOutlined, CalendarOutlined } from '@ant-design/icons';
 import { API_BASE_URL, API_ENDPOINTS } from '../config/api';
+import dayjs from 'dayjs';
+import KLineChart from '../components/KLineChart';
 
 const { TabPane } = Tabs;
 
@@ -9,6 +11,8 @@ const StockList: React.FC = () => {
   const [stockData, setStockData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchOptions, setSearchOptions] = useState<any[]>([]);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [isDetailModalVisible, setIsDetailModalVisible] = useState(false);
   const [isAnalysisModalVisible, setIsAnalysisModalVisible] = useState(false);
   const [currentStock, setCurrentStock] = useState<any>(null);
@@ -16,10 +20,14 @@ const StockList: React.FC = () => {
   const [stockAnalysis, setStockAnalysis] = useState<any>(null);
   const [modalLoading, setModalLoading] = useState(false);
 
-  const fetchStocks = async () => {
+  const fetchStocks = async (date?: string) => {
     setLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}${API_ENDPOINTS.STOCKS}`);
+      const url = date
+        ? `${API_BASE_URL}${API_ENDPOINTS.STOCKS}/history/date/${date}`
+        : `${API_BASE_URL}${API_ENDPOINTS.STOCKS}`;
+
+      const response = await fetch(url);
       const result = await response.json();
 
       if (result.success && result.data) {
@@ -27,9 +35,16 @@ const StockList: React.FC = () => {
           key: index.toString(),
           code: stock.code,
           name: stock.name,
+          preClose: stock.pre_close || 0,
+          open: stock.open || 0,
+          high: stock.high || 0,
+          low: stock.low || 0,
           price: stock.current_price || 0,
           change: stock.change_percent ? `${stock.change_percent > 0 ? '+' : ''}${stock.change_percent.toFixed(2)}%` : '0.00%',
-          volume: stock.volume ? `${(stock.volume / 100000000).toFixed(1)}亿` : '0亿',
+          changeAmount: stock.change_amount || 0,
+          volume: stock.volume ? `${(stock.volume / 100000000).toFixed(2)}亿` : '0亿',
+          amount: stock.amount ? `${(stock.amount / 100000000).toFixed(2)}亿` : '0亿',
+          quoteTime: stock.quote_time || stock.quote_date,
           status: stock.is_volume_surge ? '成交量异动' : (stock.latest_signal || '观察'),
           signal: stock.latest_signal || '持有',
         }));
@@ -43,6 +58,20 @@ const StockList: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleDateChange = (date: any, dateString: string) => {
+    setSelectedDate(dateString || null);
+    if (dateString) {
+      fetchStocks(dateString);
+    } else {
+      fetchStocks();
+    }
+  };
+
+  const handleResetDate = () => {
+    setSelectedDate(null);
+    fetchStocks();
   };
 
   useEffect(() => {
@@ -112,9 +141,49 @@ const StockList: React.FC = () => {
     fetchStockAnalysis(stock.code);
   };
 
+  // 搜索建议 - 当输入>=1个字符时触发
+  const handleSearchInput = async (value: string) => {
+    setSearchQuery(value);
+
+    if (value.length >= 1) {
+      try {
+        const response = await fetch(`${API_BASE_URL}${API_ENDPOINTS.STOCKS}/search/${value}`);
+        const result = await response.json();
+
+        if (result.success && result.data) {
+          const options = result.data.slice(0, 10).map((stock: any) => ({
+            value: stock.code,
+            label: (
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span><strong>{stock.code}</strong> {stock.name}</span>
+                <span style={{ color: '#999', fontSize: '12px' }}>{stock.exchange}</span>
+              </div>
+            ),
+            stock: stock
+          }));
+          setSearchOptions(options);
+        }
+      } catch (error) {
+        console.error('Error fetching search suggestions:', error);
+      }
+    } else {
+      setSearchOptions([]);
+    }
+  };
+
+  // 选择搜索结果
+  const handleSearchSelect = async (value: string, option: any) => {
+    setSearchQuery(value);
+    setSearchOptions([]);
+
+    // 执行搜索
+    await handleSearch(value);
+  };
+
+  // 执行搜索
   const handleSearch = async (value: string) => {
     if (!value.trim()) {
-      fetchStocks();
+      fetchStocks(selectedDate || undefined);
       return;
     }
 
@@ -128,11 +197,17 @@ const StockList: React.FC = () => {
           key: index.toString(),
           code: stock.code,
           name: stock.name,
-          price: 0, // Search results may not have price data
-          change: '0.00%',
-          volume: '0亿',
+          price: stock.current_price || 0,
+          changeAmount: stock.change_amount || 0,
+          change: stock.change_percent ? `${stock.change_percent > 0 ? '+' : ''}${stock.change_percent.toFixed(2)}%` : '0.00%',
+          open: stock.open || 0,
+          high: stock.high || 0,
+          low: stock.low || 0,
+          volume: stock.volume ? `${(stock.volume / 100000000).toFixed(2)}亿` : '-',
+          amount: stock.amount ? `${(stock.amount / 100000000).toFixed(2)}亿` : '-',
+          volumeRatio: stock.volume_ratio || '-',
           status: '观察',
-          signal: '持有',
+          signal: stock.latest_signal || '持有',
         }));
         setStockData(formattedData);
       }
@@ -149,41 +224,109 @@ const StockList: React.FC = () => {
       title: '股票代码',
       dataIndex: 'code',
       key: 'code',
+      width: 100,
+      render: (code: string, record: any) => (
+        <a
+          style={{ color: '#1890ff', cursor: 'pointer' }}
+          onClick={() => showDetailModal(record)}
+        >
+          {code}
+        </a>
+      ),
     },
     {
       title: '股票名称',
       dataIndex: 'name',
       key: 'name',
+      width: 100,
+      render: (name: string, record: any) => (
+        <a
+          style={{ color: '#1890ff', cursor: 'pointer' }}
+          onClick={() => showDetailModal(record)}
+        >
+          {name}
+        </a>
+      ),
     },
     {
-      title: '当前价格',
+      title: '最新价',
       dataIndex: 'price',
       key: 'price',
-      render: (price: number) => `¥${price}`,
+      width: 90,
+      render: (price: number) => (price !== undefined && price !== null && price > 0) ? `¥${price.toFixed(2)}` : '-',
+    },
+    {
+      title: '涨跌额',
+      dataIndex: 'changeAmount',
+      key: 'changeAmount',
+      width: 90,
+      render: (val: number, record: any) => {
+        if (val === undefined || val === null) return '-';
+        const color = val > 0 ? '#cf1322' : val < 0 ? '#3f8600' : '#666';
+        return <span style={{ color }}>{val > 0 ? '+' : ''}{val.toFixed(2)}</span>;
+      },
     },
     {
       title: '涨跌幅',
       dataIndex: 'change',
       key: 'change',
+      width: 90,
       render: (change: string) => (
-        <span style={{ color: change.startsWith('+') ? '#3f8600' : '#cf1322' }}>
+        <span style={{ color: change.startsWith('+') ? '#cf1322' : change.startsWith('-') ? '#3f8600' : '#666' }}>
           {change}
         </span>
       ),
     },
     {
+      title: '开盘价',
+      dataIndex: 'open',
+      key: 'open',
+      width: 90,
+      render: (val: number) => (val !== undefined && val !== null && val > 0) ? `¥${val.toFixed(2)}` : '-',
+    },
+    {
+      title: '最高价',
+      dataIndex: 'high',
+      key: 'high',
+      width: 90,
+      render: (val: number) => (val !== undefined && val !== null && val > 0) ? `¥${val.toFixed(2)}` : '-',
+    },
+    {
+      title: '最低价',
+      dataIndex: 'low',
+      key: 'low',
+      width: 90,
+      render: (val: number) => (val !== undefined && val !== null && val > 0) ? `¥${val.toFixed(2)}` : '-',
+    },
+    {
       title: '成交量',
       dataIndex: 'volume',
       key: 'volume',
+      width: 100,
+    },
+    {
+      title: '成交额',
+      dataIndex: 'amount',
+      key: 'amount',
+      width: 100,
+    },
+    {
+      title: '更新时间',
+      dataIndex: 'quoteTime',
+      key: 'quoteTime',
+      width: 150,
+      render: (time: string) => time ? new Date(time).toLocaleString('zh-CN', { hour12: false }) : '-',
     },
     {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
+      width: 100,
       render: (status: string) => {
         let color = 'default';
         if (status === '主力介入') color = 'red';
         if (status === '资金流入') color = 'green';
+        if (status === '成交量异动') color = 'orange';
         return <Tag color={color}>{status}</Tag>;
       },
     },
@@ -191,6 +334,7 @@ const StockList: React.FC = () => {
       title: '信号',
       dataIndex: 'signal',
       key: 'signal',
+      width: 80,
       render: (signal: string) => {
         let color = 'default';
         if (signal === '买入') color = 'green';
@@ -201,6 +345,8 @@ const StockList: React.FC = () => {
     {
       title: '操作',
       key: 'action',
+      width: 150,
+      fixed: 'right' as const,
       render: (_, record: any) => (
         <Space size="small">
           <Button
@@ -223,106 +369,242 @@ const StockList: React.FC = () => {
   ];
 
   return (
-    <div style={{ padding: '24px' }}>
+    <div style={{ padding: '24px', maxWidth: '100%', overflow: 'hidden' }}>
+      {selectedDate && (
+        <Alert
+          message={`正在查看 ${selectedDate} 的历史数据`}
+          type="info"
+          closable
+          onClose={handleResetDate}
+          style={{ marginBottom: '16px' }}
+          action={
+            <Button size="small" onClick={handleResetDate}>
+              返回实时数据
+            </Button>
+          }
+        />
+      )}
       <Card
         title="股票列表"
         extra={
           <Space>
-            <Input.Search
-              placeholder="搜索股票代码或名称"
-              style={{ width: 200 }}
-              prefix={<SearchOutlined />}
-              onSearch={handleSearch}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+            <DatePicker
+              placeholder="选择历史日期"
+              format="YYYY-MM-DD"
+              value={selectedDate ? dayjs(selectedDate) : null}
+              onChange={handleDateChange}
+              allowClear
+              style={{ width: 160 }}
+              suffixIcon={<CalendarOutlined />}
             />
-            <Button icon={<ReloadOutlined />} onClick={fetchStocks} loading={loading}>刷新</Button>
+            <AutoComplete
+              options={searchOptions}
+              value={searchQuery}
+              onSearch={handleSearchInput}
+              onSelect={handleSearchSelect}
+              placeholder="代码/名称/拼音首字母"
+              style={{ width: 240 }}
+              allowClear
+            >
+              <Input
+                prefix={<SearchOutlined />}
+                onPressEnter={(e: any) => handleSearch(e.target.value)}
+              />
+            </AutoComplete>
+            <Button icon={<ReloadOutlined />} onClick={() => fetchStocks(selectedDate || undefined)} loading={loading}>刷新</Button>
           </Space>
         }
+        styles={{ body: { padding: 0 } }}
       >
-        <Table
-          columns={columns}
-          dataSource={stockData}
-          pagination={{ pageSize: 10 }}
-          scroll={{ x: 800 }}
-          loading={loading}
-        />
+        <div style={{ overflowX: 'auto', width: '100%' }}>
+          <Table
+            columns={columns}
+            dataSource={stockData}
+            pagination={{ pageSize: 10 }}
+            scroll={{ x: 1600 }}
+            loading={loading}
+            sticky
+          />
+        </div>
       </Card>
 
       {/* 股票详情模态框 */}
       <Modal
         title={`股票详情 - ${currentStock?.code} ${currentStock?.name}`}
-        visible={isDetailModalVisible}
+        open={isDetailModalVisible}
         onCancel={() => setIsDetailModalVisible(false)}
         footer={null}
-        width={800}
+        width={1200}
         loading={modalLoading}
       >
         {stockDetail && (
-          <Descriptions bordered column={2}>
-            <Descriptions.Item label="股票代码">{stockDetail.stock?.code}</Descriptions.Item>
-            <Descriptions.Item label="股票名称">{stockDetail.stock?.name}</Descriptions.Item>
-            <Descriptions.Item label="交易所">{stockDetail.stock?.exchange}</Descriptions.Item>
-            <Descriptions.Item label="行业">{stockDetail.stock?.industry || '未知'}</Descriptions.Item>
-            <Descriptions.Item label="最新价格" span={2}>
-              {stockDetail.klines?.[0] ? (
-                <Space>
-                  <span style={{ fontSize: '18px', fontWeight: 'bold' }}>
-                    ¥{stockDetail.klines[0].close}
-                  </span>
-                  <span style={{
-                    color: stockDetail.klines[0].close >= stockDetail.klines[0].open ? '#3f8600' : '#cf1322'
-                  }}>
-                    {stockDetail.klines[0].close >= stockDetail.klines[0].open ? '↗' : '↘'}
-                    {((stockDetail.klines[0].close - stockDetail.klines[0].open) / stockDetail.klines[0].open * 100).toFixed(2)}%
-                  </span>
-                </Space>
-              ) : (
-                '暂无数据'
-              )}
-            </Descriptions.Item>
-            <Descriptions.Item label="成交量">
-              {stockDetail.klines?.[0]?.volume ? `${(stockDetail.klines[0].volume / 100000000).toFixed(2)}亿` : '暂无数据'}
-            </Descriptions.Item>
-            <Descriptions.Item label="成交额">
-              {stockDetail.klines?.[0]?.amount ? `${(stockDetail.klines[0].amount / 100000000).toFixed(2)}亿` : '暂无数据'}
-            </Descriptions.Item>
-            <Descriptions.Item label="最高价">
-              {stockDetail.klines?.[0]?.high ? `¥${stockDetail.klines[0].high}` : '暂无数据'}
-            </Descriptions.Item>
-            <Descriptions.Item label="最低价">
-              {stockDetail.klines?.[0]?.low ? `¥${stockDetail.klines[0].low}` : '暂无数据'}
-            </Descriptions.Item>
-          </Descriptions>
-        )}
+          <Tabs defaultActiveKey="info">
+            <TabPane tab="基本信息" key="info">
+              <Descriptions bordered column={2}>
+                <Descriptions.Item label="股票代码">{stockDetail.stock?.code}</Descriptions.Item>
+                <Descriptions.Item label="股票名称">{stockDetail.stock?.name}</Descriptions.Item>
+                <Descriptions.Item label="交易所">{stockDetail.stock?.exchange}</Descriptions.Item>
+                <Descriptions.Item label="行业">{stockDetail.stock?.industry || '未知'}</Descriptions.Item>
+              </Descriptions>
 
-        {stockDetail?.klines && stockDetail.klines.length > 1 && (
-          <Card title="近期走势" style={{ marginTop: 16 }}>
-            <Row gutter={16}>
-              {stockDetail.klines.slice(0, 5).map((kline: any, index: number) => (
-                <Col span={4.8} key={index}>
-                  <Card size="small">
+            {/* 实时行情卡片 */}
+            {stockDetail.realtimeQuote && (
+              <Card title="实时行情" style={{ marginTop: 16 }} size="small">
+                <Row gutter={16}>
+                  <Col span={6}>
                     <Statistic
-                      title={kline.date}
-                      value={kline.close}
+                      title="最新价"
+                      value={stockDetail.realtimeQuote.close}
                       prefix="¥"
+                      precision={2}
                       valueStyle={{
-                        color: kline.close >= kline.open ? '#3f8600' : '#cf1322',
-                        fontSize: '14px'
+                        color: stockDetail.realtimeQuote.change_amount > 0 ? '#3f8600' : stockDetail.realtimeQuote.change_amount < 0 ? '#cf1322' : '#666',
+                        fontSize: '24px',
+                        fontWeight: 'bold'
                       }}
                     />
-                  </Card>
-                </Col>
-              ))}
-            </Row>
-          </Card>
+                  </Col>
+                  <Col span={6}>
+                    <Statistic
+                      title="涨跌额"
+                      value={stockDetail.realtimeQuote.change_amount}
+                      precision={2}
+                      valueStyle={{
+                        color: stockDetail.realtimeQuote.change_amount > 0 ? '#3f8600' : stockDetail.realtimeQuote.change_amount < 0 ? '#cf1322' : '#666'
+                      }}
+                    />
+                  </Col>
+                  <Col span={6}>
+                    <Statistic
+                      title="涨跌幅"
+                      value={stockDetail.realtimeQuote.change_percent}
+                      precision={2}
+                      suffix="%"
+                      valueStyle={{
+                        color: stockDetail.realtimeQuote.change_percent > 0 ? '#3f8600' : stockDetail.realtimeQuote.change_percent < 0 ? '#cf1322' : '#666'
+                      }}
+                    />
+                  </Col>
+                  <Col span={6}>
+                    <div style={{ fontSize: '12px', color: '#999' }}>更新时间</div>
+                    <div style={{ fontSize: '14px', marginTop: '8px' }}>
+                      {new Date(stockDetail.realtimeQuote.updated_at).toLocaleString('zh-CN', { hour12: false })}
+                    </div>
+                  </Col>
+                </Row>
+                <Row gutter={16} style={{ marginTop: 16 }}>
+                  <Col span={4}>
+                    <Statistic title="昨收" value={stockDetail.realtimeQuote.pre_close} prefix="¥" precision={2} />
+                  </Col>
+                  <Col span={4}>
+                    <Statistic title="今开" value={stockDetail.realtimeQuote.open} prefix="¥" precision={2} />
+                  </Col>
+                  <Col span={4}>
+                    <Statistic title="最高" value={stockDetail.realtimeQuote.high} prefix="¥" precision={2} />
+                  </Col>
+                  <Col span={4}>
+                    <Statistic title="最低" value={stockDetail.realtimeQuote.low} prefix="¥" precision={2} />
+                  </Col>
+                  <Col span={4}>
+                    <Statistic title="成交量" value={(stockDetail.realtimeQuote.vol / 100000000).toFixed(2)} suffix="亿" />
+                  </Col>
+                  <Col span={4}>
+                    <Statistic title="成交额" value={(stockDetail.realtimeQuote.amount / 100000000).toFixed(2)} suffix="亿" />
+                  </Col>
+                </Row>
+              </Card>
+            )}
+
+            {/* 今日分时走势 */}
+            {stockDetail.intradayQuotes && stockDetail.intradayQuotes.length > 0 && (
+              <Card title="今日分时走势" style={{ marginTop: 16 }} size="small">
+                <Table
+                  size="small"
+                  dataSource={stockDetail.intradayQuotes}
+                  columns={[
+                    {
+                      title: '时间',
+                      dataIndex: 'snapshot_time',
+                      key: 'snapshot_time',
+                      render: (time: string) => new Date(time).toLocaleTimeString('zh-CN', { hour12: false })
+                    },
+                    {
+                      title: '价格',
+                      dataIndex: 'close',
+                      key: 'close',
+                      render: (val: number) => `¥${val.toFixed(2)}`
+                    },
+                    {
+                      title: '涨跌额',
+                      dataIndex: 'change_amount',
+                      key: 'change_amount',
+                      render: (val: number) => (
+                        <span style={{ color: val > 0 ? '#3f8600' : val < 0 ? '#cf1322' : '#666' }}>
+                          {val > 0 ? '+' : ''}{val.toFixed(2)}
+                        </span>
+                      )
+                    },
+                    {
+                      title: '涨跌幅',
+                      dataIndex: 'change_percent',
+                      key: 'change_percent',
+                      render: (val: number) => (
+                        <span style={{ color: val > 0 ? '#3f8600' : val < 0 ? '#cf1322' : '#666' }}>
+                          {val > 0 ? '+' : ''}{val.toFixed(2)}%
+                        </span>
+                      )
+                    },
+                    {
+                      title: '成交量',
+                      dataIndex: 'vol',
+                      key: 'vol',
+                      render: (val: number) => `${(val / 100000000).toFixed(2)}亿`
+                    }
+                  ]}
+                  pagination={false}
+                  scroll={{ y: 300 }}
+                />
+              </Card>
+            )}
+
+            {stockDetail?.klines && stockDetail.klines.length > 1 && (
+                <Card title="近期走势" style={{ marginTop: 16 }}>
+                  <Row gutter={16}>
+                    {stockDetail.klines.slice(0, 5).map((kline: any, index: number) => (
+                      <Col span={4.8} key={index}>
+                        <Card size="small">
+                          <Statistic
+                            title={kline.date}
+                            value={kline.close}
+                            prefix="¥"
+                            valueStyle={{
+                              color: kline.close >= kline.open ? '#3f8600' : '#cf1322',
+                              fontSize: '14px'
+                            }}
+                          />
+                        </Card>
+                      </Col>
+                    ))}
+                  </Row>
+                </Card>
+              )}
+            </TabPane>
+
+            <TabPane tab="K线图" key="kline">
+              <KLineChart
+                data={stockDetail?.klines || []}
+                loading={modalLoading}
+                height={500}
+              />
+            </TabPane>
+          </Tabs>
         )}
       </Modal>
 
       {/* 股票分析模态框 */}
       <Modal
         title={`技术分析 - ${currentStock?.code} ${currentStock?.name}`}
-        visible={isAnalysisModalVisible}
+        open={isAnalysisModalVisible}
         onCancel={() => setIsAnalysisModalVisible(false)}
         footer={null}
         width={1000}
@@ -386,7 +668,7 @@ const StockList: React.FC = () => {
                         precision={0}
                         suffix="万"
                         valueStyle={{
-                          color: (stockAnalysis.fundFlow.summary?.totalMainFlow || 0) > 0 ? '#3f8600' : '#cf1322'
+                          color: (stockAnalysis.fundFlow.summary?.totalMainFlow || 0) > 0 ? '#cf1322' : '#3f8600'
                         }}
                       />
                     </Col>
@@ -397,7 +679,7 @@ const StockList: React.FC = () => {
                         precision={0}
                         suffix="万"
                         valueStyle={{
-                          color: (stockAnalysis.fundFlow.summary?.totalRetailFlow || 0) > 0 ? '#3f8600' : '#cf1322'
+                          color: (stockAnalysis.fundFlow.summary?.totalRetailFlow || 0) > 0 ? '#cf1322' : '#3f8600'
                         }}
                       />
                     </Col>
@@ -415,8 +697,8 @@ const StockList: React.FC = () => {
                     dataSource={stockAnalysis.fundFlow.fundFlow.slice(0, 10)}
                     columns={[
                       { title: '日期', dataIndex: 'date', key: 'date' },
-                      { title: '主力资金', dataIndex: 'main_fund_flow', key: 'main_fund_flow', render: (val: number) => <span style={{ color: val > 0 ? '#3f8600' : '#cf1322' }}>{(val/10000).toFixed(1)}万</span> },
-                      { title: '散户资金', dataIndex: 'retail_fund_flow', key: 'retail_fund_flow', render: (val: number) => <span style={{ color: val > 0 ? '#3f8600' : '#cf1322' }}>{(val/10000).toFixed(1)}万</span> },
+                      { title: '主力资金', dataIndex: 'main_fund_flow', key: 'main_fund_flow', render: (val: number) => <span style={{ color: val > 0 ? '#cf1322' : '#3f8600' }}>{(val/10000).toFixed(1)}万</span> },
+                      { title: '散户资金', dataIndex: 'retail_fund_flow', key: 'retail_fund_flow', render: (val: number) => <span style={{ color: val > 0 ? '#cf1322' : '#3f8600' }}>{(val/10000).toFixed(1)}万</span> },
                       { title: '大单比例', dataIndex: 'large_order_ratio', key: 'large_order_ratio', render: (val: number) => `${(val * 100).toFixed(1)}%` }
                     ]}
                     pagination={false}
