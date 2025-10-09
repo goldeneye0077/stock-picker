@@ -219,12 +219,25 @@ const StockList: React.FC = () => {
     }
   };
 
+  // 提取数值用于排序
+  const parseNumber = (value: any): number => {
+    if (typeof value === 'number') return value;
+    if (typeof value === 'string') {
+      // 移除 "亿"、"¥"、"+"、"%" 等符号并转换为数字
+      const cleaned = value.replace(/[¥+%亿,]/g, '');
+      const num = parseFloat(cleaned);
+      return isNaN(num) ? 0 : num;
+    }
+    return 0;
+  };
+
   const columns = [
     {
       title: '股票代码',
       dataIndex: 'code',
       key: 'code',
       width: 100,
+      sorter: (a: any, b: any) => a.code.localeCompare(b.code),
       render: (code: string, record: any) => (
         <a
           style={{ color: '#1890ff', cursor: 'pointer' }}
@@ -239,6 +252,7 @@ const StockList: React.FC = () => {
       dataIndex: 'name',
       key: 'name',
       width: 100,
+      sorter: (a: any, b: any) => a.name.localeCompare(b.name),
       render: (name: string, record: any) => (
         <a
           style={{ color: '#1890ff', cursor: 'pointer' }}
@@ -253,6 +267,7 @@ const StockList: React.FC = () => {
       dataIndex: 'price',
       key: 'price',
       width: 90,
+      sorter: (a: any, b: any) => (a.price || 0) - (b.price || 0),
       render: (price: number) => (price !== undefined && price !== null && price > 0) ? `¥${price.toFixed(2)}` : '-',
     },
     {
@@ -260,6 +275,7 @@ const StockList: React.FC = () => {
       dataIndex: 'changeAmount',
       key: 'changeAmount',
       width: 90,
+      sorter: (a: any, b: any) => (a.changeAmount || 0) - (b.changeAmount || 0),
       render: (val: number, record: any) => {
         if (val === undefined || val === null) return '-';
         const color = val > 0 ? '#cf1322' : val < 0 ? '#3f8600' : '#666';
@@ -271,6 +287,7 @@ const StockList: React.FC = () => {
       dataIndex: 'change',
       key: 'change',
       width: 90,
+      sorter: (a: any, b: any) => parseNumber(a.change) - parseNumber(b.change),
       render: (change: string) => (
         <span style={{ color: change.startsWith('+') ? '#cf1322' : change.startsWith('-') ? '#3f8600' : '#666' }}>
           {change}
@@ -282,6 +299,7 @@ const StockList: React.FC = () => {
       dataIndex: 'open',
       key: 'open',
       width: 90,
+      sorter: (a: any, b: any) => (a.open || 0) - (b.open || 0),
       render: (val: number) => (val !== undefined && val !== null && val > 0) ? `¥${val.toFixed(2)}` : '-',
     },
     {
@@ -289,6 +307,7 @@ const StockList: React.FC = () => {
       dataIndex: 'high',
       key: 'high',
       width: 90,
+      sorter: (a: any, b: any) => (a.high || 0) - (b.high || 0),
       render: (val: number) => (val !== undefined && val !== null && val > 0) ? `¥${val.toFixed(2)}` : '-',
     },
     {
@@ -296,6 +315,7 @@ const StockList: React.FC = () => {
       dataIndex: 'low',
       key: 'low',
       width: 90,
+      sorter: (a: any, b: any) => (a.low || 0) - (b.low || 0),
       render: (val: number) => (val !== undefined && val !== null && val > 0) ? `¥${val.toFixed(2)}` : '-',
     },
     {
@@ -303,18 +323,25 @@ const StockList: React.FC = () => {
       dataIndex: 'volume',
       key: 'volume',
       width: 100,
+      sorter: (a: any, b: any) => parseNumber(a.volume) - parseNumber(b.volume),
     },
     {
       title: '成交额',
       dataIndex: 'amount',
       key: 'amount',
       width: 100,
+      sorter: (a: any, b: any) => parseNumber(a.amount) - parseNumber(b.amount),
     },
     {
       title: '更新时间',
       dataIndex: 'quoteTime',
       key: 'quoteTime',
       width: 150,
+      sorter: (a: any, b: any) => {
+        if (!a.quoteTime) return -1;
+        if (!b.quoteTime) return 1;
+        return new Date(a.quoteTime).getTime() - new Date(b.quoteTime).getTime();
+      },
       render: (time: string) => time ? new Date(time).toLocaleString('zh-CN', { hour12: false }) : '-',
     },
     {
@@ -322,6 +349,7 @@ const StockList: React.FC = () => {
       dataIndex: 'status',
       key: 'status',
       width: 100,
+      sorter: (a: any, b: any) => a.status.localeCompare(b.status),
       render: (status: string) => {
         let color = 'default';
         if (status === '主力介入') color = 'red';
@@ -335,6 +363,7 @@ const StockList: React.FC = () => {
       dataIndex: 'signal',
       key: 'signal',
       width: 80,
+      sorter: (a: any, b: any) => a.signal.localeCompare(b.signal),
       render: (signal: string) => {
         let color = 'default';
         if (signal === '买入') color = 'green';

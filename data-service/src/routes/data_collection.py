@@ -7,6 +7,29 @@ from datetime import datetime, timedelta
 
 router = APIRouter()
 
+
+async def batch_collect_7days_data(include_moneyflow: bool = True) -> dict:
+    """
+    批量采集7天数据的独立函数(供scheduler调用)
+
+    Returns:
+        dict: {"success": bool, "message": str, "stats": dict}
+    """
+    try:
+        await batch_collect_7days_task(include_moneyflow)
+        return {
+            "success": True,
+            "message": "数据采集成功",
+            "stats": {}
+        }
+    except Exception as e:
+        logger.error(f"数据采集失败: {e}")
+        return {
+            "success": False,
+            "message": f"数据采集失败: {str(e)}"
+        }
+
+
 @router.post("/fetch-stocks")
 async def fetch_stock_list(background_tasks: BackgroundTasks):
     """Fetch and update stock list from Tushare"""
@@ -365,3 +388,11 @@ async def get_collection_status():
     except Exception as e:
         logger.error(f"Error getting collection status: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/scheduler-status")
+async def get_scheduler_status_api():
+    """获取定时任务调度器状态"""
+    # 延迟导入避免循环依赖
+    from ..scheduler import get_scheduler_status
+    return get_scheduler_status()

@@ -43,7 +43,7 @@ function AppLayout() {
   const navigate = useNavigate();
 
   return (
-    <div style={{ width: '100vw', height: '100vh', overflow: 'hidden' }}>
+    <div style={{ width: '100vw', height: '100vh' }}>
       <ProLayout
         title="智能选股系统"
         logo={<img src="/logo(1).png" alt="logo" style={{ height: '32px' }} />}

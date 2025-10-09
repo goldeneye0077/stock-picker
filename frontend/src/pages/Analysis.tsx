@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Row, Col, Progress, List, Avatar, message, Table, Tag, Statistic, Space, Typography, Select, Input, Button, DatePicker, Tooltip } from 'antd';
-import { FundOutlined, RiseOutlined, FallOutlined, TrophyOutlined, FireOutlined, StarOutlined, SearchOutlined, ReloadOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { FundOutlined, RiseOutlined, FallOutlined, TrophyOutlined, FireOutlined, StarOutlined, SearchOutlined, ReloadOutlined, InfoCircleOutlined, SyncOutlined } from '@ant-design/icons';
 import { API_BASE_URL, API_ENDPOINTS } from '../config/api';
 import dayjs from 'dayjs';
 
@@ -38,6 +38,92 @@ const Analysis: React.FC = () => {
     dateFrom: '',   // 开始日期
     dateTo: ''      // 结束日期
   });
+
+  // 单独刷新资金流向分析数据
+  const fetchFundFlowData = async () => {
+    setLoading(true);
+    try {
+      const fundFlowParams = new URLSearchParams({
+        days: String(fundFlowFilters.days)
+      });
+      if (fundFlowFilters.dateFrom) fundFlowParams.append('date_from', fundFlowFilters.dateFrom);
+      if (fundFlowFilters.dateTo) fundFlowParams.append('date_to', fundFlowFilters.dateTo);
+
+      const fundFlowResponse = await fetch(`${API_BASE_URL}${API_ENDPOINTS.ANALYSIS}/fund-flow?${fundFlowParams}`);
+      const fundFlowResult = await fundFlowResponse.json();
+
+      if (fundFlowResult.success && fundFlowResult.data.summary) {
+        const summary = fundFlowResult.data.summary;
+        const totalFlow = Math.abs(summary.totalMainFlow) + Math.abs(summary.totalRetailFlow) + Math.abs(summary.totalInstitutionalFlow);
+
+        setFundFlowData([
+          {
+            type: '主力资金',
+            amount: `${summary.totalMainFlow >= 0 ? '+' : ''}${(summary.totalMainFlow / 100000000).toFixed(1)}亿`,
+            percent: totalFlow > 0 ? Math.abs(summary.totalMainFlow) / totalFlow * 100 : 0,
+            color: '#f50'
+          },
+          {
+            type: '机构资金',
+            amount: `${summary.totalInstitutionalFlow >= 0 ? '+' : ''}${(summary.totalInstitutionalFlow / 100000000).toFixed(1)}亿`,
+            percent: totalFlow > 0 ? Math.abs(summary.totalInstitutionalFlow) / totalFlow * 100 : 0,
+            color: '#2db7f5'
+          },
+          {
+            type: '散户资金',
+            amount: `${summary.totalRetailFlow >= 0 ? '+' : ''}${(summary.totalRetailFlow / 100000000).toFixed(1)}亿`,
+            percent: totalFlow > 0 ? Math.abs(summary.totalRetailFlow) / totalFlow * 100 : 0,
+            color: '#87d068'
+          }
+        ]);
+        message.success('资金流向数据已刷新');
+      } else {
+        setFundFlowData([]);
+        message.info('暂无资金流向数据');
+      }
+    } catch (error) {
+      console.error('Error fetching fund flow data:', error);
+      message.error('刷新资金流向数据失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 单独刷新成交量异动分析数据
+  const fetchVolumeAnalysisData = async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ days: '10' });
+      if (filters.board) params.append('board', filters.board);
+      if (filters.exchange) params.append('exchange', filters.exchange);
+      if (filters.stockSearch) params.append('stock_search', filters.stockSearch);
+      if (filters.dateFrom) params.append('date_from', filters.dateFrom);
+      if (filters.dateTo) params.append('date_to', filters.dateTo);
+
+      const volumeResponse = await fetch(`${API_BASE_URL}${API_ENDPOINTS.ANALYSIS}/volume?${params}`);
+      const volumeResult = await volumeResponse.json();
+
+      if (volumeResult.success && volumeResult.data.volumeSurges) {
+        const volumeData = volumeResult.data.volumeSurges.map((item: any) => ({
+          stock: item.stock_code,
+          name: item.stock_name || '未知股票',
+          exchange: item.exchange || '',
+          volumeRatio: item.volume_ratio,
+          trend: item.volume_ratio > 2 ? 'up' : 'down'
+        }));
+        setVolumeAnalysis(volumeData);
+        message.success('成交量异动数据已刷新');
+      } else {
+        setVolumeAnalysis([]);
+        message.info('暂无成交量异动数据');
+      }
+    } catch (error) {
+      console.error('Error fetching volume analysis data:', error);
+      message.error('刷新成交量异动数据失败');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // 单独刷新主力行为分析数据
   const fetchMainForceData = async () => {
@@ -212,7 +298,7 @@ const Analysis: React.FC = () => {
           <Card
             title="资金流向分析"
             extra={
-              <Space size="small">
+              <Space size="small" wrap>
                 <RangePicker
                   size="small"
                   style={{ width: 200 }}
@@ -247,6 +333,15 @@ const Analysis: React.FC = () => {
                   <Option value={30}>最近30天</Option>
                   <Option value={60}>最近60天</Option>
                 </Select>
+                <Button
+                  size="small"
+                  type="primary"
+                  icon={<SyncOutlined spin={loading} />}
+                  onClick={fetchFundFlowData}
+                  loading={loading}
+                >
+                  刷新数据
+                </Button>
                 <Button
                   size="small"
                   icon={<ReloadOutlined />}
@@ -320,6 +415,15 @@ const Analysis: React.FC = () => {
             style={{ height: '600px' }}
             extra={
               <Space size="small">
+                <Button
+                  size="small"
+                  type="primary"
+                  icon={<SyncOutlined spin={loading} />}
+                  onClick={fetchVolumeAnalysisData}
+                  loading={loading}
+                >
+                  刷新数据
+                </Button>
                 <Button
                   size="small"
                   icon={<ReloadOutlined />}
