@@ -1,0 +1,79 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+venv/
+env/
+ENV/
+.venv
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+.npm
+.yarn-integrity
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+data/*.db
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# Chrome profile (爬虫用户数据)
+chrome_profile_1688/
+
+# Excel 输出文件
+*.xlsx
+*.xls
+
+# 临时文件
+nul
+*.tmp
+*.temp
+
+# Byte-compiled / optimized / DLL files
+*.pyo
+*.pyd
+
+# Testing
+coverage/
+.coverage
+.pytest_cache/
+.tox/
+
+# TypeScript
+*.tsbuildinfo
