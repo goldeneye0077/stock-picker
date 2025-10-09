@@ -13,6 +13,7 @@ from .analyzers.funds.fund_flow_analyzer import FundFlowAnalyzer
 from .models.predictor import BuySignalPredictor
 from .utils.database import init_database
 from .routes import stocks, analysis, signals, data_collection, quotes
+from .scheduler import start_scheduler, stop_scheduler, get_scheduler_status
 
 # Load .env file from data-service directory
 env_path = Path(__file__).parent.parent / '.env'
@@ -36,12 +37,15 @@ async def lifespan(app: FastAPI):
     app.state.fund_analyzer = FundFlowAnalyzer()
     app.state.predictor = BuySignalPredictor()
 
+    # Start scheduler for automatic data collection
+    start_scheduler()
     logger.info("Data service started successfully")
 
     yield
 
     # Shutdown
     logger.info("Shutting down data service...")
+    stop_scheduler()
 
 app = FastAPI(
     title="Stock Picker Data Service",
@@ -50,13 +54,22 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Add CORS middleware
+# 配置 CORS - 允许所有 localhost 端口
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3001", "http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:3001",
+        "http://localhost:3004",
+        "http://127.0.0.1:3001",
+        "http://127.0.0.1:3004",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=3600
 )
 
 # Include routes

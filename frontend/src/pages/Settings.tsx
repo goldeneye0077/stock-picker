@@ -1,18 +1,189 @@
-import React from 'react';
-import { Card, Form, Switch, Slider, Select, Button, Divider, Space } from 'antd';
-import { SaveOutlined, ReloadOutlined } from '@ant-design/icons';
+import React, { useState, useEffect } from 'react';
+import { Card, Form, Switch, Slider, Select, Button, Divider, Space, message, Spin, Statistic, Row, Col, Alert } from 'antd';
+import { SaveOutlined, ReloadOutlined, SyncOutlined, ClockCircleOutlined, DatabaseOutlined } from '@ant-design/icons';
+import axios from 'axios';
+import { DATA_SERVICE_URL } from '../config/api';
 
 const { Option } = Select;
 
 const Settings: React.FC = () => {
   const [form] = Form.useForm();
+  const [dataStatus, setDataStatus] = useState<any>(null);
+  const [schedulerStatus, setSchedulerStatus] = useState<any>(null);
+  const [loadingData, setLoadingData] = useState(false);
+  const [loadingStatus, setLoadingStatus] = useState(false);
+  const [collecting, setCollecting] = useState(false);
 
   const onFinish = (values: any) => {
     console.log('Settings saved:', values);
   };
 
+  // 获取数据采集状态
+  const fetchDataStatus = async () => {
+    setLoadingStatus(true);
+    try {
+      const response = await axios.get(`${DATA_SERVICE_URL}/api/data/status`);
+      if (response.data.success) {
+        setDataStatus(response.data.data);
+      }
+    } catch (error) {
+      console.error('获取数据状态失败:', error);
+    } finally {
+      setLoadingStatus(false);
+    }
+  };
+
+  // 获取调度器状态
+  const fetchSchedulerStatus = async () => {
+    try {
+      const response = await axios.get(`${DATA_SERVICE_URL}/api/data/scheduler-status`);
+      setSchedulerStatus(response.data);
+    } catch (error) {
+      console.error('获取调度器状态失败:', error);
+    }
+  };
+
+  // 手动触发数据采集
+  const handleCollectData = async () => {
+    setCollecting(true);
+    message.loading({ content: '正在采集数据...', key: 'collecting', duration: 0 });
+
+    try {
+      const response = await axios.post(`${DATA_SERVICE_URL}/api/data/batch-collect-7days`, {
+        include_moneyflow: true
+      });
+
+      if (response.data.success) {
+        message.success({ content: '数据采集任务已启动，将在后台执行', key: 'collecting' });
+        // 延迟3秒后刷新状态
+        setTimeout(() => {
+          fetchDataStatus();
+        }, 3000);
+      } else {
+        message.error({ content: '启动数据采集失败', key: 'collecting' });
+      }
+    } catch (error: any) {
+      message.error({ content: `采集失败: ${error.message}`, key: 'collecting' });
+    } finally {
+      setCollecting(false);
+    }
+  };
+
+  // 页面加载时获取状态
+  useEffect(() => {
+    fetchDataStatus();
+    fetchSchedulerStatus();
+
+    // 每30秒刷新一次状态
+    const interval = setInterval(() => {
+      fetchDataStatus();
+      fetchSchedulerStatus();
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <div style={{ padding: '24px' }}>
+      {/* 数据采集管理卡片 */}
+      <Card
+        title={
+          <Space>
+            <DatabaseOutlined />
+            数据采集管理
+          </Space>
+        }
+        extra={
+          <Button
+            type="primary"
+            icon={<SyncOutlined spin={collecting} />}
+            onClick={handleCollectData}
+            loading={collecting}
+            disabled={collecting}
+          >
+            立即更新数据
+          </Button>
+        }
+        style={{ marginBottom: '24px' }}
+      >
+        <Spin spinning={loadingStatus}>
+          {/* 数据状态统计 */}
+          <Row gutter={16} style={{ marginBottom: '16px' }}>
+            <Col span={6}>
+              <Statistic
+                title="股票总数"
+                value={dataStatus?.total_stocks || 0}
+                prefix={<DatabaseOutlined />}
+              />
+            </Col>
+            <Col span={6}>
+              <Statistic
+                title="最近7天有数据"
+                value={dataStatus?.stocks_with_recent_data || 0}
+                suffix={`/ ${dataStatus?.total_stocks || 0}`}
+              />
+            </Col>
+            <Col span={6}>
+              <Statistic
+                title="成交量分析记录"
+                value={dataStatus?.recent_analysis_count || 0}
+              />
+            </Col>
+            <Col span={6}>
+              <Statistic
+                title="最后更新"
+                value={dataStatus?.last_update ? new Date(dataStatus.last_update).toLocaleString('zh-CN') : '--'}
+                valueStyle={{ fontSize: '14px' }}
+              />
+            </Col>
+          </Row>
+
+          {/* 调度器状态 */}
+          {schedulerStatus && (
+            <Alert
+              message={
+                <Space>
+                  <ClockCircleOutlined />
+                  定时任务状态
+                </Space>
+              }
+              description={
+                schedulerStatus.running ? (
+                  <div>
+                    <div>✅ 调度器正在运行</div>
+                    {schedulerStatus.jobs && schedulerStatus.jobs.length > 0 && (
+                      <div style={{ marginTop: '8px' }}>
+                        {schedulerStatus.jobs.map((job: any) => (
+                          <div key={job.id}>
+                            📅 {job.name}: 下次执行时间 {job.next_run_time ? new Date(job.next_run_time).toLocaleString('zh-CN') : '未安排'}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  '⚠️ 调度器未运行'
+                )
+              }
+              type={schedulerStatus.running ? 'success' : 'warning'}
+              showIcon
+            />
+          )}
+
+          {/* 数据更新提示 */}
+          {dataStatus && dataStatus.stocks_with_recent_data < dataStatus.total_stocks * 0.8 && (
+            <Alert
+              message="数据可能已过时"
+              description={`当前只有 ${((dataStatus.stocks_with_recent_data / dataStatus.total_stocks) * 100).toFixed(1)}% 的股票有最近7天的数据，建议点击"立即更新数据"按钮刷新。`}
+              type="warning"
+              showIcon
+              style={{ marginTop: '16px' }}
+            />
+          )}
+        </Spin>
+      </Card>
+
+      {/* 系统设置卡片 */}
       <Card title="系统设置">
         <Form
           form={form}

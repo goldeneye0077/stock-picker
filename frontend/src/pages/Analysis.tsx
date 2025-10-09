@@ -1,21 +1,90 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Row, Col, Progress, List, Avatar, message, Table, Tag, Statistic, Space, Typography } from 'antd';
-import { FundOutlined, RiseOutlined, FallOutlined, TrophyOutlined, FireOutlined, StarOutlined } from '@ant-design/icons';
+import { Card, Row, Col, Progress, List, Avatar, message, Table, Tag, Statistic, Space, Typography, Select, Input, Button, DatePicker, Tooltip } from 'antd';
+import { FundOutlined, RiseOutlined, FallOutlined, TrophyOutlined, FireOutlined, StarOutlined, SearchOutlined, ReloadOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { API_BASE_URL, API_ENDPOINTS } from '../config/api';
+import dayjs from 'dayjs';
 
 const { Text, Title } = Typography;
+const { Option } = Select;
+const { RangePicker } = DatePicker;
 
 const Analysis: React.FC = () => {
   const [fundFlowData, setFundFlowData] = useState([]);
   const [volumeAnalysis, setVolumeAnalysis] = useState([]);
   const [mainForceData, setMainForceData] = useState([]);
+  const [mainForceSummary, setMainForceSummary] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+
+  // 筛选条件状态
+  const [filters, setFilters] = useState({
+    board: '',      // 板块: main/gem/star/bse
+    exchange: '',   // 交易所: SSE/SZSE/BSE
+    stockSearch: '', // 股票代码或名称搜索
+    dateFrom: '',   // 开始日期
+    dateTo: ''      // 结束日期
+  });
+
+  // 主力行为分析筛选条件
+  const [mainForceFilters, setMainForceFilters] = useState({
+    days: 7,        // 分析天数
+    limit: 20,      // 显示数量
+    dateFrom: '',   // 开始日期
+    dateTo: ''      // 结束日期
+  });
+
+  // 资金流向分析筛选条件
+  const [fundFlowFilters, setFundFlowFilters] = useState({
+    days: 30,       // 分析天数
+    dateFrom: '',   // 开始日期
+    dateTo: ''      // 结束日期
+  });
+
+  // 单独刷新主力行为分析数据
+  const fetchMainForceData = async () => {
+    setLoading(true);
+    try {
+      const mainForceParams = new URLSearchParams({
+        days: String(mainForceFilters.days),
+        limit: String(mainForceFilters.limit)
+      });
+      if (mainForceFilters.dateFrom) mainForceParams.append('date_from', mainForceFilters.dateFrom);
+      if (mainForceFilters.dateTo) mainForceParams.append('date_to', mainForceFilters.dateTo);
+
+      const mainForceResponse = await fetch(`${API_BASE_URL}${API_ENDPOINTS.ANALYSIS}/main-force?${mainForceParams}`);
+      const mainForceResult = await mainForceResponse.json();
+
+      if (mainForceResult.success && mainForceResult.data.mainForce) {
+        const mainForceDataWithKey = mainForceResult.data.mainForce.map((item: any, index: number) => ({
+          key: String(index + 1),
+          ...item
+        }));
+        setMainForceData(mainForceDataWithKey);
+        setMainForceSummary(mainForceResult.data.summary);
+        message.success('主力行为数据已刷新');
+      } else {
+        setMainForceData([]);
+        setMainForceSummary(null);
+        message.info('暂无主力行为数据');
+      }
+    } catch (error) {
+      console.error('Error fetching main force data:', error);
+      message.error('刷新主力行为数据失败');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const fetchAnalysisData = async () => {
     setLoading(true);
     try {
-      // Fetch fund flow data
-      const fundFlowResponse = await fetch(`${API_BASE_URL}${API_ENDPOINTS.ANALYSIS}/fund-flow?days=30`);
+      // Fetch fund flow data with filters
+      const fundFlowParams = new URLSearchParams({
+        days: String(fundFlowFilters.days)
+      });
+      if (fundFlowFilters.dateFrom) fundFlowParams.append('date_from', fundFlowFilters.dateFrom);
+      if (fundFlowFilters.dateTo) fundFlowParams.append('date_to', fundFlowFilters.dateTo);
+
+      const fundFlowResponse = await fetch(`${API_BASE_URL}${API_ENDPOINTS.ANALYSIS}/fund-flow?${fundFlowParams}`);
       const fundFlowResult = await fundFlowResponse.json();
 
       if (fundFlowResult.success && fundFlowResult.data.summary) {
@@ -44,74 +113,57 @@ const Analysis: React.FC = () => {
         ]);
       }
 
-      // Fetch volume analysis data
-      const volumeResponse = await fetch(`${API_BASE_URL}${API_ENDPOINTS.ANALYSIS}/volume?days=10`);
+      // Fetch volume analysis data with filters
+      const params = new URLSearchParams({ days: '10' });
+      if (filters.board) params.append('board', filters.board);
+      if (filters.exchange) params.append('exchange', filters.exchange);
+      if (filters.stockSearch) params.append('stock_search', filters.stockSearch);
+      if (filters.dateFrom) params.append('date_from', filters.dateFrom);
+      if (filters.dateTo) params.append('date_to', filters.dateTo);
+
+      const volumeResponse = await fetch(`${API_BASE_URL}${API_ENDPOINTS.ANALYSIS}/volume?${params}`);
       const volumeResult = await volumeResponse.json();
 
+      console.log('📊 Volume API Response:', volumeResult);
+      console.log('📊 Volume Surges:', volumeResult.data?.volumeSurges);
+
       if (volumeResult.success && volumeResult.data.volumeSurges) {
-        const volumeData = volumeResult.data.volumeSurges.slice(0, 10).map((item: any) => ({
+        const volumeData = volumeResult.data.volumeSurges.map((item: any) => ({
           stock: item.stock_code,
-          name: '股票' + item.stock_code, // Fallback name
+          name: item.stock_name || '未知股票',
+          exchange: item.exchange || '',
           volumeRatio: item.volume_ratio,
           trend: item.volume_ratio > 2 ? 'up' : 'down'
         }));
+        console.log('📊 Processed Volume Data:', volumeData);
         setVolumeAnalysis(volumeData);
+      } else {
+        console.warn('⚠️ No volume surge data found:', volumeResult);
+        setVolumeAnalysis([]);
       }
 
-      // 直接使用模拟的主力行为分析数据（暂时不依赖API）
-      const mockMainForceData = [
-        {
-          key: '1',
-          stock: '600519',
-          name: '贵州茅台',
-          behavior: '持续建仓',
-          strength: 85,
-          volume: '12.5亿',
-          trend: 'strong',
-          days: 3
-        },
-        {
-          key: '2',
-          stock: '000858',
-          name: '五粮液',
-          behavior: '震荡洗盘',
-          strength: 72,
-          volume: '8.3亿',
-          trend: 'moderate',
-          days: 5
-        },
-        {
-          key: '3',
-          stock: '300750',
-          name: '宁德时代',
-          behavior: '大幅建仓',
-          strength: 92,
-          volume: '25.8亿',
-          trend: 'strong',
-          days: 2
-        },
-        {
-          key: '4',
-          stock: '002415',
-          name: '海康威视',
-          behavior: '缓慢减仓',
-          strength: 45,
-          volume: '6.7亿',
-          trend: 'weak',
-          days: 7
-        },
-        {
-          key: '5',
-          stock: '600036',
-          name: '招商银行',
-          behavior: '稳定持有',
-          strength: 68,
-          volume: '15.2亿',
-          trend: 'moderate',
-          days: 4
-        }
-      ];
-      setMainForceData(mockMainForceData);
+      // Fetch main force behavior analysis
+      const mainForceParams = new URLSearchParams({
+        days: String(mainForceFilters.days),
+        limit: String(mainForceFilters.limit)
+      });
+      if (mainForceFilters.dateFrom) mainForceParams.append('date_from', mainForceFilters.dateFrom);
+      if (mainForceFilters.dateTo) mainForceParams.append('date_to', mainForceFilters.dateTo);
+
+      const mainForceResponse = await fetch(`${API_BASE_URL}${API_ENDPOINTS.ANALYSIS}/main-force?${mainForceParams}`);
+      const mainForceResult = await mainForceResponse.json();
+
+      if (mainForceResult.success && mainForceResult.data.mainForce) {
+        const mainForceDataWithKey = mainForceResult.data.mainForce.map((item: any, index: number) => ({
+          key: String(index + 1),
+          ...item
+        }));
+        setMainForceData(mainForceDataWithKey);
+        setMainForceSummary(mainForceResult.data.summary);
+      } else {
+        setMainForceData([]);
+        setMainForceSummary(null);
+      }
 
     } catch (error) {
       console.error('Error fetching analysis data:', error);
@@ -123,14 +175,92 @@ const Analysis: React.FC = () => {
 
   useEffect(() => {
     fetchAnalysisData();
-  }, []);
+  }, [filters, mainForceFilters, fundFlowFilters]); // 当筛选条件变化时重新获取数据
+
+  // 重置筛选条件
+  const handleResetFilters = () => {
+    setFilters({
+      board: '',
+      exchange: '',
+      stockSearch: '',
+      dateFrom: '',
+      dateTo: ''
+    });
+  };
+
+  // 处理日期范围变化
+  const handleDateRangeChange = (dates: any) => {
+    if (dates && dates.length === 2) {
+      setFilters({
+        ...filters,
+        dateFrom: dates[0].format('YYYY-MM-DD'),
+        dateTo: dates[1].format('YYYY-MM-DD')
+      });
+    } else {
+      setFilters({
+        ...filters,
+        dateFrom: '',
+        dateTo: ''
+      });
+    }
+  };
 
   return (
     <div style={{ padding: '24px' }}>
       <Row gutter={[16, 16]}>
         <Col span={10}>
-          <Card title="资金流向分析" extra={<FundOutlined />} loading={loading}>
-            {fundFlowData.map((item: any, index) => (
+          <Card
+            title="资金流向分析"
+            extra={
+              <Space size="small">
+                <RangePicker
+                  size="small"
+                  style={{ width: 200 }}
+                  placeholder={['开始日期', '结束日期']}
+                  value={fundFlowFilters.dateFrom && fundFlowFilters.dateTo ? [dayjs(fundFlowFilters.dateFrom), dayjs(fundFlowFilters.dateTo)] : null}
+                  onChange={(dates) => {
+                    if (dates && dates.length === 2) {
+                      setFundFlowFilters({
+                        ...fundFlowFilters,
+                        dateFrom: dates[0].format('YYYY-MM-DD'),
+                        dateTo: dates[1].format('YYYY-MM-DD')
+                      });
+                    } else {
+                      setFundFlowFilters({
+                        ...fundFlowFilters,
+                        dateFrom: '',
+                        dateTo: ''
+                      });
+                    }
+                  }}
+                  format="YYYY-MM-DD"
+                />
+                <Select
+                  value={fundFlowFilters.days}
+                  onChange={(value) => setFundFlowFilters({ ...fundFlowFilters, days: value, dateFrom: '', dateTo: '' })}
+                  style={{ width: 100 }}
+                  size="small"
+                  disabled={!!(fundFlowFilters.dateFrom && fundFlowFilters.dateTo)}
+                >
+                  <Option value={7}>最近7天</Option>
+                  <Option value={15}>最近15天</Option>
+                  <Option value={30}>最近30天</Option>
+                  <Option value={60}>最近60天</Option>
+                </Select>
+                <Button
+                  size="small"
+                  icon={<ReloadOutlined />}
+                  onClick={() => setFundFlowFilters({ days: 30, dateFrom: '', dateTo: '' })}
+                >
+                  重置
+                </Button>
+              </Space>
+            }
+            loading={loading}
+            style={{ height: '600px' }}
+          >
+            <div style={{ height: '530px', overflowY: 'auto', overflowX: 'hidden' }}>
+              {fundFlowData.map((item: any, index) => (
               <div key={index} style={{ marginBottom: '16px' }}>
                 <div style={{
                   display: 'flex',
@@ -156,22 +286,112 @@ const Analysis: React.FC = () => {
                 />
               </div>
             ))}
-            {fundFlowData.length === 0 && !loading && (
-              <div style={{ textAlign: 'center', color: '#999', padding: '20px' }}>
-                暂无资金流向数据
-              </div>
-            )}
+              {fundFlowData.length === 0 && !loading && (
+                <div style={{ textAlign: 'center', color: '#999', padding: '20px' }}>
+                  暂无资金流向数据
+                </div>
+              )}
+            </div>
           </Card>
         </Col>
 
         <Col span={14}>
-          <Card title="成交量异动分析" loading={loading} style={{ height: '100%' }}>
-            <List
-              dataSource={volumeAnalysis}
-              locale={{ emptyText: '暂无成交量异动数据' }}
-              size="small"
-              split={false}
-              renderItem={(item: any) => (
+          <Card
+            title={
+              <Space>
+                成交量异动分析
+                <Tooltip
+                  title={
+                    <div style={{ fontSize: '12px' }}>
+                      <div style={{ marginBottom: '8px', fontWeight: 'bold' }}>📊 算法说明</div>
+                      <div>• 量比 = 当日成交量 ÷ 20日平均成交量</div>
+                      <div>• 筛选标准: 量比 &gt; 2.0倍</div>
+                      <div>• 关注成交量的放大程度</div>
+                      <div style={{ marginTop: '8px', color: '#faad14' }}>⚠️ 侧重于识别明显的放量异动</div>
+                    </div>
+                  }
+                  placement="right"
+                >
+                  <InfoCircleOutlined style={{ color: '#1890ff', cursor: 'pointer' }} />
+                </Tooltip>
+              </Space>
+            }
+            loading={loading}
+            style={{ height: '600px' }}
+            extra={
+              <Space size="small">
+                <Button
+                  size="small"
+                  icon={<ReloadOutlined />}
+                  onClick={handleResetFilters}
+                >
+                  重置
+                </Button>
+              </Space>
+            }
+          >
+            {/* 筛选条件 */}
+            <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: '#1f1f1f', borderRadius: '6px' }}>
+              <Space wrap size="small">
+                <Select
+                  placeholder="板块"
+                  allowClear
+                  value={filters.board || undefined}
+                  onChange={(value) => setFilters({ ...filters, board: value || '' })}
+                  style={{ width: 120 }}
+                  size="small"
+                >
+                  <Option value="main">主板</Option>
+                  <Option value="gem">创业板</Option>
+                  <Option value="star">科创板</Option>
+                  <Option value="bse">北交所</Option>
+                </Select>
+
+                <Select
+                  placeholder="交易所"
+                  allowClear
+                  value={filters.exchange || undefined}
+                  onChange={(value) => setFilters({ ...filters, exchange: value || '' })}
+                  style={{ width: 120 }}
+                  size="small"
+                >
+                  <Option value="SSE">上交所</Option>
+                  <Option value="SZSE">深交所</Option>
+                  <Option value="BSE">北交所</Option>
+                </Select>
+
+                <Input
+                  placeholder="股票代码/名称"
+                  allowClear
+                  prefix={<SearchOutlined />}
+                  value={filters.stockSearch}
+                  onChange={(e) => setFilters({ ...filters, stockSearch: e.target.value })}
+                  style={{ width: 150 }}
+                  size="small"
+                />
+
+                <RangePicker
+                  size="small"
+                  style={{ width: 240 }}
+                  placeholder={['开始日期', '结束日期']}
+                  value={filters.dateFrom && filters.dateTo ? [dayjs(filters.dateFrom), dayjs(filters.dateTo)] : null}
+                  onChange={handleDateRangeChange}
+                  format="YYYY-MM-DD"
+                />
+
+                <Text type="secondary" style={{ fontSize: '12px' }}>
+                  共 {volumeAnalysis.length} 条
+                </Text>
+              </Space>
+            </div>
+
+            <div style={{ height: '420px', overflowY: 'auto', overflowX: 'hidden' }}>
+              <List
+                dataSource={volumeAnalysis}
+                locale={{ emptyText: '暂无成交量异动数据' }}
+                size="small"
+                split={false}
+                renderItem={(item: any) => (
                 <List.Item style={{
                   padding: '12px 16px',
                   borderBottom: '1px solid #e8e8e8',
@@ -248,6 +468,7 @@ const Analysis: React.FC = () => {
                 </List.Item>
               )}
             />
+            </div>
           </Card>
         </Col>
       </Row>
@@ -259,9 +480,96 @@ const Analysis: React.FC = () => {
               <Space>
                 <TrophyOutlined style={{ color: '#faad14' }} />
                 主力行为分析
+                <Tooltip
+                  title={
+                    <div style={{ fontSize: '12px' }}>
+                      <div style={{ marginBottom: '8px', fontWeight: 'bold' }}>💰 算法说明</div>
+                      <div>• 基于最近7天的主力资金流向数据</div>
+                      <div>• 分析维度:</div>
+                      <div style={{ marginLeft: '12px' }}>- 总资金流动 &gt; 500万</div>
+                      <div style={{ marginLeft: '12px' }}>- 流入天数比例 (持续性)</div>
+                      <div style={{ marginLeft: '12px' }}>- 大单占比 (力度)</div>
+                      <div>• 行为分类:</div>
+                      <div style={{ marginLeft: '12px' }}>- 大幅建仓: 70%+天数流入</div>
+                      <div style={{ marginLeft: '12px' }}>- 持续建仓: 50%+天数流入</div>
+                      <div style={{ marginLeft: '12px' }}>- 缓慢减仓: 30%-天数流入</div>
+                      <div style={{ marginTop: '8px', color: '#52c41a' }}>✅ 能识别温和吸筹的隐蔽操作</div>
+                    </div>
+                  }
+                  placement="left"
+                >
+                  <InfoCircleOutlined style={{ color: '#1890ff', cursor: 'pointer' }} />
+                </Tooltip>
               </Space>
             }
             loading={loading}
+            extra={
+              <Space size="small" wrap>
+                <RangePicker
+                  size="small"
+                  style={{ width: 240 }}
+                  placeholder={['开始日期', '结束日期']}
+                  value={mainForceFilters.dateFrom && mainForceFilters.dateTo ? [dayjs(mainForceFilters.dateFrom), dayjs(mainForceFilters.dateTo)] : null}
+                  onChange={(dates) => {
+                    if (dates && dates.length === 2) {
+                      setMainForceFilters({
+                        ...mainForceFilters,
+                        dateFrom: dates[0].format('YYYY-MM-DD'),
+                        dateTo: dates[1].format('YYYY-MM-DD')
+                      });
+                    } else {
+                      setMainForceFilters({
+                        ...mainForceFilters,
+                        dateFrom: '',
+                        dateTo: ''
+                      });
+                    }
+                  }}
+                  format="YYYY-MM-DD"
+                />
+                <Select
+                  value={mainForceFilters.days}
+                  onChange={(value) => setMainForceFilters({ ...mainForceFilters, days: value, dateFrom: '', dateTo: '' })}
+                  style={{ width: 110 }}
+                  size="small"
+                  disabled={!!(mainForceFilters.dateFrom && mainForceFilters.dateTo)}
+                >
+                  <Option value={3}>最近3天</Option>
+                  <Option value={5}>最近5天</Option>
+                  <Option value={7}>最近7天</Option>
+                  <Option value={10}>最近10天</Option>
+                  <Option value={15}>最近15天</Option>
+                  <Option value={30}>最近30天</Option>
+                </Select>
+                <Select
+                  value={mainForceFilters.limit}
+                  onChange={(value) => setMainForceFilters({ ...mainForceFilters, limit: value })}
+                  style={{ width: 110 }}
+                  size="small"
+                >
+                  <Option value={10}>显示10条</Option>
+                  <Option value={20}>显示20条</Option>
+                  <Option value={50}>显示50条</Option>
+                  <Option value={100}>显示100条</Option>
+                </Select>
+                <Button
+                  size="small"
+                  type="primary"
+                  icon={<SyncOutlined spin={loading} />}
+                  onClick={fetchMainForceData}
+                  loading={loading}
+                >
+                  刷新数据
+                </Button>
+                <Button
+                  size="small"
+                  icon={<ReloadOutlined />}
+                  onClick={() => setMainForceFilters({ days: 7, limit: 20, dateFrom: '', dateTo: '' })}
+                >
+                  重置
+                </Button>
+              </Space>
+            }
           >
             {mainForceData.length > 0 ? (
               <div>
@@ -304,7 +612,7 @@ const Analysis: React.FC = () => {
                     <Card size="small" style={{ textAlign: 'center' }}>
                       <Statistic
                         title="总成交量"
-                        value="68.5"
+                        value={mainForceSummary?.totalVolume || '0'}
                         prefix={<RiseOutlined style={{ color: '#faad14' }} />}
                         valueStyle={{ color: '#faad14' }}
                         suffix="亿"
