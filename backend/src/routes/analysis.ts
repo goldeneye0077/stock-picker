@@ -219,7 +219,7 @@ router.get('/signals', async (req, res) => {
       params.push(signal_type);
     }
 
-    sql += ' ORDER BY bs.created_at DESC LIMIT 50';
+    sql += ' ORDER BY bs.confidence DESC, bs.created_at DESC LIMIT 50';
 
     const signals = await db.all(sql, params);
 

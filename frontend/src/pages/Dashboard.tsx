@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Row, Col, Statistic, List, Tag, message, Progress, Space, Typography } from 'antd';
-import { ArrowUpOutlined, ArrowDownOutlined, RiseOutlined, FundOutlined } from '@ant-design/icons';
+import { Card, Row, Col, Statistic, List, Tag, message, Progress, Space, Typography, Tooltip } from 'antd';
+import { ArrowUpOutlined, ArrowDownOutlined, RiseOutlined, FundOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { API_BASE_URL, API_ENDPOINTS } from '../config/api';
 
 const { Text, Title } = Typography;
@@ -135,12 +135,12 @@ const Dashboard: React.FC = () => {
         }
       }
 
-      // Fetch recent signals
+      // Fetch recent signals (查询最近 1 天，按置信度排序，显示前 15 个)
       const signalsResponse = await fetch(`${API_BASE_URL}${API_ENDPOINTS.ANALYSIS}/signals?days=1`);
       const signalsResult = await signalsResponse.json();
 
       if (signalsResult.success && signalsResult.data.signals.length > 0) {
-        const recentSignals = signalsResult.data.signals.slice(0, 5).map((signal: any) => ({
+        const recentSignals = signalsResult.data.signals.slice(0, 15).map((signal: any) => ({
           stock: signal.stock_code,
           name: signal.stock_name || '未知',
           signal: signal.signal_type,
@@ -181,7 +181,55 @@ const Dashboard: React.FC = () => {
 
       <Row gutter={[16, 16]} style={{ marginTop: '24px' }}>
         <Col span={12}>
-          <Card title="今日信号" extra={<a href="#more" onClick={fetchDashboardData}>刷新</a>}>
+          <Card
+            title={
+              <Space>
+                今日信号
+                <Tooltip
+                  title={
+                    <div style={{ padding: '8px' }}>
+                      <div style={{ fontWeight: 'bold', marginBottom: '8px', fontSize: '14px' }}>
+                        📊 信号生成算法
+                      </div>
+                      <div style={{ marginBottom: '6px' }}>
+                        <span style={{ color: '#52c41a', fontWeight: 'bold' }}>多因子评分模型</span>（加权求和）
+                      </div>
+                      <div style={{ marginLeft: '12px', fontSize: '13px', lineHeight: '1.8' }}>
+                        • <span style={{ color: '#1890ff' }}>成交量因子</span>（权重 40%）<br />
+                        &nbsp;&nbsp;- 量比 &gt; 2.5 倍：100 分<br />
+                        &nbsp;&nbsp;- 量比 2.0-2.5 倍：80 分<br />
+                        &nbsp;&nbsp;- 量比 1.5-2.0 倍：60 分<br />
+                        <br />
+                        • <span style={{ color: '#1890ff' }}>价格因子</span>（权重 30%）<br />
+                        &nbsp;&nbsp;- 上涨 &gt; 5%：100 分<br />
+                        &nbsp;&nbsp;- 上涨 3-5%：80 分<br />
+                        &nbsp;&nbsp;- 上涨 1-3%：60 分<br />
+                        <br />
+                        • <span style={{ color: '#1890ff' }}>资金流向因子</span>（权重 30%）<br />
+                        &nbsp;&nbsp;- 主力净流入 &gt; 5000 万：100 分<br />
+                        &nbsp;&nbsp;- 主力净流入 1000-5000 万：80 分<br />
+                        &nbsp;&nbsp;- 主力净流入 &gt; 0：60 分<br />
+                      </div>
+                      <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px solid #434343' }}>
+                        <span style={{ fontWeight: 'bold' }}>信号分类：</span><br />
+                        <div style={{ marginTop: '4px', fontSize: '13px' }}>
+                          • 置信度 &gt; 80%：<Tag color="red" style={{ margin: '0 4px' }}>强烈买入</Tag><br />
+                          • 置信度 60-80%：<Tag color="green" style={{ margin: '0 4px' }}>买入</Tag><br />
+                          • 置信度 40-60%：<Tag color="blue" style={{ margin: '0 4px' }}>关注</Tag><br />
+                          • 置信度 &lt; 40%：<Tag style={{ margin: '0 4px' }}>观察</Tag>
+                        </div>
+                      </div>
+                    </div>
+                  }
+                  overlayStyle={{ maxWidth: '450px' }}
+                  placement="bottomLeft"
+                >
+                  <InfoCircleOutlined style={{ color: '#1890ff', cursor: 'pointer' }} />
+                </Tooltip>
+              </Space>
+            }
+            extra={<a href="#more" onClick={fetchDashboardData}>刷新</a>}
+          >
             <List
               dataSource={signals}
               loading={loading}
