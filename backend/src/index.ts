@@ -26,7 +26,7 @@ if (process.env.FRONTEND_URL) {
   allowedOrigins.push(process.env.FRONTEND_URL);
 }
 app.use(cors({
-  origin: allowedOrigins,
+  origin: '*', // 允许所有来源（远程调试用）
   credentials: true
 }));
 app.use(morgan('combined'));
@@ -72,10 +72,11 @@ async function startServer() {
     await initDatabase();
     console.log('Database initialized successfully');
 
-    server.listen(PORT, () => {
+    server.listen(Number(PORT), '0.0.0.0', () => {
       console.log(`🚀 Server running on port ${PORT}`);
-      console.log(`📊 Stock Picker API: http://localhost:${PORT}`);
-      console.log(`🔌 WebSocket: ws://localhost:${PORT}`);
+      console.log(`📊 Stock Picker API: http://0.0.0.0:${PORT}`);
+      console.log(`🔌 WebSocket: ws://0.0.0.0:${PORT}`);
+      console.log(`🌐 Remote access enabled on all network interfaces`);
     });
   } catch (error) {
     console.error('Failed to start server:', error);
