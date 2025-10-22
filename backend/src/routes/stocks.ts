@@ -1,302 +1,167 @@
 import express from 'express';
-import { getDatabase } from '../config/database';
+import { StockRepository } from '../repositories';
 import { pinyin } from 'pinyin-pro';
+import { asyncHandler } from '../middleware/errorHandler';
+import { sendSuccess, sendPaginatedSuccess } from '../utils/responseHelper';
+import { StockNotFoundError, InvalidParameterError } from '../utils/errors';
 
 const router = express.Router();
+const stockRepo = new StockRepository();
 
 // Get all stocks
-router.get('/', async (req, res) => {
-  try {
-    const db = getDatabase();
-    const stocks = await db.all(`
-      SELECT s.*,
-             COALESCE(rq.close, k.close) as current_price,
-             rq.pre_close as pre_close,
-             COALESCE(rq.open, k.open) as open,
-             COALESCE(rq.high, k.high) as high,
-             COALESCE(rq.low, k.low) as low,
-             COALESCE(rq.vol, k.volume) as volume,
-             COALESCE(rq.amount, k.amount) as amount,
-             COALESCE(rq.change_percent, ((k.close - k.open) / k.open * 100)) as change_percent,
-             COALESCE(rq.change_amount, (k.close - k.open)) as change_amount,
-             rq.updated_at as quote_time,
-             va.volume_ratio,
-             va.is_volume_surge,
-             bs.signal_type as latest_signal
-      FROM stocks s
-      LEFT JOIN realtime_quotes rq ON s.code = rq.stock_code
-      LEFT JOIN (
-        SELECT stock_code, close, volume, open, high, low, amount,
-               ROW_NUMBER() OVER (PARTITION BY stock_code ORDER BY date DESC) as rn
-        FROM klines
-      ) k ON s.code = k.stock_code AND k.rn = 1
-      LEFT JOIN (
-        SELECT stock_code, volume_ratio, is_volume_surge,
-               ROW_NUMBER() OVER (PARTITION BY stock_code ORDER BY date DESC) as rn
-        FROM volume_analysis
-      ) va ON s.code = va.stock_code AND va.rn = 1
-      LEFT JOIN (
-        SELECT stock_code, signal_type,
-               ROW_NUMBER() OVER (PARTITION BY stock_code ORDER BY created_at DESC) as rn
-        FROM buy_signals
-      ) bs ON s.code = bs.stock_code AND bs.rn = 1
-      ORDER BY s.code
-    `);
+router.get('/', asyncHandler(async (req, res) => {
+  const stocks = await stockRepo.findAll();
 
-    res.json({
-      success: true,
-      data: stocks,
-      total: stocks.length
-    });
-  } catch (error) {
-    console.error('Error fetching stocks:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch stocks'
-    });
-  }
-});
+  sendPaginatedSuccess(res, stocks, stocks.length);
+}));
 
 // Get stock by code
-router.get('/:code', async (req, res) => {
-  try {
-    const { code } = req.params;
-    const db = getDatabase();
+router.get('/:code', asyncHandler(async (req, res) => {
+  const { code } = req.params;
+  const stockDetails = await stockRepo.findDetailsByCode(code);
 
-    const stock = await db.get('SELECT * FROM stocks WHERE code = ?', [code]);
-
-    if (!stock) {
-      return res.status(404).json({
-        success: false,
-        message: 'Stock not found'
-      });
-    }
-
-    // Get realtime quote
-    const realtimeQuote = await db.get(`
-      SELECT * FROM realtime_quotes
-      WHERE stock_code = ?
-    `, [code]);
-
-    // Get recent K-line data
-    const klines = await db.all(`
-      SELECT * FROM klines
-      WHERE stock_code = ?
-      ORDER BY date DESC
-      LIMIT 30
-    `, [code]);
-
-    // Get volume analysis
-    const volumeAnalysis = await db.all(`
-      SELECT * FROM volume_analysis
-      WHERE stock_code = ?
-      ORDER BY date DESC
-      LIMIT 10
-    `, [code]);
-
-    // Get recent buy signals
-    const buySignals = await db.all(`
-      SELECT * FROM buy_signals
-      WHERE stock_code = ?
-      ORDER BY created_at DESC
-      LIMIT 5
-    `, [code]);
-
-    // Get intraday quote history (today)
-    const today = new Date().toISOString().split('T')[0];
-    const intradayQuotes = await db.all(`
-      SELECT * FROM quote_history
-      WHERE stock_code = ?
-      AND DATE(snapshot_time) = ?
-      ORDER BY snapshot_time ASC
-    `, [code, today]);
-
-    res.json({
-      success: true,
-      data: {
-        stock,
-        realtimeQuote,
-        klines,
-        volumeAnalysis,
-        buySignals,
-        intradayQuotes
-      }
-    });
-  } catch (error) {
-    console.error('Error fetching stock details:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to fetch stock details'
-    });
+  if (!stockDetails) {
+    throw new StockNotFoundError(code);
   }
-});
+
+  // 扁平化数据结构以匹配前端期望
+  const flattenedData = {
+    // 股票基本信息
+    code: stockDetails.stock.code,
+    name: stockDetails.stock.name,
+    exchange: stockDetails.stock.exchange,
+    industry: stockDetails.stock.industry,
+
+    // 实时行情数据
+    current_price: stockDetails.realtimeQuote?.close,
+    pre_close: stockDetails.realtimeQuote?.pre_close,
+    open: stockDetails.realtimeQuote?.open,
+    high: stockDetails.realtimeQuote?.high,
+    low: stockDetails.realtimeQuote?.low,
+    volume: stockDetails.realtimeQuote?.vol,
+    amount: stockDetails.realtimeQuote?.amount,
+    change_percent: stockDetails.realtimeQuote?.change_percent,
+    change_amount: stockDetails.realtimeQuote?.change_amount,
+
+    // 估值指标（从 daily_basic 或计算得出）
+    pe_ratio: null, // 待补充
+    pb_ratio: null, // 待补充
+    total_market_cap: null, // 待补充
+    circulating_market_cap: null, // 待补充
+
+    // 保留原始嵌套数据供高级使用
+    _raw: stockDetails
+  };
+
+  sendSuccess(res, flattenedData);
+}));
 
 // Search stocks
-router.get('/search/:query', async (req, res) => {
-  try {
-    const { query } = req.params;
-    const db = getDatabase();
+router.get('/search/:query', asyncHandler(async (req, res) => {
+  const { query } = req.params;
 
-    // 先获取所有股票进行拼音匹配
-    const allStocks = await db.all(`
-      SELECT s.*,
-             COALESCE(rq.close, k.close) as current_price,
-             rq.pre_close as pre_close,
-             COALESCE(rq.open, k.open) as open,
-             COALESCE(rq.high, k.high) as high,
-             COALESCE(rq.low, k.low) as low,
-             COALESCE(rq.vol, k.volume) as volume,
-             COALESCE(rq.amount, k.amount) as amount,
-             COALESCE(rq.change_percent, ((k.close - k.open) / k.open * 100)) as change_percent,
-             COALESCE(rq.change_amount, (k.close - k.open)) as change_amount,
-             rq.updated_at as quote_time,
-             va.volume_ratio,
-             va.is_volume_surge,
-             bs.signal_type as latest_signal
-      FROM stocks s
-      LEFT JOIN realtime_quotes rq ON s.code = rq.stock_code
-      LEFT JOIN (
-        SELECT stock_code, close, volume, open, high, low, amount,
-               ROW_NUMBER() OVER (PARTITION BY stock_code ORDER BY date DESC) as rn
-        FROM klines
-      ) k ON s.code = k.stock_code AND k.rn = 1
-      LEFT JOIN (
-        SELECT stock_code, volume_ratio, is_volume_surge,
-               ROW_NUMBER() OVER (PARTITION BY stock_code ORDER BY date DESC) as rn
-        FROM volume_analysis
-      ) va ON s.code = va.stock_code AND va.rn = 1
-      LEFT JOIN (
-        SELECT stock_code, signal_type,
-               ROW_NUMBER() OVER (PARTITION BY stock_code ORDER BY created_at DESC) as rn
-        FROM buy_signals
-      ) bs ON s.code = bs.stock_code AND bs.rn = 1
-      WHERE s.code LIKE ? OR s.name LIKE ?
-    `, [`%${query}%`, `%${query}%`]);
+  // 先进行基本搜索
+  let stocks = await stockRepo.search(query, 20);
 
-    // 如果查询看起来像拼音首字母（纯字母且长度>=1），进行拼音匹配
-    const isPinyinQuery = /^[a-zA-Z]+$/.test(query);
-    let stocks = allStocks;
+  // 如果查询看起来像拼音首字母（纯字母且长度>=1），进行拼音匹配
+  const isPinyinQuery = /^[a-zA-Z]+$/.test(query);
 
-    if (isPinyinQuery && allStocks.length < 20) {
-      // 获取更多股票用于拼音匹配
-      const moreStocks = await db.all(`
-        SELECT s.*,
-               COALESCE(rq.close, k.close) as current_price,
-               rq.pre_close as pre_close,
-               COALESCE(rq.open, k.open) as open,
-               COALESCE(rq.high, k.high) as high,
-               COALESCE(rq.low, k.low) as low,
-               COALESCE(rq.vol, k.volume) as volume,
-               COALESCE(rq.amount, k.amount) as amount,
-               COALESCE(rq.change_percent, ((k.close - k.open) / k.open * 100)) as change_percent,
-               COALESCE(rq.change_amount, (k.close - k.open)) as change_amount,
-               rq.updated_at as quote_time,
-               va.volume_ratio,
-               va.is_volume_surge,
-               bs.signal_type as latest_signal
-        FROM stocks s
-        LEFT JOIN realtime_quotes rq ON s.code = rq.stock_code
-        LEFT JOIN (
-          SELECT stock_code, close, volume, open, high, low, amount,
-                 ROW_NUMBER() OVER (PARTITION BY stock_code ORDER BY date DESC) as rn
-          FROM klines
-        ) k ON s.code = k.stock_code AND k.rn = 1
-        LEFT JOIN (
-          SELECT stock_code, volume_ratio, is_volume_surge,
-                 ROW_NUMBER() OVER (PARTITION BY stock_code ORDER BY date DESC) as rn
-          FROM volume_analysis
-        ) va ON s.code = va.stock_code AND va.rn = 1
-        LEFT JOIN (
-          SELECT stock_code, signal_type,
-                 ROW_NUMBER() OVER (PARTITION BY stock_code ORDER BY created_at DESC) as rn
-          FROM buy_signals
-        ) bs ON s.code = bs.stock_code AND bs.rn = 1
-        LIMIT 500
-      `);
+  if (isPinyinQuery && stocks.length < 20) {
+    // 获取更多股票用于拼音匹配
+    const moreStocks = await stockRepo.findAllBasic(500);
 
-      // 拼音匹配
-      const queryUpper = query.toUpperCase();
-      const pinyinMatched = moreStocks.filter(stock => {
-        if (!stock.name) return false;
-        // 获取拼音首字母
-        const pinyinInitials = pinyin(stock.name, { pattern: 'first', toneType: 'none' }).toUpperCase();
-        return pinyinInitials.includes(queryUpper);
-      });
-
-      // 合并结果，去重
-      const codeSet = new Set(allStocks.map(s => s.code));
-      const uniquePinyinMatched = pinyinMatched.filter(s => !codeSet.has(s.code));
-      stocks = [...allStocks, ...uniquePinyinMatched];
-    }
-
-    res.json({
-      success: true,
-      data: stocks.slice(0, 20)
+    // 拼音匹配
+    const queryUpper = query.toUpperCase();
+    const pinyinMatched = moreStocks.filter(stock => {
+      if (!stock.name) return false;
+      // 获取拼音首字母
+      const pinyinInitials = pinyin(stock.name, { pattern: 'first', toneType: 'none' }).toUpperCase();
+      return pinyinInitials.includes(queryUpper);
     });
-  } catch (error) {
-    console.error('Error searching stocks:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to search stocks'
-    });
+
+    // 合并结果，去重
+    const codeSet = new Set(stocks.map(s => s.code));
+    const uniquePinyinMatched = pinyinMatched.filter(s => !codeSet.has(s.code));
+    stocks = [...stocks, ...uniquePinyinMatched];
   }
-});
+
+  sendSuccess(res, stocks.slice(0, 20));
+}));
 
 // Get stocks by date (历史行情查询)
-router.get('/history/date/:date', async (req, res) => {
-  try {
-    const { date } = req.params;
-    const db = getDatabase();
+router.get('/history/date/:date', asyncHandler(async (req, res) => {
+  const { date } = req.params;
 
-    // 验证日期格式 YYYY-MM-DD
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid date format. Use YYYY-MM-DD'
-      });
-    }
-
-    // 查询指定日期的K线数据
-    const stocks = await db.all(`
-      SELECT s.*,
-             k.close as current_price,
-             k.open as open,
-             k.high as high,
-             k.low as low,
-             k.volume as volume,
-             k.amount as amount,
-             k.date as quote_date,
-             ((k.close - k.open) / k.open * 100) as change_percent,
-             (k.close - k.open) as change_amount,
-             va.volume_ratio,
-             va.is_volume_surge,
-             bs.signal_type as latest_signal
-      FROM stocks s
-      LEFT JOIN klines k ON s.code = k.stock_code AND k.date = ?
-      LEFT JOIN volume_analysis va ON s.code = va.stock_code AND va.date = ?
-      LEFT JOIN (
-        SELECT stock_code, signal_type,
-               ROW_NUMBER() OVER (PARTITION BY stock_code ORDER BY created_at DESC) as rn
-        FROM buy_signals
-        WHERE date(created_at) = ?
-      ) bs ON s.code = bs.stock_code AND bs.rn = 1
-      WHERE k.close IS NOT NULL
-      ORDER BY s.code
-    `, [date, date, date]);
-
-    res.json({
-      success: true,
-      data: stocks,
-      total: stocks.length,
-      date: date
-    });
-  } catch (error) {
-    console.error('Error fetching stocks by date:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch historical stocks'
-    });
+  // 验证日期格式
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new InvalidParameterError('Invalid date format. Use YYYY-MM-DD', { date });
   }
-});
+
+  const stocks = await stockRepo.findByDate(date);
+
+  // 使用自定义响应格式，包含日期信息
+  res.json({
+    success: true,
+    data: stocks,
+    total: stocks.length,
+    date: date
+  });
+}));
+
+// Get stock K-line history data
+router.get('/:code/history', asyncHandler(async (req, res) => {
+  const { code } = req.params;
+  const { start_date, end_date, period = 'daily' } = req.query;
+
+  let klines;
+
+  if (start_date && end_date) {
+    // 按日期范围查询
+    klines = await stockRepo.findKLinesByDateRange(code, start_date as string, end_date as string);
+  } else {
+    // 默认获取最近100天
+    klines = await stockRepo.findKLinesByCode(code, 100);
+  }
+
+  // 格式化数据为前端期望的格式
+  const formattedKlines = klines.map(k => ({
+    date: k.date,
+    open: k.open,
+    high: k.high,
+    low: k.low,
+    close: k.close,
+    volume: k.volume,
+    amount: k.amount
+  }));
+
+  sendSuccess(res, {
+    klines: formattedKlines,
+    period,
+    total: formattedKlines.length
+  });
+}));
+
+// Get stock technical analysis (包括 daily_basic 指标和计算指标)
+router.get('/:code/analysis', asyncHandler(async (req, res) => {
+  const { code } = req.params;
+
+  // 获取最新的 daily_basic 数据
+  const dailyBasicData = await stockRepo.getLatestDailyBasic(code);
+
+  // 获取计算的技术指标（MA, MACD, RSI, KDJ等）
+  const calculatedIndicators = await stockRepo.getCalculatedIndicators(code);
+
+  // 合并数据
+  const analysisData = {
+    indicators: {
+      // 从 daily_basic 表获取的指标
+      ...(dailyBasicData || {}),
+      // 计算的技术指标
+      ...(calculatedIndicators || {})
+    }
+  };
+
+  sendSuccess(res, analysisData);
+}));
 
 export default router;

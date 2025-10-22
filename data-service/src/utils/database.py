@@ -139,12 +139,43 @@ async def init_database():
             )
         """)
 
+        # 每日指标表（技术分析指标）
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS daily_basic (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                stock_code TEXT NOT NULL,
+                trade_date TEXT NOT NULL,
+                close REAL,
+                turnover_rate REAL,
+                turnover_rate_f REAL,
+                volume_ratio REAL,
+                pe REAL,
+                pe_ttm REAL,
+                pb REAL,
+                ps REAL,
+                ps_ttm REAL,
+                dv_ratio REAL,
+                dv_ttm REAL,
+                total_share REAL,
+                float_share REAL,
+                free_share REAL,
+                total_mv REAL,
+                circ_mv REAL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (stock_code) REFERENCES stocks (code),
+                UNIQUE(stock_code, trade_date)
+            )
+        """)
+
         # 创建索引优化查询性能
         await db.execute("CREATE INDEX IF NOT EXISTS idx_realtime_stock_code ON realtime_quotes(stock_code)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_realtime_updated_at ON realtime_quotes(updated_at)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_history_stock_code ON quote_history(stock_code)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_history_snapshot_time ON quote_history(snapshot_time)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_history_stock_time ON quote_history(stock_code, snapshot_time)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_daily_basic_stock_code ON daily_basic(stock_code)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_daily_basic_trade_date ON daily_basic(trade_date)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_daily_basic_stock_date ON daily_basic(stock_code, trade_date)")
 
         await db.commit()
         logger.info("Database initialized successfully")
