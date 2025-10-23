@@ -4,6 +4,7 @@
   "description": "智能选股系统 - 基于成交量和K线走势分析主力资金介入",
   "private": true,
   "scripts": {
+    "start": "node start-services.js",
     "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install",
     "install:python": "cd data-service && pip install -r requirements.txt",
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\" \"npm run dev:data-service\"",

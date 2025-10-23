@@ -5,9 +5,12 @@ import morgan from 'morgan';
 import dotenv from 'dotenv';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
+// import swaggerUi from 'swagger-ui-express';
 import { initDatabase } from './config/database';
+// import { swaggerSpec } from './config/swagger';
 import stockRoutes from './routes/stocks';
 import analysisRoutes from './routes/analysis';
+import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 
 dotenv.config();
 
@@ -33,6 +36,19 @@ app.use(morgan('combined'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// API Documentation - Temporarily disabled due to TypeScript configuration issues
+// TODO: Re-enable after fixing ts-node type resolution in monorepo setup
+// app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+//   customCss: '.swagger-ui .topbar { display: none }',
+//   customSiteTitle: '智能选股系统 API 文档'
+// }));
+
+// API Spec JSON
+// app.get('/api-docs.json', (req, res) => {
+//   res.setHeader('Content-Type', 'application/json');
+//   res.send(swaggerSpec);
+// });
+
 // Routes
 app.use('/api/stocks', stockRoutes);
 app.use('/api/analysis', analysisRoutes);
@@ -41,6 +57,12 @@ app.use('/api/analysis', analysisRoutes);
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
+
+// 404 处理 - 必须在所有路由之后
+app.use(notFoundHandler);
+
+// 全局错误处理中间件 - 必须在最后
+app.use(errorHandler);
 
 // Create HTTP server
 const server = createServer(app);
@@ -75,6 +97,7 @@ async function startServer() {
     server.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📊 Stock Picker API: http://localhost:${PORT}`);
+      // console.log(`📚 API Documentation: http://localhost:${PORT}/api-docs`);
       console.log(`🔌 WebSocket: ws://localhost:${PORT}`);
     });
   } catch (error) {
@@ -84,3 +107,4 @@ async function startServer() {
 }
 
 startServer();
+

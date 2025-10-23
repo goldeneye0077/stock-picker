@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { Card, Row, Col, Statistic, List, Tag, message, Progress, Space, Typography, Tooltip } from 'antd';
-import { ArrowUpOutlined, ArrowDownOutlined, RiseOutlined, FundOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Card, Row, Col, Statistic, List, Tag, message, Progress, Space, Typography, Tooltip, Table } from 'antd';
+import { ArrowUpOutlined, ArrowDownOutlined, RiseOutlined, FundOutlined, InfoCircleOutlined, CrownOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { API_BASE_URL, API_ENDPOINTS } from '../config/api';
 
 const { Text, Title } = Typography;
@@ -104,7 +104,41 @@ const Dashboard: React.FC = () => {
     { title: '预警消息', value: 0, prefix: <ArrowDownOutlined /> },
   ]);
   const [signals, setSignals] = useState([]);
+  const [volumeAnalysis, setVolumeAnalysis] = useState([]);
+  const [mainForceData, setMainForceData] = useState([]);
   const [loading, setLoading] = useState(false);
+
+  // 计算精选股票（同时出现在成交量异动和主力行为分析中的股票）
+  const selectedStocks = useMemo(() => {
+    if (volumeAnalysis.length === 0 || mainForceData.length === 0) {
+      return [];
+    }
+
+    // 创建成交量异动股票代码集合
+    const volumeStockSet = new Set(volumeAnalysis.map((item: any) => item.stock));
+
+    // 筛选出同时出现在主力行为分析中的股票
+    const intersection = mainForceData
+      .filter((item: any) => volumeStockSet.has(item.stock))
+      .map((item: any) => {
+        // 找到对应的成交量数据
+        const volumeItem = volumeAnalysis.find((v: any) => v.stock === item.stock);
+        return {
+          stock: item.stock,
+          name: item.name,
+          behavior: item.behavior,
+          strength: item.strength,
+          trend: item.trend,
+          volumeRatio: volumeItem?.volumeRatio || 0,
+          days: item.days,
+          volume: item.volume
+        };
+      })
+      // 按强度指数排序
+      .sort((a, b) => b.strength - a.strength);
+
+    return intersection;
+  }, [volumeAnalysis, mainForceData]);
 
   const fetchDashboardData = async () => {
     setLoading(true);
@@ -150,6 +184,38 @@ const Dashboard: React.FC = () => {
         setSignals(recentSignals);
       }
 
+      // Fetch volume analysis data (成交量异动分析)
+      const volumeParams = new URLSearchParams({ days: '10' });
+      const volumeResponse = await fetch(`${API_BASE_URL}${API_ENDPOINTS.ANALYSIS}/volume?${volumeParams}`);
+      const volumeResult = await volumeResponse.json();
+
+      if (volumeResult.success && volumeResult.data.volumeSurges) {
+        const volumeData = volumeResult.data.volumeSurges.map((item: any) => ({
+          stock: item.stock_code,
+          name: item.stock_name || '未知股票',
+          exchange: item.exchange || '',
+          volumeRatio: item.volume_ratio,
+          trend: item.volume_ratio > 2 ? 'up' : 'down'
+        }));
+        setVolumeAnalysis(volumeData);
+      }
+
+      // Fetch main force behavior analysis (主力行为分析)
+      const mainForceParams = new URLSearchParams({
+        days: '7',
+        limit: '20'
+      });
+      const mainForceResponse = await fetch(`${API_BASE_URL}${API_ENDPOINTS.ANALYSIS}/main-force?${mainForceParams}`);
+      const mainForceResult = await mainForceResponse.json();
+
+      if (mainForceResult.success && mainForceResult.data.mainForce) {
+        const mainForceDataWithKey = mainForceResult.data.mainForce.map((item: any, index: number) => ({
+          key: String(index + 1),
+          ...item
+        }));
+        setMainForceData(mainForceDataWithKey);
+      }
+
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
       message.error('获取面板数据失败');
@@ -164,6 +230,217 @@ const Dashboard: React.FC = () => {
 
   return (
     <div style={{ padding: '24px' }}>
+      {/* 精选股票卡片 - 始终显示 */}
+      <Row gutter={[16, 16]} style={{ marginBottom: '24px' }}>
+        <Col span={24}>
+          <Card
+            title={
+              <Space>
+                <CrownOutlined style={{ color: '#faad14', fontSize: '20px' }} />
+                <span style={{ fontSize: '16px', fontWeight: 'bold' }}>精选股票</span>
+                <Tag color="gold" style={{ marginLeft: '8px' }}>
+                  双重信号
+                </Tag>
+                <Tooltip
+                  title={
+                    <div style={{ fontSize: '12px' }}>
+                      <div style={{ marginBottom: '8px', fontWeight: 'bold' }}>⭐ 精选标准</div>
+                      <div>同时满足以下两个条件的股票:</div>
+                      <div style={{ marginLeft: '12px', marginTop: '4px' }}>
+                        ✓ 成交量异动 (量比 &gt; 2.0倍)
+                      </div>
+                      <div style={{ marginLeft: '12px' }}>
+                        ✓ 主力资金介入 (建仓行为)
+                      </div>
+                      <div style={{ marginTop: '8px', color: '#faad14' }}>
+                        💎 这些股票具有更高的关注价值
+                      </div>
+                    </div>
+                  }
+                  placement="right"
+                >
+                  <InfoCircleOutlined style={{ color: '#1890ff', cursor: 'pointer' }} />
+                </Tooltip>
+              </Space>
+            }
+            extra={
+              <Space>
+                <Text type="secondary" style={{ fontSize: '13px' }}>
+                  {selectedStocks.length > 0 ? (
+                    <>
+                      共发现 <Text strong style={{ color: '#faad14', fontSize: '16px' }}>{selectedStocks.length}</Text> 只精选股票
+                    </>
+                  ) : (
+                    <Text type="secondary">暂无符合条件的股票</Text>
+                  )}
+                </Text>
+              </Space>
+            }
+            loading={loading}
+            style={{
+              background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)',
+              border: '2px solid #faad14',
+              boxShadow: '0 4px 12px rgba(250, 173, 20, 0.2)'
+            }}
+          >
+            {selectedStocks.length > 0 ? (
+              <Table
+                dataSource={selectedStocks}
+                pagination={false}
+                size="small"
+                scroll={{ y: 260 }}
+                rowKey="stock"
+                columns={[
+                  {
+                    title: '排名',
+                    key: 'rank',
+                    width: 60,
+                    align: 'center' as const,
+                    render: (_, __, index) => {
+                      let icon = <ThunderboltOutlined />;
+                      let color = '#faad14';
+                      if (index === 0) {
+                        icon = <CrownOutlined />;
+                        color = '#ff4d4f';
+                      } else if (index === 1) {
+                        color = '#1890ff';
+                      } else if (index === 2) {
+                        color = '#52c41a';
+                      }
+                      return (
+                        <Tag color={color} icon={icon} style={{ fontWeight: 'bold' }}>
+                          {index + 1}
+                        </Tag>
+                      );
+                    }
+                  },
+                  {
+                    title: '股票',
+                    dataIndex: 'stock',
+                    key: 'stock',
+                    width: 100,
+                    render: (text, record: any) => (
+                      <div>
+                        <div style={{ fontWeight: 'bold', fontSize: '14px' }}>{text}</div>
+                        <div style={{ fontSize: '12px', color: '#999' }}>{record.name}</div>
+                      </div>
+                    )
+                  },
+                  {
+                    title: '主力行为',
+                    dataIndex: 'behavior',
+                    key: 'behavior',
+                    width: 100,
+                    render: (text, record: any) => {
+                      const colors: any = {
+                        strong: '#ff4d4f',
+                        moderate: '#1890ff',
+                        weak: '#666'
+                      };
+                      return (
+                        <Tag color={colors[record.trend] || '#666'} style={{ fontWeight: 'bold' }}>
+                          {text}
+                        </Tag>
+                      );
+                    }
+                  },
+                  {
+                    title: '强度指数',
+                    dataIndex: 'strength',
+                    key: 'strength',
+                    width: 120,
+                    render: (strength) => (
+                      <Progress
+                        percent={strength}
+                        size="small"
+                        strokeColor={
+                          strength >= 80 ? '#ff4d4f' :
+                          strength >= 60 ? '#faad14' : '#52c41a'
+                        }
+                        format={() => `${strength}%`}
+                      />
+                    )
+                  },
+                  {
+                    title: '量比',
+                    dataIndex: 'volumeRatio',
+                    key: 'volumeRatio',
+                    width: 80,
+                    render: (ratio) => (
+                      <Text strong style={{ color: ratio > 3 ? '#ff4d4f' : '#1890ff' }}>
+                        {ratio.toFixed(2)}倍
+                      </Text>
+                    )
+                  },
+                  {
+                    title: '成交量',
+                    dataIndex: 'volume',
+                    key: 'volume',
+                    width: 80,
+                    render: (volume) => (
+                      <Text style={{ color: '#1890ff' }}>{volume}</Text>
+                    )
+                  },
+                  {
+                    title: '持续天数',
+                    dataIndex: 'days',
+                    key: 'days',
+                    width: 80,
+                    render: (days) => (
+                      <Tag color="blue">{days}天</Tag>
+                    )
+                  },
+                  {
+                    title: '综合评价',
+                    key: 'rating',
+                    width: 100,
+                    render: (_, record: any) => {
+                      let rating = '';
+                      let color = '';
+                      const score = record.strength + (record.volumeRatio - 1) * 10;
+
+                      if (score >= 100 && record.strength >= 70) {
+                        rating = '强烈推荐';
+                        color = '#ff4d4f';
+                      } else if (score >= 80 && record.strength >= 60) {
+                        rating = '值得关注';
+                        color = '#faad14';
+                      } else {
+                        rating = '观察中';
+                        color = '#1890ff';
+                      }
+
+                      return (
+                        <Tag color={color} style={{ fontWeight: 'bold' }}>
+                          {rating}
+                        </Tag>
+                      );
+                    }
+                  }
+                ]}
+              />
+            ) : (
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                height: '260px',
+                color: '#999'
+              }}>
+                <CrownOutlined style={{ fontSize: '48px', marginBottom: '16px', opacity: 0.3 }} />
+                <Text type="secondary" style={{ fontSize: '14px' }}>
+                  暂无同时符合成交量异动和主力建仓的股票
+                </Text>
+                <Text type="secondary" style={{ fontSize: '12px', marginTop: '8px' }}>
+                  系统持续监控中，一旦发现双重信号将实时显示
+                </Text>
+              </div>
+            )}
+          </Card>
+        </Col>
+      </Row>
+
       <Row gutter={[16, 16]}>
         {stats.map((stat, index) => (
           <Col span={6} key={index}>

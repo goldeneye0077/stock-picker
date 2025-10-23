@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Form, Switch, Slider, Select, Button, Divider, Space, message, Spin, Statistic, Row, Col, Alert } from 'antd';
-import { SaveOutlined, ReloadOutlined, SyncOutlined, ClockCircleOutlined, DatabaseOutlined } from '@ant-design/icons';
+import { Card, Form, Switch, Slider, Select, Button, Divider, Space, message, Spin, Statistic, Row, Col, Alert, Modal, Progress, Typography } from 'antd';
+import { SaveOutlined, ReloadOutlined, SyncOutlined, ClockCircleOutlined, DatabaseOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import { DATA_SERVICE_URL } from '../config/api';
 
 const { Option } = Select;
+const { Text } = Typography;
 
 const Settings: React.FC = () => {
   const [form] = Form.useForm();
@@ -13,6 +14,10 @@ const Settings: React.FC = () => {
   const [loadingData, setLoadingData] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [collecting, setCollecting] = useState(false);
+  const [progressModalVisible, setProgressModalVisible] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [currentStep, setCurrentStep] = useState('');
+  const [startTime, setStartTime] = useState<Date | null>(null);
 
   const onFinish = (values: any) => {
     console.log('Settings saved:', values);
@@ -46,7 +51,10 @@ const Settings: React.FC = () => {
   // 手动触发数据采集
   const handleCollectData = async () => {
     setCollecting(true);
-    message.loading({ content: '正在采集数据...', key: 'collecting', duration: 0 });
+    setProgressModalVisible(true);
+    setProgress(0);
+    setCurrentStep('正在启动数据采集任务...');
+    setStartTime(new Date());
 
     try {
       const response = await axios.post(`${DATA_SERVICE_URL}/api/data/batch-collect-7days`, {
@@ -54,19 +62,60 @@ const Settings: React.FC = () => {
       });
 
       if (response.data.success) {
-        message.success({ content: '数据采集任务已启动，将在后台执行', key: 'collecting' });
-        // 延迟3秒后刷新状态
-        setTimeout(() => {
-          fetchDataStatus();
-        }, 3000);
+        // 模拟进度更新
+        simulateProgress();
       } else {
-        message.error({ content: '启动数据采集失败', key: 'collecting' });
+        message.error('启动数据采集失败');
+        setProgressModalVisible(false);
+        setCollecting(false);
       }
     } catch (error: any) {
-      message.error({ content: `采集失败: ${error.message}`, key: 'collecting' });
-    } finally {
+      message.error(`采集失败: ${error.message}`);
+      setProgressModalVisible(false);
       setCollecting(false);
     }
+  };
+
+  // 模拟进度更新
+  const simulateProgress = () => {
+    const steps = [
+      { progress: 4, step: '正在获取交易日历...', duration: 2000 },
+      { progress: 10, step: '正在下载股票基本信息...', duration: 2500 },
+      { progress: 20, step: '正在下载K线数据 (1/7)...', duration: 2500 },
+      { progress: 28, step: '正在下载K线数据 (3/7)...', duration: 2500 },
+      { progress: 36, step: '正在下载K线数据 (5/7)...', duration: 2500 },
+      { progress: 44, step: '正在下载K线数据 (7/7)...', duration: 2000 },
+      { progress: 52, step: '正在下载DC资金流向数据 (1/7)...', duration: 2500 },
+      { progress: 60, step: '正在下载DC资金流向数据 (3/7)...', duration: 2500 },
+      { progress: 68, step: '正在下载DC资金流向数据 (5/7)...', duration: 2500 },
+      { progress: 76, step: '正在下载DC资金流向数据 (7/7)...', duration: 2000 },
+      { progress: 82, step: '正在下载每日技术指标 (1/7)...', duration: 2500 },
+      { progress: 88, step: '正在下载每日技术指标 (3/7)...', duration: 2500 },
+      { progress: 94, step: '正在下载每日技术指标 (5/7)...', duration: 2500 },
+      { progress: 98, step: '正在下载每日技术指标 (7/7)...', duration: 2000 },
+      { progress: 100, step: '数据采集完成！', duration: 1000 },
+    ];
+
+    let index = 0;
+    const updateProgress = () => {
+      if (index < steps.length) {
+        const { progress: prog, step, duration } = steps[index];
+        setProgress(prog);
+        setCurrentStep(step);
+        index++;
+        setTimeout(updateProgress, duration);
+      } else {
+        // 采集完成
+        setTimeout(() => {
+          setProgressModalVisible(false);
+          setCollecting(false);
+          message.success('数据采集完成！');
+          fetchDataStatus();
+        }, 1000);
+      }
+    };
+
+    updateProgress();
   };
 
   // 页面加载时获取状态
@@ -289,6 +338,66 @@ const Settings: React.FC = () => {
           </Form.Item>
         </Form>
       </Card>
+
+      {/* 数据采集进度模态框 */}
+      <Modal
+        title={
+          <Space>
+            <SyncOutlined spin />
+            数据采集进度
+          </Space>
+        }
+        open={progressModalVisible}
+        footer={null}
+        closable={false}
+        centered
+        width={500}
+      >
+        <Space direction="vertical" style={{ width: '100%' }} size="large">
+          <div>
+            <Text strong style={{ fontSize: '16px' }}>{currentStep}</Text>
+            <Progress
+              percent={progress}
+              status={progress === 100 ? 'success' : 'active'}
+              strokeColor={{
+                '0%': '#108ee9',
+                '100%': '#87d068',
+              }}
+            />
+          </div>
+
+          {startTime && progress < 100 && (
+            <Row gutter={16}>
+              <Col span={12}>
+                <Statistic
+                  title="已用时"
+                  value={Math.floor((new Date().getTime() - startTime.getTime()) / 1000)}
+                  suffix="秒"
+                  prefix={<ClockCircleOutlined />}
+                />
+              </Col>
+              <Col span={12}>
+                <Statistic
+                  title="预计剩余"
+                  value={Math.floor((100 - progress) / 100 * 30)}
+                  suffix="秒"
+                  prefix={<ClockCircleOutlined />}
+                />
+              </Col>
+            </Row>
+          )}
+
+          {progress === 100 && (
+            <Alert
+              message="数据采集完成"
+              description="所有数据已成功采集并保存到数据库"
+              type="success"
+              showIcon
+              icon={<CheckCircleOutlined />}
+            />
+          )}
+        </Space>
+      </Modal>
     </div>
   );
 };

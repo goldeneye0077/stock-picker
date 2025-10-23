@@ -307,24 +307,29 @@ async def batch_collect_7days_task(include_moneyflow: bool = True):
 
             time_module.sleep(0.5)  # API 限流
 
-        # 4. 批量下载资金流向数据（可选）
+        # 4. 批量下载资金流向数据（可选，使用 DC 接口 - 东方财富数据）
         total_flows = 0
         if include_moneyflow:
-            logger.info("开始批量下载资金流向数据...")
+            logger.info("开始批量下载资金流向数据（DC接口 - 东方财富）...")
             for i, trade_date in enumerate(trading_days, 1):
                 logger.info(f"[{i}/{len(trading_days)}] 下载 {trade_date} 资金流向...")
 
-                df = await tushare_client.get_moneyflow_by_date(trade_date)
+                # 使用 DC 接口获取东方财富资金流向数据（更准确）
+                df = await tushare_client.get_moneyflow_dc_by_date(trade_date)
                 if df is not None and not df.empty:
                     async with get_database() as db:
                         for _, row in df.iterrows():
                             stock_code = row['ts_code'].split('.')[0]
 
-                            total_amount = abs(row['buy_lg_amount']) + abs(row['sell_lg_amount']) + \
-                                           abs(row['buy_elg_amount']) + abs(row['sell_elg_amount'])
-                            small_amount = abs(row['buy_sm_amount']) + abs(row['sell_sm_amount']) + \
-                                           abs(row['buy_md_amount']) + abs(row['sell_md_amount'])
-                            large_order_ratio = total_amount / (total_amount + small_amount) if (total_amount + small_amount) > 0 else 0
+                            # DC 接口字段转换（单位：万元 -> 元）
+                            # net_amount: 主力净流入额（万元）
+                            # buy_md_amount + buy_sm_amount: 中单+小单（散户）
+                            # buy_elg_amount + buy_lg_amount: 超大单+大单（机构）
+                            # net_amount_rate: 主力净流入占比（%）
+                            main_fund_flow = (row.get('net_amount', 0) or 0) * 10000
+                            retail_fund_flow = ((row.get('buy_md_amount', 0) or 0) + (row.get('buy_sm_amount', 0) or 0)) * 10000
+                            institutional_flow = ((row.get('buy_elg_amount', 0) or 0) + (row.get('buy_lg_amount', 0) or 0)) * 10000
+                            large_order_ratio = row.get('net_amount_rate', 0) or 0
 
                             await db.execute("""
                                 INSERT OR REPLACE INTO fund_flow
@@ -332,20 +337,63 @@ async def batch_collect_7days_task(include_moneyflow: bool = True):
                                 VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
                             """, (
                                 stock_code,
-                                row['trade_date'].strftime('%Y-%m-%d'),
-                                float(row['main_fund_flow']),
-                                float(row['retail_fund_flow']),
-                                float(row['large_net_flow']),
-                                round(large_order_ratio, 4)
+                                trade_date[:4] + '-' + trade_date[4:6] + '-' + trade_date[6:8],  # YYYYMMDD -> YYYY-MM-DD
+                                float(main_fund_flow),
+                                float(retail_fund_flow),
+                                float(institutional_flow),
+                                round(float(large_order_ratio) / 100, 4)  # 百分比转小数
                             ))
                         await db.commit()
                     total_flows += len(df)
-                    logger.info(f"  成功插入 {len(df)} 条资金流向数据")
+                    logger.info(f"  成功插入 {len(df)} 条 DC 资金流向数据")
 
                 time_module.sleep(0.5)  # API 限流
 
+        # 5. 批量下载每日指标数据（技术分析指标）
+        total_indicators = 0
+        logger.info("开始批量下载每日指标数据（技术分析）...")
+        for i, trade_date in enumerate(trading_days, 1):
+            logger.info(f"[{i}/{len(trading_days)}] 下载 {trade_date} 每日指标...")
+
+            df = await tushare_client.get_daily_basic_by_date(trade_date)
+            if df is not None and not df.empty:
+                async with get_database() as db:
+                    for _, row in df.iterrows():
+                        stock_code = row['ts_code'].split('.')[0]
+                        await db.execute("""
+                            INSERT OR REPLACE INTO daily_basic
+                            (stock_code, trade_date, close, turnover_rate, turnover_rate_f, volume_ratio,
+                             pe, pe_ttm, pb, ps, ps_ttm, dv_ratio, dv_ttm,
+                             total_share, float_share, free_share, total_mv, circ_mv, created_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                        """, (
+                            stock_code,
+                            row['trade_date'].strftime('%Y-%m-%d'),
+                            float(row['close']) if pd.notna(row['close']) else None,
+                            float(row['turnover_rate']) if pd.notna(row['turnover_rate']) else None,
+                            float(row['turnover_rate_f']) if pd.notna(row['turnover_rate_f']) else None,
+                            float(row['volume_ratio']) if pd.notna(row['volume_ratio']) else None,
+                            float(row['pe']) if pd.notna(row['pe']) else None,
+                            float(row['pe_ttm']) if pd.notna(row['pe_ttm']) else None,
+                            float(row['pb']) if pd.notna(row['pb']) else None,
+                            float(row['ps']) if pd.notna(row['ps']) else None,
+                            float(row['ps_ttm']) if pd.notna(row['ps_ttm']) else None,
+                            float(row['dv_ratio']) if pd.notna(row['dv_ratio']) else None,
+                            float(row['dv_ttm']) if pd.notna(row['dv_ttm']) else None,
+                            float(row['total_share']) if pd.notna(row['total_share']) else None,
+                            float(row['float_share']) if pd.notna(row['float_share']) else None,
+                            float(row['free_share']) if pd.notna(row['free_share']) else None,
+                            float(row['total_mv']) if pd.notna(row['total_mv']) else None,
+                            float(row['circ_mv']) if pd.notna(row['circ_mv']) else None
+                        ))
+                    await db.commit()
+                total_indicators += len(df)
+                logger.info(f"  成功插入 {len(df)} 条每日指标数据")
+
+            time_module.sleep(0.5)  # API 限流
+
         elapsed_time = time_module.time() - start_time
-        logger.info(f"批量数据采集完成！K线: {total_klines} 条, 资金流向: {total_flows} 条, 耗时: {elapsed_time:.1f}秒")
+        logger.info(f"批量数据采集完成！K线: {total_klines} 条, 资金流向: {total_flows} 条, 技术指标: {total_indicators} 条, 耗时: {elapsed_time:.1f}秒")
 
     except Exception as e:
         logger.error(f"批量数据采集任务失败: {e}")

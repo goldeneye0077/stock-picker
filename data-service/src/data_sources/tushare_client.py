@@ -333,3 +333,140 @@ class TushareClient:
         except Exception as e:
             logger.error(f"Error fetching realtime data for {ts_code}: {e}")
             return None
+
+    async def get_moneyflow_dc(self, ts_code: str = None, trade_date: str = None,
+                                start_date: str = None, end_date: str = None) -> Optional[pd.DataFrame]:
+        """
+        获取个股资金流向数据（DC接口，需要5000积分）
+        数据来源：东方财富，每日盘后更新
+
+        Args:
+            ts_code: 股票代码，例如 '000001.SZ'
+            trade_date: 交易日期 YYYYMMDD
+            start_date: 开始日期 YYYYMMDD
+            end_date: 结束日期 YYYYMMDD
+
+        Returns:
+            资金流向 DataFrame，包含以下字段：
+            - trade_date: 交易日期
+            - ts_code: 股票代码
+            - name: 股票名称
+            - pct_change: 涨跌幅
+            - close: 收盘价
+            - net_mf_amount: 主力净流入额（万元）
+            - net_mf_rate: 主力净流入占比
+            - net_mf_vol: 主力净流入量（手）
+            - buy_elg_amount: 超大单买入额（万元）
+            - sell_elg_amount: 超大单卖出额（万元）
+            - net_elg_amount: 超大单净流入额（万元）
+            - net_elg_rate: 超大单净流入占比
+            - buy_lg_amount: 大单买入额（万元）
+            - sell_lg_amount: 大单卖出额（万元）
+            - net_lg_amount: 大单净流入额（万元）
+            - net_lg_rate: 大单净流入占比
+            - buy_md_amount: 中单买入额（万元）
+            - sell_md_amount: 中单卖出额（万元）
+            - net_md_amount: 中单净流入额（万元）
+            - net_md_rate: 中单净流入占比
+            - buy_sm_amount: 小单买入额（万元）
+            - sell_sm_amount: 小单卖出额（万元）
+            - net_sm_amount: 小单净流入额（万元）
+            - net_sm_rate: 小单净流入占比
+        """
+        if not self.pro:
+            return None
+
+        try:
+            # 如果没有指定日期范围，默认获取最近30天的数据
+            if not start_date and not end_date and not trade_date:
+                end_date = datetime.now().strftime('%Y%m%d')
+                start_date = (datetime.now() - timedelta(days=30)).strftime('%Y%m%d')
+
+            df = self.pro.moneyflow_dc(
+                ts_code=ts_code,
+                trade_date=trade_date,
+                start_date=start_date,
+                end_date=end_date
+            )
+
+            if not df.empty:
+                df['trade_date'] = pd.to_datetime(df['trade_date'])
+                df = df.sort_values('trade_date')
+                logger.info(f"Retrieved {len(df)} DC moneyflow records")
+            else:
+                logger.warning(f"No DC moneyflow data found")
+
+            return df
+        except Exception as e:
+            logger.error(f"Error fetching DC moneyflow data: {e}")
+            return None
+
+    async def get_moneyflow_dc_by_date(self, trade_date: str) -> Optional[pd.DataFrame]:
+        """
+        批量获取指定日期所有股票的资金流向数据（DC接口）
+
+        Args:
+            trade_date: 交易日期，格式 YYYYMMDD，例如 '20250930'
+
+        Returns:
+            包含所有股票资金流向数据的 DataFrame，失败返回 None
+        """
+        if not self.pro:
+            return None
+
+        try:
+            df = self.pro.moneyflow_dc(trade_date=trade_date)
+
+            if not df.empty:
+                df['trade_date'] = pd.to_datetime(df['trade_date'])
+                logger.info(f"Retrieved {len(df)} DC moneyflow records for date {trade_date}")
+            else:
+                logger.warning(f"No DC moneyflow data for date {trade_date}")
+
+            return df
+        except Exception as e:
+            logger.error(f"Error fetching DC moneyflow for date {trade_date}: {e}")
+            return None
+
+    async def get_daily_basic_by_date(self, trade_date: str) -> Optional[pd.DataFrame]:
+        """
+        批量获取指定日期所有股票的每日指标数据
+
+        每日指标包含：
+        - 换手率 (turnover_rate, turnover_rate_f)
+        - 量比 (volume_ratio)
+        - 市盈率 (pe, pe_ttm)
+        - 市净率 (pb)
+        - 市销率 (ps, ps_ttm)
+        - 市现率 (dv_ratio, dv_ttm)
+        - 总市值/流通市值 (total_mv, circ_mv)
+
+        Args:
+            trade_date: 交易日期，格式 YYYYMMDD
+
+        Returns:
+            DataFrame 或 None
+        """
+        if not self.pro:
+            logger.warning("Tushare Pro client not initialized")
+            return None
+
+        try:
+            # 调用 daily_basic 接口
+            df = self.pro.daily_basic(
+                trade_date=trade_date,
+                fields='ts_code,trade_date,close,turnover_rate,turnover_rate_f,volume_ratio,'
+                       'pe,pe_ttm,pb,ps,ps_ttm,dv_ratio,dv_ttm,total_share,float_share,'
+                       'free_share,total_mv,circ_mv'
+            )
+
+            if not df.empty:
+                df['trade_date'] = pd.to_datetime(df['trade_date'])
+                logger.info(f"Retrieved {len(df)} daily_basic records for date {trade_date}")
+            else:
+                logger.warning(f"No daily_basic data for date {trade_date}")
+
+            return df
+        except Exception as e:
+            logger.error(f"Error fetching daily_basic for date {trade_date}: {e}")
+            return None
