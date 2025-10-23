@@ -103,7 +103,7 @@ const MainForceCardComponent: React.FC = () => {
                 </div>
               </div>
             }
-            overlayStyle={{ maxWidth: '500px' }}
+            styles={{ root: { maxWidth: '500px' } }}
           >
             <QuestionCircleOutlined style={{ color: '#1890ff', cursor: 'help' }} />
           </Tooltip>

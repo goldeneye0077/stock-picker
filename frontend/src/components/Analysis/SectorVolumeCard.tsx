@@ -226,7 +226,7 @@ const SectorVolumeCardComponent: React.FC = () => {
           板块成交量异动分析
         </Space>
       }
-      bordered={false}
+      variant="borderless"
       style={{ height: '100%' }}
     >
       {/* 统计概览 */}
