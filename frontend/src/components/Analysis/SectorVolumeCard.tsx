@@ -26,7 +26,7 @@ interface SectorData {
   leadingStockChange: number;
 }
 
-const SectorVolumeCard: React.FC = () => {
+const SectorVolumeCardComponent: React.FC = () => {
   const [data, setData] = useState<SectorData[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -287,4 +287,5 @@ const SectorVolumeCard: React.FC = () => {
   );
 };
 
-export default SectorVolumeCard;
+// 使用命名导出以保持与项目其他组件的一致性
+export const SectorVolumeCard = SectorVolumeCardComponent;
