@@ -72,8 +72,17 @@ npm run test:data-service   # 数据服务测试（cd data-service && python -m 
 ### 前端特定命令
 ```bash
 cd frontend
-npm run lint      # ESLint 代码检查
-npm run preview   # 预览生产构建
+npm run lint           # ESLint 代码检查
+npm run preview        # 预览生产构建
+npm run test:ui        # 可视化测试界面
+npm run test:coverage  # 测试覆盖率报告
+```
+
+### 后端特定命令
+```bash
+cd backend
+npm run test:watch     # 监听模式运行测试
+npm run test:coverage  # 测试覆盖率报告
 ```
 
 ### Docker 部署
@@ -111,6 +120,18 @@ python verify_data.py
 - 运行数据脚本前需在 `data-service/.env` 文件中配置 `TUSHARE_TOKEN`（从 https://tushare.pro/ 获取）
 - **推荐使用** `download_7days_all_stocks.py` 进行批量数据采集，效率提升 300 倍
 - 详细使用说明见 `批量数据采集使用说明.md`
+
+**完整数据工作流**（首次使用或每日更新）：
+```bash
+# 方式一：一键更新（推荐，包含采集、分析、信号生成）
+python update_all_data.py
+
+# 方式二：分步执行
+python download_7days_all_stocks.py  # 1. 采集原始数据
+python analyze_all_stocks.py         # 2. 成交量分析（约13分钟）
+python generate_buy_signals.py       # 3. 生成买入信号
+```
+详细说明见 `数据分析使用说明.md`
 
 ## 核心架构设计
 
@@ -156,10 +177,13 @@ python verify_data.py
 
 ### 数据库表结构
 - `stocks`: 股票基本信息（code, name, exchange, industry）
-- `klines`: K线数据（日线行情）
-- `volume_analysis`: 成交量分析结果
-- `fund_flow`: 资金流向数据
-- `buy_signals`: 买入信号记录
+- `klines`: K线数据（日线行情，包含 OHLC、成交量、成交额）
+- `volume_analysis`: 成交量分析结果（量比、20日均量、异常放量标记）
+- `fund_flow`: 资金流向数据（主力/散户/机构资金流入，大单占比）
+- `buy_signals`: 买入信号记录（信号类型、置信度、价格、成交量）
+- `realtime_quotes`: 实时行情快照（最新行情数据）
+- `quote_history`: 历史行情快照（所有历史记录）
+- `daily_basic`: 每日技术指标（换手率、PE/PB、市值等）
 
 ## 环境配置
 
@@ -198,7 +222,37 @@ TUSHARE_TOKEN=your_tushare_pro_token
 - `GET /api/stocks`: 股票基本信息
 - `GET /api/analysis/{stock_code}`: 个股分析
 - `GET /api/signals`: 买入信号列表
-- `POST /api/data/batch-collect-7days`: ⭐ 批量采集最近 7 天数据（高效）
+- `POST /api/data/batch-collect-7days`: ⭐ 批量采集最近 7 天数据（高效，推荐）
 - `GET /api/data/status`: 查询数据采集状态
 - `POST /api/data/fetch-stocks`: 获取股票列表
 - `POST /api/data/fetch-klines/{stock_code}`: 获取单只股票 K 线数据
+- `GET /api/quotes/realtime/{stock_code}`: 获取实时行情
+
+## 数据工作流程
+
+### 数据流向
+```
+Tushare API
+    ↓
+[数据采集] download_7days_all_stocks.py
+    ↓
+stocks 表 + klines 表 + fund_flow 表
+    ↓
+[成交量分析] analyze_all_stocks.py
+    ↓
+volume_analysis 表
+    ↓
+[信号生成] generate_buy_signals.py
+    ↓
+buy_signals 表
+    ↓
+前端仪表盘展示
+```
+
+### 分析算法说明
+- **成交量分析**：计算 20 日平均成交量和量比（当日成交量/20日均量），量比 > 2.0 标记为异常放量
+- **买入信号生成**：综合评分算法
+  - 成交量评分（40%）：基于量比和异常放量
+  - 价格走势评分（30%）：基于价格涨跌幅
+  - 资金流向评分（30%）：基于主力资金净流入（需 Tushare 高级权限）
+  - 信号分级：强烈买入（>80分）、买入（60-80分）、关注（40-60分）、观察（<40分）

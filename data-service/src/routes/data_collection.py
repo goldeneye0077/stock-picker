@@ -349,7 +349,48 @@ async def batch_collect_7days_task(include_moneyflow: bool = True):
 
                 time_module.sleep(0.5)  # API 限流
 
-        # 5. 批量下载每日指标数据（技术分析指标）
+        # 5. 批量下载大盘资金流向数据（市场整体资金流向）
+        total_market_flows = 0
+        logger.info("开始批量下载大盘资金流向数据（东财市场资金流向）...")
+        for i, trade_date in enumerate(trading_days, 1):
+            logger.info(f"[{i}/{len(trading_days)}] 下载 {trade_date} 大盘资金流向...")
+
+            # 使用 moneyflow_mkt_dc 接口获取市场整体资金流向
+            df = await tushare_client.get_market_moneyflow(trade_date=trade_date)
+            if df is not None and not df.empty:
+                async with get_database() as db:
+                    for _, row in df.iterrows():
+                        await db.execute("""
+                            INSERT OR REPLACE INTO market_moneyflow
+                            (trade_date, close_sh, pct_change_sh, close_sz, pct_change_sz,
+                             net_amount, net_amount_rate, buy_elg_amount, buy_elg_amount_rate,
+                             buy_lg_amount, buy_lg_amount_rate, buy_md_amount, buy_md_amount_rate,
+                             buy_sm_amount, buy_sm_amount_rate, created_at, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+                        """, (
+                            row['trade_date'].strftime('%Y-%m-%d'),
+                            float(row.get('close_sh', 0)),
+                            float(row.get('pct_change_sh', 0)),
+                            float(row.get('close_sz', 0)),
+                            float(row.get('pct_change_sz', 0)),
+                            float(row.get('net_amount', 0)),
+                            float(row.get('net_amount_rate', 0)),
+                            float(row.get('buy_elg_amount', 0)),
+                            float(row.get('buy_elg_amount_rate', 0)),
+                            float(row.get('buy_lg_amount', 0)),
+                            float(row.get('buy_lg_amount_rate', 0)),
+                            float(row.get('buy_md_amount', 0)),
+                            float(row.get('buy_md_amount_rate', 0)),
+                            float(row.get('buy_sm_amount', 0)),
+                            float(row.get('buy_sm_amount_rate', 0))
+                        ))
+                    await db.commit()
+                total_market_flows += len(df)
+                logger.info(f"  成功插入 {len(df)} 条大盘资金流向数据")
+
+            time_module.sleep(0.5)  # API 限流
+
+        # 6. 批量下载每日指标数据（技术分析指标）
         total_indicators = 0
         logger.info("开始批量下载每日指标数据（技术分析）...")
         for i, trade_date in enumerate(trading_days, 1):
@@ -393,7 +434,7 @@ async def batch_collect_7days_task(include_moneyflow: bool = True):
             time_module.sleep(0.5)  # API 限流
 
         elapsed_time = time_module.time() - start_time
-        logger.info(f"批量数据采集完成！K线: {total_klines} 条, 资金流向: {total_flows} 条, 技术指标: {total_indicators} 条, 耗时: {elapsed_time:.1f}秒")
+        logger.info(f"批量数据采集完成！K线: {total_klines} 条, 个股资金流向: {total_flows} 条, 大盘资金流向: {total_market_flows} 条, 技术指标: {total_indicators} 条, 耗时: {elapsed_time:.1f}秒")
 
     except Exception as e:
         logger.error(f"批量数据采集任务失败: {e}")

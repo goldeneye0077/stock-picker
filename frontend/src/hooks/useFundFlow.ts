@@ -6,7 +6,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { message } from 'antd';
 import {
-  fetchFundFlowData,
+  fetchMarketMoneyflowData,
   type FundFlowParams
 } from '../services/analysisService';
 
@@ -25,45 +25,52 @@ export function useFundFlow(initialParams: FundFlowParams = {}) {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await fetchFundFlowData(params);
+      const result = await fetchMarketMoneyflowData(params);
 
       if (result.summary) {
         const summary = result.summary;
         const totalFlow =
-          Math.abs(summary.totalMainFlow) +
-          Math.abs(summary.totalRetailFlow) +
-          Math.abs(summary.totalInstitutionalFlow);
+          Math.abs(summary.totalElgAmount) +
+          Math.abs(summary.totalLgAmount) +
+          Math.abs(summary.totalMdAmount) +
+          Math.abs(summary.totalSmAmount);
 
         const displayData: FundFlowDisplay[] = [
           {
-            type: '主力资金',
-            amount: `${summary.totalMainFlow >= 0 ? '+' : ''}${(summary.totalMainFlow / 100000000).toFixed(1)}亿`,
-            percent: totalFlow > 0 ? (Math.abs(summary.totalMainFlow) / totalFlow) * 100 : 0,
+            type: '超大单',
+            amount: `${summary.totalElgAmount >= 0 ? '+' : ''}${(summary.totalElgAmount / 100000000).toFixed(1)}亿`,
+            percent: totalFlow > 0 ? (Math.abs(summary.totalElgAmount) / totalFlow) * 100 : 0,
             color: '#f50'
           },
           {
-            type: '机构资金',
-            amount: `${summary.totalInstitutionalFlow >= 0 ? '+' : ''}${(summary.totalInstitutionalFlow / 100000000).toFixed(1)}亿`,
-            percent: totalFlow > 0 ? (Math.abs(summary.totalInstitutionalFlow) / totalFlow) * 100 : 0,
+            type: '大单',
+            amount: `${summary.totalLgAmount >= 0 ? '+' : ''}${(summary.totalLgAmount / 100000000).toFixed(1)}亿`,
+            percent: totalFlow > 0 ? (Math.abs(summary.totalLgAmount) / totalFlow) * 100 : 0,
+            color: '#ff7a45'
+          },
+          {
+            type: '中单',
+            amount: `${summary.totalMdAmount >= 0 ? '+' : ''}${(summary.totalMdAmount / 100000000).toFixed(1)}亿`,
+            percent: totalFlow > 0 ? (Math.abs(summary.totalMdAmount) / totalFlow) * 100 : 0,
             color: '#2db7f5'
           },
           {
-            type: '散户资金',
-            amount: `${summary.totalRetailFlow >= 0 ? '+' : ''}${(summary.totalRetailFlow / 100000000).toFixed(1)}亿`,
-            percent: totalFlow > 0 ? (Math.abs(summary.totalRetailFlow) / totalFlow) * 100 : 0,
+            type: '小单',
+            amount: `${summary.totalSmAmount >= 0 ? '+' : ''}${(summary.totalSmAmount / 100000000).toFixed(1)}亿`,
+            percent: totalFlow > 0 ? (Math.abs(summary.totalSmAmount) / totalFlow) * 100 : 0,
             color: '#87d068'
           }
         ];
 
         setData(displayData);
-        message.success('资金流向数据已刷新');
+        message.success('大盘资金流向数据已刷新');
       } else {
         setData([]);
-        message.info('暂无资金流向数据');
+        message.info('暂无大盘资金流向数据');
       }
     } catch (error) {
-      console.error('Error fetching fund flow data:', error);
-      message.error('刷新资金流向数据失败');
+      console.error('Error fetching market moneyflow data:', error);
+      message.error('刷新大盘资金流向数据失败');
       setData([]);
     } finally {
       setLoading(false);

@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree -L 3 -I 'node_modules|.git' /e/stock_an/stock-picker)",
+      "Bash(cat /e/stock_an/stock-picker/package.json)",
+      "Bash(cat /e/stock_an/stock-picker/docker-compose.yml)",
+      "Bash(cat /e/stock_an/stock-picker/README.md)",
+      "Bash(cat /e/stock_an/stock-picker/frontend/package.json)",
+      "Bash(cat /e/stock_an/stock-picker/backend/package.json)",
+      "Bash(cat /e/stock_an/stock-picker/data-service/requirements.txt)",
+      "mcp__memory__create_entities",
+      "mcp__memory__create_relations"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

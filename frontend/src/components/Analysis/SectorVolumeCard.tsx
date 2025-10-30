@@ -3,15 +3,18 @@
  * 分析各行业板块的成交量变化趋势
  */
 
-import React, { useState, useEffect } from 'react';
-import { Card, Table, Progress, Tag, Space, Statistic, Row, Col, Empty } from 'antd';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Card, Table, Progress, Tag, Space, Statistic, Row, Col, Empty, Button, Tooltip, message } from 'antd';
 import {
   RiseOutlined,
   FallOutlined,
   FireOutlined,
-  ThunderboltOutlined
+  ThunderboltOutlined,
+  SyncOutlined,
+  QuestionCircleOutlined
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import { fetchSectorVolumeData } from '../../services/analysisService';
 
 interface SectorData {
   key: string;
@@ -29,92 +32,45 @@ interface SectorData {
 const SectorVolumeCardComponent: React.FC = () => {
   const [data, setData] = useState<SectorData[]>([]);
   const [loading, setLoading] = useState(false);
+  const [summary, setSummary] = useState<any>(null);
 
-  // 模拟数据 - 实际应该从API获取
-  useEffect(() => {
+  // 获取板块成交量数据
+  const fetchData = useCallback(async () => {
     setLoading(true);
+    try {
+      const result = await fetchSectorVolumeData({ days: 5 });
 
-    // 模拟API调用延迟
-    setTimeout(() => {
-      const mockData: SectorData[] = [
-        {
-          key: '1',
-          sector: '电子信息',
-          volume: 1250000000,
-          volumeChange: 45.8,
-          stockCount: 156,
-          upCount: 98,
-          downCount: 58,
-          avgChange: 3.2,
-          leadingStock: '歌尔股份',
-          leadingStockChange: 8.5
-        },
-        {
-          key: '2',
-          sector: '医药生物',
-          volume: 980000000,
-          volumeChange: 32.5,
-          stockCount: 142,
-          upCount: 89,
-          downCount: 53,
-          avgChange: 2.8,
-          leadingStock: '迈瑞医疗',
-          leadingStockChange: 6.2
-        },
-        {
-          key: '3',
-          sector: '新能源',
-          volume: 1580000000,
-          volumeChange: 28.3,
-          stockCount: 98,
-          upCount: 67,
-          downCount: 31,
-          avgChange: 4.1,
-          leadingStock: '宁德时代',
-          leadingStockChange: 5.7
-        },
-        {
-          key: '4',
-          sector: '半导体',
-          volume: 750000000,
-          volumeChange: 25.7,
-          stockCount: 87,
-          upCount: 54,
-          downCount: 33,
-          avgChange: 2.3,
-          leadingStock: '中芯国际',
-          leadingStockChange: 7.8
-        },
-        {
-          key: '5',
-          sector: '银行',
-          volume: 1100000000,
-          volumeChange: -12.3,
-          stockCount: 42,
-          upCount: 18,
-          downCount: 24,
-          avgChange: -0.8,
-          leadingStock: '招商银行',
-          leadingStockChange: 1.2
-        },
-        {
-          key: '6',
-          sector: '房地产',
-          volume: 650000000,
-          volumeChange: -18.5,
-          stockCount: 68,
-          upCount: 22,
-          downCount: 46,
-          avgChange: -1.5,
-          leadingStock: '万科A',
-          leadingStockChange: -2.3
-        }
-      ];
+      if (result.sectors && Array.isArray(result.sectors)) {
+        // 转换数据格式
+        const formattedData: SectorData[] = result.sectors.map((item: any, index: number) => ({
+          key: String(index + 1),
+          sector: item.sector || '',
+          volume: item.volume || 0,
+          volumeChange: item.volume_change || 0,
+          stockCount: item.stock_count || 0,
+          upCount: item.up_count || 0,
+          downCount: item.down_count || 0,
+          avgChange: item.avg_change || 0,
+          leadingStock: item.leading_stock || '',
+          leadingStockChange: item.leading_stock_change || 0
+        }));
 
-      setData(mockData);
+        setData(formattedData);
+        setSummary(result.summary);
+        message.success('板块数据已刷新');
+      }
+    } catch (error) {
+      console.error('Error fetching sector volume data:', error);
+      message.error('获取板块数据失败');
+    } finally {
       setLoading(false);
-    }, 500);
+    }
   }, []);
+
+  // 初始加载数据
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const columns: ColumnsType<SectorData> = [
     {
@@ -210,13 +166,13 @@ const SectorVolumeCardComponent: React.FC = () => {
     }
   ];
 
-  // 计算统计数据
-  const totalVolume = data.reduce((sum, item) => sum + item.volume, 0);
-  const avgVolumeChange = data.length > 0
+  // 使用后端返回的统计数据，如果没有则计算
+  const totalVolume = summary?.totalVolume || data.reduce((sum, item) => sum + item.volume, 0);
+  const avgVolumeChange = summary?.avgVolumeChange || (data.length > 0
     ? data.reduce((sum, item) => sum + item.volumeChange, 0) / data.length
-    : 0;
-  const activeSectors = data.filter(item => item.volumeChange > 20).length;
-  const weakSectors = data.filter(item => item.volumeChange < -10).length;
+    : 0);
+  const activeSectors = summary?.activeSectors || data.filter(item => item.volumeChange > 20).length;
+  const weakSectors = summary?.weakSectors || data.filter(item => item.volumeChange < -10).length;
 
   return (
     <Card
@@ -224,7 +180,32 @@ const SectorVolumeCardComponent: React.FC = () => {
         <Space>
           <ThunderboltOutlined style={{ color: '#1890ff' }} />
           板块成交量异动分析
+          <Tooltip
+            title={
+              <div style={{ fontSize: '12px' }}>
+                <div><strong>算法说明：</strong></div>
+                <div>• 计算窗口：对比最近5日平均成交量</div>
+                <div>• 量比变化：(今日总成交量 - 5日平均) / 5日平均 × 100%</div>
+                <div>• 活跃板块：量比变化 &gt; 20%</div>
+                <div>• 弱势板块：量比变化 &lt; -10%</div>
+                <div>• 龙头股：板块内当日涨幅最高的股票</div>
+              </div>
+            }
+            placement="right"
+          >
+            <QuestionCircleOutlined style={{ color: '#1890ff', cursor: 'help' }} />
+          </Tooltip>
         </Space>
+      }
+      extra={
+        <Button
+          size="small"
+          icon={<SyncOutlined spin={loading} />}
+          onClick={fetchData}
+          loading={loading}
+        >
+          刷新
+        </Button>
       }
       variant="borderless"
       style={{ height: '100%' }}
@@ -271,9 +252,15 @@ const SectorVolumeCardComponent: React.FC = () => {
         columns={columns}
         dataSource={data}
         loading={loading}
-        pagination={false}
+        pagination={{
+          pageSize: 10,
+          showSizeChanger: true,
+          showQuickJumper: true,
+          showTotal: (total) => `共 ${total} 个板块`,
+          pageSizeOptions: ['10', '20', '50']
+        }}
         size="small"
-        scroll={{ x: 800, y: 300 }}
+        scroll={{ x: 800, y: 400 }}
         locale={{
           emptyText: (
             <Empty

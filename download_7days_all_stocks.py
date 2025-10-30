@@ -121,7 +121,7 @@ def download_stocks_basic(tushare_client, conn):
             print(f"插入股票 {stock.get('ts_code', 'unknown')} 失败: {e}")
 
     conn.commit()
-    print(f"✓ 股票基本信息插入完成，共 {stock_count} 只\n")
+    print(f"OK 股票基本信息插入完成，共 {stock_count} 只\n")
 
     return stock_count
 
@@ -157,7 +157,7 @@ def download_daily_data_batch(tushare_client, conn, trading_days: list):
             api_calls += 1
 
             if df is None or df.empty:
-                print(f"  ⊗ {trade_date} 无数据（非交易日）")
+                print(f"  x {trade_date} 无数据（非交易日）")
                 time.sleep(0.5)  # API 限流
                 continue
 
@@ -189,7 +189,7 @@ def download_daily_data_batch(tushare_client, conn, trading_days: list):
 
             conn.commit()
             total_klines += kline_count
-            print(f"  ✓ 成功插入 {kline_count} 条K线数据")
+            print(f"  OK 成功插入 {kline_count} 条K线数据")
 
             # API 限流：每分钟 120 次，安全起见每次间隔 0.5 秒
             time.sleep(0.5)
@@ -198,7 +198,7 @@ def download_daily_data_batch(tushare_client, conn, trading_days: list):
             print(f"  ✗ 下载 {trade_date} 数据失败: {e}")
             time.sleep(1)
 
-    print(f"\n✓ 日线数据下载完成，共 {total_klines} 条K线，API调用 {api_calls} 次")
+    print(f"\nOK 日线数据下载完成，共 {total_klines} 条K线，API调用 {api_calls} 次")
     return total_klines, api_calls
 
 
@@ -233,7 +233,7 @@ def download_moneyflow_batch(tushare_client, conn, trading_days: list):
             api_calls += 1
 
             if df is None or df.empty:
-                print(f"  ⊗ {trade_date} 无资金流向数据")
+                print(f"  x {trade_date} 无资金流向数据")
                 time.sleep(0.5)
                 continue
 
@@ -251,6 +251,15 @@ def download_moneyflow_batch(tushare_client, conn, trading_days: list):
 
                     large_order_ratio = total_amount / (total_amount + small_amount) if (total_amount + small_amount) > 0 else 0
 
+                    # 计算机构资金流入（使用特大单作为机构资金的近似值）
+                    # 主力资金 = 大单 + 特大单
+                    # 机构资金近似为特大单
+                    institutional_flow = float(row.get('extra_large_net_flow', 0))
+
+                    # 调试：打印前5条数据查看
+                    if record_count < 5:
+                        print(f"  调试 - {stock_code}: main={row['main_fund_flow']}, extra_large={row.get('extra_large_net_flow', 'N/A')}, inst={institutional_flow}")
+
                     cursor.execute("""
                         INSERT OR REPLACE INTO fund_flow
                         (stock_code, date, main_fund_flow, retail_fund_flow, institutional_flow, large_order_ratio, created_at)
@@ -260,7 +269,7 @@ def download_moneyflow_batch(tushare_client, conn, trading_days: list):
                         row['trade_date'].strftime('%Y-%m-%d'),
                         float(row['main_fund_flow']),
                         float(row['retail_fund_flow']),
-                        float(row['large_net_flow']),  # 使用大单净流入作为机构流入
+                        institutional_flow,  # 使用特大单作为机构资金
                         round(large_order_ratio, 4)
                     ))
                     record_count += 1
@@ -270,7 +279,7 @@ def download_moneyflow_batch(tushare_client, conn, trading_days: list):
 
             conn.commit()
             total_records += record_count
-            print(f"  ✓ 成功插入 {record_count} 条资金流向数据")
+            print(f"  OK 成功插入 {record_count} 条资金流向数据")
 
             time.sleep(0.5)  # API 限流
 
@@ -278,7 +287,7 @@ def download_moneyflow_batch(tushare_client, conn, trading_days: list):
             print(f"  ✗ 下载 {trade_date} 资金流向失败: {e}")
             time.sleep(1)
 
-    print(f"\n✓ 资金流向数据下载完成，共 {total_records} 条记录，API调用 {api_calls} 次")
+    print(f"\nOK 资金流向数据下载完成，共 {total_records} 条记录，API调用 {api_calls} 次")
     return total_records, api_calls
 
 
@@ -339,7 +348,7 @@ def generate_volume_analysis(conn):
             print(f"  已处理 {i+1}/{len(stocks)} 只股票...")
 
     conn.commit()
-    print(f"✓ 成交量分析完成，生成 {analysis_count} 条分析记录\n")
+    print(f"OK 成交量分析完成，生成 {analysis_count} 条分析记录\n")
 
     return analysis_count
 
@@ -399,12 +408,12 @@ def main():
         print("\n" + "=" * 60)
         print("数据下载完成！")
         print("=" * 60)
-        print(f"✓ 股票数量: {stock_count} 只")
-        print(f"✓ K线数据: {klines_count} 条")
-        print(f"✓ 资金流向: {flow_count} 条")
-        print(f"✓ 成交量分析: {analysis_count} 条")
-        print(f"✓ API 调用次数: {total_api_calls} 次（远低于 200 次限额）")
-        print(f"✓ 总耗时: {elapsed_time:.1f} 秒")
+        print(f"OK 股票数量: {stock_count} 只")
+        print(f"OK K线数据: {klines_count} 条")
+        print(f"OK 资金流向: {flow_count} 条")
+        print(f"OK 成交量分析: {analysis_count} 条")
+        print(f"OK API 调用次数: {total_api_calls} 次（远低于 200 次限额）")
+        print(f"OK 总耗时: {elapsed_time:.1f} 秒")
         print("=" * 60)
 
     except Exception as e:

@@ -221,6 +221,56 @@ export async function initDatabase(): Promise<void> {
     )
   `);
 
+  // 大盘资金流向表（东财市场资金流向数据）
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS market_moneyflow (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      trade_date TEXT UNIQUE NOT NULL,
+      close_sh REAL,
+      pct_change_sh REAL,
+      close_sz REAL,
+      pct_change_sz REAL,
+      net_amount REAL,
+      net_amount_rate REAL,
+      buy_elg_amount REAL,
+      buy_elg_amount_rate REAL,
+      buy_lg_amount REAL,
+      buy_lg_amount_rate REAL,
+      buy_md_amount REAL,
+      buy_md_amount_rate REAL,
+      buy_sm_amount REAL,
+      buy_sm_amount_rate REAL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // 板块资金流向表（东财概念及行业板块资金流向数据）
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS sector_moneyflow (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      trade_date TEXT NOT NULL,
+      ts_code TEXT,
+      name TEXT NOT NULL,
+      pct_change REAL,
+      close REAL,
+      net_amount REAL,
+      net_amount_rate REAL,
+      buy_elg_amount REAL,
+      buy_elg_amount_rate REAL,
+      buy_lg_amount REAL,
+      buy_lg_amount_rate REAL,
+      buy_md_amount REAL,
+      buy_md_amount_rate REAL,
+      buy_sm_amount REAL,
+      buy_sm_amount_rate REAL,
+      rank INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(trade_date, name)
+    )
+  `);
+
   // 创建索引优化查询性能
   await db.run('CREATE INDEX IF NOT EXISTS idx_realtime_stock_code ON realtime_quotes(stock_code)');
   await db.run('CREATE INDEX IF NOT EXISTS idx_realtime_updated_at ON realtime_quotes(updated_at)');
@@ -230,6 +280,10 @@ export async function initDatabase(): Promise<void> {
   await db.run('CREATE INDEX IF NOT EXISTS idx_daily_basic_stock_code ON daily_basic(stock_code)');
   await db.run('CREATE INDEX IF NOT EXISTS idx_daily_basic_trade_date ON daily_basic(trade_date)');
   await db.run('CREATE INDEX IF NOT EXISTS idx_daily_basic_stock_date ON daily_basic(stock_code, trade_date)');
+  await db.run('CREATE INDEX IF NOT EXISTS idx_market_moneyflow_date ON market_moneyflow(trade_date)');
+  await db.run('CREATE INDEX IF NOT EXISTS idx_sector_moneyflow_date ON sector_moneyflow(trade_date)');
+  await db.run('CREATE INDEX IF NOT EXISTS idx_sector_moneyflow_name ON sector_moneyflow(name)');
+  await db.run('CREATE INDEX IF NOT EXISTS idx_sector_moneyflow_date_name ON sector_moneyflow(trade_date, name)');
 
   console.log('Database tables created successfully');
 }

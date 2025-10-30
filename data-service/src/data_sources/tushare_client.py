@@ -239,6 +239,115 @@ class TushareClient:
             logger.error(f"Error fetching trade calendar: {e}")
             return None
 
+    async def get_market_moneyflow(self, start_date: str = None, end_date: str = None, trade_date: str = None) -> Optional[pd.DataFrame]:
+        """
+        获取大盘资金流向数据（东财市场资金流向）
+
+        Args:
+            start_date: 开始日期 YYYYMMDD
+            end_date: 结束日期 YYYYMMDD
+            trade_date: 交易日期 YYYYMMDD（与日期范围二选一）
+
+        Returns:
+            大盘资金流向 DataFrame，包含以下字段：
+            - trade_date: 交易日期
+            - close_sh: 上证指数收盘点位
+            - pct_change_sh: 上证指数涨跌幅
+            - close_sz: 深证指数收盘点位
+            - pct_change_sz: 深证指数涨跌幅
+            - net_amount: 主力资金净流入金额（元）
+            - net_amount_rate: 主力资金净流入占比（%）
+            - buy_elg_amount: 超大单净流入金额（元）
+            - buy_elg_amount_rate: 超大单净流入占比（%）
+            - buy_lg_amount: 大单净流入金额（元）
+            - buy_lg_amount_rate: 大单净流入占比（%）
+            - buy_md_amount: 中单净流入金额（元）
+            - buy_md_amount_rate: 中单净流入占比（%）
+            - buy_sm_amount: 小单净流入金额（元）
+            - buy_sm_amount_rate: 小单净流入占比（%）
+        """
+        if not self.pro:
+            return None
+
+        try:
+            params = {}
+            if trade_date:
+                params['trade_date'] = trade_date
+            elif start_date and end_date:
+                params['start_date'] = start_date
+                params['end_date'] = end_date
+            else:
+                logger.warning("Either trade_date or start_date/end_date must be provided")
+                return None
+
+            df = self.pro.moneyflow_mkt_dc(**params)
+
+            if not df.empty:
+                df['trade_date'] = pd.to_datetime(df['trade_date'])
+                logger.info(f"Retrieved {len(df)} market moneyflow records")
+            else:
+                logger.warning(f"No market moneyflow data available")
+
+            return df
+        except Exception as e:
+            logger.error(f"Error fetching market moneyflow: {e}")
+            return None
+
+    async def get_sector_moneyflow(self, trade_date: str = None, start_date: str = None, end_date: str = None) -> Optional[pd.DataFrame]:
+        """
+        获取板块资金流向数据（东财概念及行业板块资金流向）
+
+        Args:
+            trade_date: 交易日期，格式 YYYYMMDD
+            start_date: 开始日期，格式 YYYYMMDD
+            end_date: 结束日期，格式 YYYYMMDD
+
+        Returns:
+            板块资金流向 DataFrame，包含以下字段：
+            - trade_date: 交易日期
+            - ts_code: 板块代码
+            - name: 板块名称
+            - pct_change: 板块涨跌幅（%）
+            - close: 板块指数
+            - net_amount: 主力净流入额（元）
+            - net_amount_rate: 主力净流入占比（%）
+            - buy_elg_amount: 超大单净流入额（元）
+            - buy_elg_amount_rate: 超大单净流入占比（%）
+            - buy_lg_amount: 大单净流入额（元）
+            - buy_lg_amount_rate: 大单净流入占比（%）
+            - buy_md_amount: 中单净流入额（元）
+            - buy_md_amount_rate: 中单净流入占比（%）
+            - buy_sm_amount: 小单净流入额（元）
+            - buy_sm_amount_rate: 小单净流入占比（%）
+            - rank: 排名
+        """
+        if not self.pro:
+            return None
+
+        try:
+            params = {}
+            if trade_date:
+                params['trade_date'] = trade_date
+            elif start_date and end_date:
+                params['start_date'] = start_date
+                params['end_date'] = end_date
+            else:
+                logger.warning("Either trade_date or start_date/end_date must be provided")
+                return None
+
+            df = self.pro.moneyflow_ind_dc(**params)
+
+            if not df.empty:
+                df['trade_date'] = pd.to_datetime(df['trade_date'])
+                logger.info(f"Retrieved {len(df)} sector moneyflow records")
+            else:
+                logger.warning(f"No sector moneyflow data available")
+
+            return df
+        except Exception as e:
+            logger.error(f"Error fetching sector moneyflow: {e}")
+            return None
+
     async def get_realtime_quotes(self, ts_codes: List[str] = None) -> Optional[pd.DataFrame]:
         """
         获取实时行情数据

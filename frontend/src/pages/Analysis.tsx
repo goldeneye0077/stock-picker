@@ -9,13 +9,22 @@ import {
   FundFlowCard,
   VolumeAnalysisCard,
   MainForceCard,
-  SectorVolumeCard
+  SectorMoneyFlowCard,
+  SectorVolumeCard,
+  HotSectorStocksCard
 } from '../components/Analysis';
 
 const Analysis: React.FC = () => {
   return (
     <div style={{ padding: '24px' }}>
       <Row gutter={[16, 16]}>
+        {/* 热点板块龙头股票（交叉分析） */}
+        <Col span={24}>
+          <HotSectorStocksCard />
+        </Col>
+      </Row>
+
+      <Row gutter={[16, 16]} style={{ marginTop: '16px' }}>
         {/* 资金流向分析 */}
         <Col xs={24} lg={10}>
           <FundFlowCard />
@@ -24,6 +33,13 @@ const Analysis: React.FC = () => {
         {/* 成交量异动分析 */}
         <Col xs={24} lg={14}>
           <VolumeAnalysisCard />
+        </Col>
+      </Row>
+
+      <Row gutter={[16, 16]} style={{ marginTop: '16px' }}>
+        {/* 板块资金流向分析 */}
+        <Col span={24}>
+          <SectorMoneyFlowCard />
         </Col>
       </Row>
 

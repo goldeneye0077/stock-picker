@@ -5,8 +5,8 @@
  */
 
 import React, { useCallback } from 'react';
-import { Card, List, Tag, Space, Button, Typography } from 'antd';
-import { FireOutlined, SyncOutlined } from '@ant-design/icons';
+import { Card, List, Tag, Space, Button, Typography, Tooltip } from 'antd';
+import { FireOutlined, SyncOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import { useVolumeAnalysis } from '../../hooks/useVolumeAnalysis';
 import { FilterBar } from './FilterBar';
 
@@ -49,6 +49,20 @@ const VolumeAnalysisCardComponent: React.FC = () => {
         <Space>
           <FireOutlined />
           <Title level={5} style={{ margin: 0 }}>成交量异动分析</Title>
+          <Tooltip
+            title={
+              <div style={{ fontSize: '12px' }}>
+                <div><strong>算法说明：</strong></div>
+                <div>• 计算窗口：20日平均成交量</div>
+                <div>• 量比公式：当日成交量 ÷ 20日平均成交量</div>
+                <div>• 异动阈值：量比 &gt; 2.0倍</div>
+                <div>• 说明：量比越高，资金介入越明显</div>
+              </div>
+            }
+            placement="right"
+          >
+            <QuestionCircleOutlined style={{ color: '#1890ff', cursor: 'help' }} />
+          </Tooltip>
         </Space>
       }
       extra={
