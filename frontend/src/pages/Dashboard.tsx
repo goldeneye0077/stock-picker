@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Card, Row, Col, Statistic, List, Tag, message, Progress, Space, Typography, Tooltip, Table } from 'antd';
 import { ArrowUpOutlined, ArrowDownOutlined, RiseOutlined, FundOutlined, InfoCircleOutlined, CrownOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import dayjs from 'dayjs';
 import { API_BASE_URL, API_ENDPOINTS } from '../config/api';
+import { MarketSentimentCard } from '../components/Dashboard/MarketSentimentCard';
+import { SectorAnalysisCard } from '../components/Dashboard/SectorAnalysisCard';
 
 const { Text, Title } = Typography;
 
@@ -103,9 +106,9 @@ const Dashboard: React.FC = () => {
     { title: '买入提醒', value: 0, prefix: <ArrowUpOutlined /> },
     { title: '预警消息', value: 0, prefix: <ArrowDownOutlined /> },
   ]);
-  const [signals, setSignals] = useState([]);
-  const [volumeAnalysis, setVolumeAnalysis] = useState([]);
-  const [mainForceData, setMainForceData] = useState([]);
+  const [signals, setSignals] = useState<any[]>([]);;
+  const [volumeAnalysis, setVolumeAnalysis] = useState<any[]>([]);;
+  const [mainForceData, setMainForceData] = useState<any[]>([]);;
   const [loading, setLoading] = useState(false);
 
   // 计算精选股票（同时出现在成交量异动和主力行为分析中的股票）
@@ -228,6 +231,8 @@ const Dashboard: React.FC = () => {
     fetchDashboardData();
   }, []);
 
+  const currentDate = dayjs().format('YYYY-MM-DD');
+
   return (
     <div style={{ padding: '24px' }}>
       {/* 精选股票卡片 - 始终显示 */}
@@ -237,7 +242,7 @@ const Dashboard: React.FC = () => {
             title={
               <Space>
                 <CrownOutlined style={{ color: '#faad14', fontSize: '20px' }} />
-                <span style={{ fontSize: '16px', fontWeight: 'bold' }}>精选股票</span>
+                <span style={{ fontSize: '16px', fontWeight: 'bold' }}>精选股票 ({currentDate})</span>
                 <Tag color="gold" style={{ marginLeft: '8px' }}>
                   双重信号
                 </Tag>
@@ -355,7 +360,7 @@ const Dashboard: React.FC = () => {
                         size="small"
                         strokeColor={
                           strength >= 80 ? '#ff4d4f' :
-                          strength >= 60 ? '#faad14' : '#52c41a'
+                            strength >= 60 ? '#faad14' : '#52c41a'
                         }
                         format={() => `${strength}%`}
                       />
@@ -458,10 +463,19 @@ const Dashboard: React.FC = () => {
 
       <Row gutter={[16, 16]} style={{ marginTop: '24px' }}>
         <Col span={12}>
+          <MarketSentimentCard />
+        </Col>
+        <Col span={12}>
+          <SectorAnalysisCard />
+        </Col>
+      </Row>
+
+      <Row gutter={[16, 16]} style={{ marginTop: '24px' }}>
+        <Col span={12}>
           <Card
             title={
               <Space>
-                今日信号
+                今日信号 ({currentDate})
                 <Tooltip
                   title={
                     <div style={{ padding: '8px' }}>
@@ -526,7 +540,7 @@ const Dashboard: React.FC = () => {
           </Card>
         </Col>
         <Col span={12}>
-          <Card title="市场概览" style={{ height: '300px' }} loading={loading}>
+          <Card title={`市场概览 (${currentDate})`} style={{ height: '300px' }} loading={loading}>
             <MarketOverviewContent stats={stats} signals={signals} />
           </Card>
         </Col>

@@ -45,10 +45,10 @@ const CONFIG = {
       name: '数据服务',
       color: '\x1b[32m', // 绿色
       command: 'python',
-      args: ['-m', 'uvicorn', 'src.main:app', '--reload', '--port', '8001'],
+      args: ['-m', 'uvicorn', 'src.main:app', '--reload', '--port', '8002'],
       cwd: path.join(__dirname, 'data-service'),
-      port: 8001,
-      healthCheck: 'http://localhost:8001/health',
+      port: 8002,
+      healthCheck: 'http://localhost:8002/health',
       envFile: path.join(__dirname, 'data-service', '.env')
     }
   ],
@@ -390,8 +390,8 @@ function displayServiceInfo() {
 
   log('📊 前端界面: http://localhost:3001', COLORS.yellow + COLORS.bright);
   log('🔌 后端 API: http://localhost:3000', COLORS.cyan + COLORS.bright);
-  log('📈 数据服务: http://localhost:8001', COLORS.green + COLORS.bright);
-  log('📝 数据服务文档: http://localhost:8001/docs', COLORS.green);
+  log('📈 数据服务: http://localhost:8002', COLORS.green + COLORS.bright);
+  log('📝 数据服务文档: http://localhost:8002/docs', COLORS.green);
 
   console.log('\n' + '='.repeat(60));
   log('提示：按 Ctrl+C 停止所有服务', COLORS.magenta);

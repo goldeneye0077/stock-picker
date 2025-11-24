@@ -46,8 +46,9 @@ const StockList: React.FC = () => {
   }, []);
 
   // 处理日期变化 - 使用 useCallback 优化
-  const handleDateChange = useCallback((date: any, dateString: string) => {
-    updateParams({ date: dateString || undefined });
+  const handleDateChange = useCallback((date: any, dateString: string | string[]) => {
+    const finalDateString = Array.isArray(dateString) ? dateString[0] : dateString;
+    updateParams({ date: finalDateString || undefined });
   }, [updateParams]);
 
   // 重置日期 - 使用 useCallback 优化

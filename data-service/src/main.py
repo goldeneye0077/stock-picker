@@ -58,6 +58,8 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        "http://localhost:3101",
+        "http://127.0.0.1:3101",
         "http://localhost:3001",
         "http://localhost:3002",
         "http://localhost:3004",
@@ -100,7 +102,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "src.main:app",
         host="0.0.0.0",
-        port=8001,
+        port=8002,
         reload=True,
         log_level="info"
     )

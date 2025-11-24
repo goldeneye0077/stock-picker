@@ -226,7 +226,7 @@ export class AnalysisRepository extends BaseRepository {
         FROM fund_flow ff
         LEFT JOIN stocks s ON ff.stock_code = s.code
         LEFT JOIN klines k ON ff.stock_code = k.stock_code AND ff.date = k.date
-        WHERE ff.date >= (SELECT MAX(date) FROM fund_flow WHERE date <= date('now', '-' || ? || ' days'))
+        WHERE ff.date >= date('now', '-' || ? || ' days')
       ),
       aggregated AS (
         SELECT

@@ -15,7 +15,7 @@ interface StockSearchBarProps {
   loading: boolean;
   onSearch: (value: string) => void;
   onSearchChange: (value: string) => void;
-  onDateChange: (date: any, dateString: string) => void;
+  onDateChange: (date: any, dateString: string | string[]) => void;
   onReset: () => void;
   onRefresh: () => void;
 }

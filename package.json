@@ -10,7 +10,7 @@
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\" \"npm run dev:data-service\"",
     "dev:frontend": "cd frontend && npm run dev",
     "dev:backend": "cd backend && npm run dev",
-    "dev:data-service": "cd data-service && python -m uvicorn src.main:app --reload --port 8001",
+    "dev:data-service": "cd data-service && python -m uvicorn src.main:app --reload --port 8002",
     "setup": "npm run install:all && npm run install:python",
     "build": "npm run build:frontend && npm run build:backend",
     "build:frontend": "cd frontend && npm run build",

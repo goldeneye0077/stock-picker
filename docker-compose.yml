@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # Redis 缓存
+  # Redis Cache
   redis:
     image: redis:7-alpine
     container_name: stock-picker-redis
@@ -10,26 +10,29 @@ services:
     networks:
       - stock-picker-network
 
-  # 后端 API 服务
+  # Backend API Service
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: stock-picker-backend
     ports:
-      - "3000:3000"
+      - "3100:3000"
     environment:
-      NODE_ENV: development
-      DATABASE_URL: sqlite:./data/stock_picker.db
-      REDIS_URL: redis://redis:6379
+      - NODE_ENV=production
+      - REDIS_URL=redis://redis:6379
+      # DATABASE_URL is ignored by the code but good to have for reference
+      - DATABASE_URL=sqlite:/data/stock_picker.db
+    env_file:
+      - ./backend/.env
     volumes:
-      - ./data:/app/data
+      - ./data:/data
     depends_on:
       - redis
     networks:
       - stock-picker-network
 
-  # Python 数据处理服务
+  # Python Data Service
   data-service:
     build:
       context: ./data-service
@@ -38,16 +41,37 @@ services:
     ports:
       - "8001:8001"
     environment:
-      DATABASE_URL: sqlite:./data/stock_picker.db
-      REDIS_URL: redis://redis:6379
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=sqlite:/data/stock_picker.db
+    env_file:
+      - ./data-service/.env
     volumes:
-      - ./data:/app/data
+      - ./data:/data
     depends_on:
       - redis
     networks:
       - stock-picker-network
 
+  # Frontend Web App
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: stock-picker-frontend
+    ports:
+      - "3101:80"
+    depends_on:
+      - backend
+    networks:
+      - stock-picker-network
+
 volumes:
+  data:
+    driver: local
+    driver_opts:
+      o: bind
+      type: none
+      device: ./data
 
 networks:
   stock-picker-network:

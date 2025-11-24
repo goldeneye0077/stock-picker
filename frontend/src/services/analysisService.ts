@@ -3,7 +3,7 @@
  * 封装所有分析相关的API调用
  */
 
-import { API_BASE_URL, API_ENDPOINTS } from '../config/api';
+import { API_BASE_URL, API_ENDPOINTS, DATA_SERVICE_URL } from '../config/api';
 
 export interface FundFlowParams {
   days?: number;
@@ -221,6 +221,45 @@ export async function fetchHotSectorStocksData(params: HotSectorStocksParams = {
 
   if (!result.success) {
     throw new Error(result.message || '获取热点板块数据失败');
+  }
+
+  return result.data;
+}
+
+
+/**
+ * 获取市场情绪数据
+ */
+export async function fetchMarketSentiment() {
+  const response = await fetch(`${DATA_SERVICE_URL}/api/analysis/market/sentiment`);
+
+  if (!response.ok) {
+    throw new Error('获取市场情绪数据失败');
+  }
+
+  const result = await response.json();
+
+  if (!result.success) {
+    throw new Error(result.message || '获取市场情绪数据失败');
+  }
+
+  return result.data;
+}
+
+/**
+ * 获取板块分析数据
+ */
+export async function fetchSectorAnalysis() {
+  const response = await fetch(`${DATA_SERVICE_URL}/api/analysis/market/sectors`);
+
+  if (!response.ok) {
+    throw new Error('获取板块分析数据失败');
+  }
+
+  const result = await response.json();
+
+  if (!result.success) {
+    throw new Error(result.message || '获取板块分析数据失败');
   }
 
   return result.data;

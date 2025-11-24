@@ -12,6 +12,7 @@ import Dashboard from './pages/Dashboard';
 import StockList from './pages/StockList';
 import Analysis from './pages/Analysis';
 import Settings from './pages/Settings';
+import DateTimeBanner from './components/DateTimeBanner';
 
 const { darkAlgorithm } = theme;
 
@@ -43,45 +44,46 @@ function AppLayout() {
   const navigate = useNavigate();
 
   return (
-    <div style={{ width: '100vw', height: '100vh' }}>
-      <ProLayout
-        title="智能选股系统"
-        logo={<img src="/logo(1).png" alt="logo" style={{ height: '32px' }} />}
-        route={{
-          routes: menuItems,
-        }}
-        location={{
-          pathname: location.pathname,
-        }}
-        selectedKeys={[location.pathname]}
-        fixSiderbar
-        fixedHeader
-        layout="side"
-        siderWidth={200}
-        contentStyle={{
-          margin: 0,
-          padding: 0,
-          height: '100%',
-          overflow: 'auto',
-        }}
-        menuItemRender={(item, dom) => (
-          <a
-            onClick={() => {
-              navigate(item.path || '/');
-            }}
-          >
-            {dom}
-          </a>
-        )}
-        style={{ minHeight: '100vh' }}
-      >
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/stocks" element={<StockList />} />
-          <Route path="/analysis" element={<Analysis />} />
-          <Route path="/settings" element={<Settings />} />
-        </Routes>
-      </ProLayout>
+    <div style={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <DateTimeBanner />
+      <div style={{ flex: 1, overflow: 'hidden' }}>
+        <ProLayout
+          title="智能选股系统"
+          logo={<img src="/logo(1).png" alt="logo" style={{ height: '32px' }} />}
+          route={{
+            routes: menuItems,
+          }}
+          location={{
+            pathname: location.pathname,
+          }}
+          selectedKeys={[location.pathname]}
+          layout="side"
+          siderWidth={200}
+          contentStyle={{
+            margin: 0,
+            padding: 0,
+            height: '100%',
+            overflow: 'auto',
+          }}
+          menuItemRender={(item, dom) => (
+            <a
+              onClick={() => {
+                navigate(item.path || '/');
+              }}
+            >
+              {dom}
+            </a>
+          )}
+          style={{ height: '100%' }}
+        >
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/stocks" element={<StockList />} />
+            <Route path="/analysis" element={<Analysis />} />
+            <Route path="/settings" element={<Settings />} />
+          </Routes>
+        </ProLayout>
+      </div>
     </div>
   );
 }
