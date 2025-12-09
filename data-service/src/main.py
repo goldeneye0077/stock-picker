@@ -15,7 +15,7 @@ from .models.predictor import BuySignalPredictor
 from .utils.database import init_database
 # 导入路由模块
 try:
-    from .routes import stocks, analysis, signals, data_collection, quotes, technical, fundamental
+    from .routes import stocks, analysis, signals, data_collection, quotes, technical, fundamental, smart_selection
     logger.info("所有路由模块导入成功")
 except ImportError as e:
     logger.error(f"路由模块导入失败: {e}")
@@ -105,6 +105,7 @@ app.include_router(data_collection.router, prefix="/api/data", tags=["data-colle
 app.include_router(quotes.router, prefix="/api/quotes", tags=["quotes"])
 app.include_router(technical.router, prefix="/api/technical", tags=["technical"])
 app.include_router(fundamental.router, prefix="/api/fundamental", tags=["fundamental"])
+app.include_router(smart_selection.router, prefix="/api/smart-selection", tags=["smart-selection"])
 
 @app.get("/")
 async def root():

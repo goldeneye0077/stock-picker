@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智能选股功能测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            border-bottom: 2px solid #1890ff;
+            padding-bottom: 10px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .test-section h2 {
+            color: #666;
+            margin-top: 0;
+        }
+        button {
+            background-color: #1890ff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #40a9ff;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #f9f9f9;
+            border-radius: 4px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .stock-item {
+            border: 1px solid #eee;
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .stock-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .stock-code {
+            font-weight: bold;
+            font-size: 16px;
+            color: #1890ff;
+        }
+        .stock-name {
+            color: #666;
+        }
+        .score {
+            font-size: 18px;
+            font-weight: bold;
+            color: #52c41a;
+        }
+        .dimension-scores {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .dimension {
+            text-align: center;
+            padding: 5px;
+            background-color: #f0f0f0;
+            border-radius: 3px;
+        }
+        .dimension-label {
+            font-size: 12px;
+            color: #999;
+        }
+        .dimension-value {
+            font-size: 14px;
+            font-weight: bold;
+        }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+        .error {
+            color: #ff4d4f;
+            padding: 10px;
+            background-color: #fff2f0;
+            border: 1px solid #ffccc7;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>智能选股功能测试</h1>
+
+        <div class="test-section">
+            <h2>1. 测试API连接</h2>
+            <button onclick="testApiHealth()">测试健康检查</button>
+            <button onclick="testGetStrategies()">获取策略列表</button>
+            <button onclick="testGetResults()">获取选股结果</button>
+            <div id="api-result" class="result"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>2. 运行智能选股</h2>
+            <div>
+                <label>策略配置:</label><br>
+                <select id="strategySelect">
+                    <option value="1">均衡策略 (技术35%, 基本面30%, 资金25%, 市场10%)</option>
+                    <option value="2">价值投资 (技术20%, 基本面50%, 资金20%, 市场10%)</option>
+                    <option value="3">技术突破 (技术50%, 基本面20%, 资金20%, 市场10%)</option>
+                    <option value="4">资金驱动 (技术25%, 基本面25%, 资金40%, 市场10%)</option>
+                </select><br><br>
+
+                <label>最低评分: <input type="number" id="minScore" value="70" min="0" max="100" step="5"></label><br><br>
+                <label>最大结果数: <input type="number" id="maxResults" value="10" min="1" max="100"></label><br><br>
+
+                <button onclick="runSmartSelection()">运行智能选股</button>
+            </div>
+            <div id="selection-result" class="result"></div>
+        </div>
+    </div>
+
+    <script>
+        const DATA_SERVICE_URL = 'http://localhost:8002';
+
+        function showLoading(elementId, message = '加载中...') {
+            document.getElementById(elementId).innerHTML = `
+                <div class="loading">
+                    <div>${message}</div>
+                </div>
+            `;
+        }
+
+        function showError(elementId, error) {
+            document.getElementById(elementId).innerHTML = `
+                <div class="error">
+                    <strong>错误:</strong> ${error}
+                </div>
+            `;
+        }
+
+        function formatStockResult(stock) {
+            return `
+                <div class="stock-item">
+                    <div class="stock-header">
+                        <div>
+                            <span class="stock-code">${stock.stock_code}</span>
+                            <span class="stock-name">${stock.stock_name}</span>
+                        </div>
+                        <div class="score">${stock.overall_score}分</div>
+                    </div>
+                    <div class="dimension-scores">
+                        <div class="dimension">
+                            <div class="dimension-label">技术面</div>
+                            <div class="dimension-value">${stock.technical_score}</div>
+                        </div>
+                        <div class="dimension">
+                            <div class="dimension-label">基本面</div>
+                            <div class="dimension-value">${stock.fundamental_score}</div>
+                        </div>
+                        <div class="dimension">
+                            <div class="dimension-label">资金面</div>
+                            <div class="dimension-value">${stock.capital_score}</div>
+                        </div>
+                        <div class="dimension">
+                            <div class="dimension-label">市场面</div>
+                            <div class="dimension-value">${stock.market_score}</div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 10px; font-size: 13px; color: #666;">
+                        <div><strong>入选理由:</strong> ${stock.selection_reason}</div>
+                        <div><strong>风险等级:</strong> ${stock.risk_level}风险</div>
+                        <div><strong>持有期:</strong> ${stock.holding_period}</div>
+                        <div><strong>目标价:</strong> ¥${stock.target_price.toFixed(2)}</div>
+                        <div><strong>止损价:</strong> ¥${stock.stop_loss_price.toFixed(2)}</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function testApiHealth() {
+            showLoading('api-result', '测试API健康检查...');
+            try {
+                const response = await fetch(`${DATA_SERVICE_URL}/api/smart-selection/health`);
+                const data = await response.json();
+                document.getElementById('api-result').innerHTML = `
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                    <div style="color: green; margin-top: 10px;">✓ API连接正常</div>
+                `;
+            } catch (error) {
+                showError('api-result', error.message);
+            }
+        }
+
+        async function testGetStrategies() {
+            showLoading('api-result', '获取策略列表...');
+            try {
+                const response = await fetch(`${DATA_SERVICE_URL}/api/smart-selection/strategies`);
+                const data = await response.json();
+                document.getElementById('api-result').innerHTML = `
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                    <div style="color: green; margin-top: 10px;">✓ 获取到 ${data.count} 个策略</div>
+                `;
+            } catch (error) {
+                showError('api-result', error.message);
+            }
+        }
+
+        async function testGetResults() {
+            showLoading('api-result', '获取选股结果...');
+            try {
+                const response = await fetch(`${DATA_SERVICE_URL}/api/smart-selection/results?limit=5&min_score=70`);
+                const data = await response.json();
+                document.getElementById('api-result').innerHTML = `
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                    <div style="color: green; margin-top: 10px;">✓ 获取到 ${data.count} 个结果</div>
+                `;
+            } catch (error) {
+                showError('api-result', error.message);
+            }
+        }
+
+        async function runSmartSelection() {
+            const strategyId = document.getElementById('strategySelect').value;
+            const minScore = parseInt(document.getElementById('minScore').value);
+            const maxResults = parseInt(document.getElementById('maxResults').value);
+
+            // 策略权重配置
+            const strategies = {
+                '1': { technical: 0.35, fundamental: 0.30, capital: 0.25, market: 0.10 },
+                '2': { technical: 0.20, fundamental: 0.50, capital: 0.20, market: 0.10 },
+                '3': { technical: 0.50, fundamental: 0.20, capital: 0.20, market: 0.10 },
+                '4': { technical: 0.25, fundamental: 0.25, capital: 0.40, market: 0.10 }
+            };
+
+            const strategyConfig = {
+                weights: strategies[strategyId],
+                min_score: minScore,
+                max_results: maxResults
+            };
+
+            showLoading('selection-result', '正在运行智能选股算法...');
+
+            try {
+                const response = await fetch(`${DATA_SERVICE_URL}/api/smart-selection/run`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(strategyConfig)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP错误! 状态码: ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                if (data.count === 0) {
+                    document.getElementById('selection-result').innerHTML = `
+                        <div style="text-align: center; padding: 20px; color: #666;">
+                            未找到符合条件的股票
+                        </div>
+                    `;
+                    return;
+                }
+
+                let html = `<h3>找到 ${data.count} 只符合条件的股票</h3>`;
+                html += `<div style="margin-bottom: 10px; color: #666;">平均评分: ${(data.results.reduce((sum, r) => sum + r.overall_score, 0) / data.results.length).toFixed(1)}</div>`;
+
+                data.results.forEach(stock => {
+                    html += formatStockResult(stock);
+                });
+
+                document.getElementById('selection-result').innerHTML = html;
+
+            } catch (error) {
+                showError('selection-result', error.message);
+            }
+        }
+
+        // 页面加载时自动测试API健康检查
+        window.onload = testApiHealth;
+    </script>
+</body>
+</html>

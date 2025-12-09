@@ -7,11 +7,13 @@ import {
   StockOutlined,
   FundOutlined,
   SettingOutlined,
+  CalculatorOutlined,
 } from '@ant-design/icons';
 import Dashboard from './pages/Dashboard';
 import StockList from './pages/StockList';
 import Analysis from './pages/Analysis';
 import Settings from './pages/Settings';
+import SmartSelection from './pages/SmartSelection';
 import DateTimeBanner from './components/DateTimeBanner';
 
 const { darkAlgorithm } = theme;
@@ -31,6 +33,11 @@ const menuItems = [
     path: '/analysis',
     name: '资金分析',
     icon: <FundOutlined />,
+  },
+  {
+    path: '/smart-selection',
+    name: '精算智选',
+    icon: <CalculatorOutlined />,
   },
   {
     path: '/settings',
@@ -78,6 +85,7 @@ function AppLayout() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/stocks" element={<StockList />} />
             <Route path="/analysis" element={<Analysis />} />
+            <Route path="/smart-selection" element={<SmartSelection />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>
         </ProLayout>
