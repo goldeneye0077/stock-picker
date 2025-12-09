@@ -106,3 +106,4 @@ nul
 # Test files
 test_*.py
 populate_sample_data.py
+data/
