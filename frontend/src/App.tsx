@@ -46,7 +46,7 @@ function AppLayout() {
   return (
     <div style={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column' }}>
       <DateTimeBanner />
-      <div style={{ flex: 1, overflow: 'hidden' }}>
+      <div style={{ flex: 1, overflow: 'auto' }}>
         <ProLayout
           title="智能选股系统"
           logo={<img src="/logo(1).png" alt="logo" style={{ height: '32px' }} />}
@@ -62,8 +62,7 @@ function AppLayout() {
           contentStyle={{
             margin: 0,
             padding: 0,
-            height: '100%',
-            overflow: 'auto',
+            minHeight: '100%',
           }}
           menuItemRender={(item, dom) => (
             <a
@@ -74,7 +73,6 @@ function AppLayout() {
               {dom}
             </a>
           )}
-          style={{ height: '100%' }}
         >
           <Routes>
             <Route path="/" element={<Dashboard />} />

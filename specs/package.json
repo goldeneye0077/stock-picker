@@ -1,0 +1,22 @@
+{
+  "name": "stock-picker-specs",
+  "version": "1.0.0",
+  "description": "OpenAPI specifications and tooling for Stock Picker",
+  "scripts": {
+    "validate": "redocly lint openapi.yaml && redocly lint data-service-openapi.yaml",
+    "bundle": "redocly bundle openapi.yaml --output dist/openapi.bundle.yaml",
+    "bundle:data-service": "redocly bundle data-service-openapi.yaml --output dist/data-service-openapi.bundle.yaml",
+    "generate:types": "openapi-typescript openapi.yaml --output ../frontend/src/types/api.generated.ts",
+    "generate:client": "openapi-generator-cli generate -i openapi.yaml -g typescript-axios -o ../frontend/src/api/generated",
+    "generate:docs": "redocly build-docs openapi.yaml --output dist/docs.html",
+    "lint": "redocly lint openapi.yaml",
+    "preview": "redocly preview-docs openapi.yaml",
+    "test:contract": "jest --config jest.config.js",
+    "all": "npm run validate && npm run bundle && npm run generate:types"
+  },
+  "devDependencies": {
+    "@redocly/cli": "^1.10.0",
+    "jest": "^29.0.0",
+    "openapi-typescript": "^6.7.0"
+  }
+}

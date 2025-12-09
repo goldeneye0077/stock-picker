@@ -16,14 +16,14 @@ export const MarketSentimentCard: React.FC = () => {
             .finally(() => setLoading(false));
     }, []);
 
-    if (loading || !data) return <Card loading={true} title={`市场情绪 (${currentDate})`} bordered={false} />;
+    if (loading || !data) return <Card loading={true} title={`市场情绪 (${currentDate})`} variant="borderless" />;
 
     const total = data.upCount + data.downCount + data.flatCount;
     const upPercent = total > 0 ? (data.upCount / total) * 100 : 0;
     const downPercent = total > 0 ? (data.downCount / total) * 100 : 0;
 
     return (
-        <Card title={`市场情绪 (${currentDate})`} bordered={false}>
+        <Card title={`市场情绪 (${currentDate})`} variant="borderless">
             <Row gutter={[16, 16]}>
                 <Col span={8}>
                     <Statistic

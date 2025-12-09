@@ -1,0 +1,94 @@
+apis:
+  main:
+    root: openapi.yaml
+  data-service:
+    root: data-service-openapi.yaml
+
+rules:
+  # 自定义规则
+  operation-summary:
+    description: 每个操作必须有摘要
+    severity: warn
+    given: $.paths[*][*]
+    then:
+      field: summary
+      function: truthy
+
+  operation-description:
+    description: 每个操作必须有描述
+    severity: warn
+    given: $.paths[*][*]
+    then:
+      field: description
+      function: truthy
+
+  parameter-description:
+    description: 每个参数必须有描述
+    severity: warn
+    given: $.paths[*][*].parameters[*]
+    then:
+      field: description
+      function: truthy
+
+  response-description:
+    description: 每个响应必须有描述
+    severity: warn
+    given: $.paths[*][*].responses[*]
+    then:
+      field: description
+      function: truthy
+
+  no-any-type:
+    description: 避免使用 any 类型
+    severity: error
+    given: $.components.schemas[*].properties[*]
+    then:
+      field: type
+      function: pattern
+      functionOptions:
+        notMatch: any
+
+  enum-values:
+    description: 枚举值必须使用蛇形命名
+    severity: warn
+    given: $.components.schemas[*].properties[?(@.enum)]
+    then:
+      field: enum
+      function: pattern
+      functionOptions:
+        match: ^[a-z][a-z0-9]*(_[a-z0-9]+)*$
+
+  # 安全规则
+  security-defined:
+    description: API 必须定义安全方案
+    severity: error
+    given: $.paths[*][*]
+    then:
+      field: security
+      function: truthy
+
+  # 分页规则
+  pagination-params:
+    description: 列表接口应该支持分页参数
+    severity: warn
+    given: $.paths[*].get[?(@.tags && @.tags.includes('stocks'))]
+    then:
+      field: parameters
+      function: schema
+      functionOptions:
+        schema:
+          type: array
+          items:
+            anyOf:
+              - type: object
+                properties:
+                  name:
+                    const: limit
+                  in:
+                    const: query
+              - type: object
+                properties:
+                  name:
+                    const: offset
+                  in:
+                    const: query

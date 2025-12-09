@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>测试 API</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .result { background: #f5f5f5; padding: 15px; margin: 10px 0; border-radius: 5px; }
+        .error { background: #ffebee; color: #c62828; }
+        .success { background: #e8f5e9; color: #2e7d32; }
+        pre { white-space: pre-wrap; word-wrap: break-word; }
+    </style>
+</head>
+<body>
+    <h1>资金流向 API 测试</h1>
+    <button onclick="testAPI()">测试 API</button>
+    <div id="result"></div>
+
+    <script>
+        async function testAPI() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '<div class="result">正在请求...</div>';
+
+            try {
+                const url = 'http://localhost:3000/api/analysis/market-moneyflow?days=30';
+                console.log('请求 URL:', url);
+
+                const response = await fetch(url);
+                console.log('响应状态:', response.status);
+
+                const data = await response.json();
+                console.log('响应数据:', data);
+
+                if (data.success && data.data && data.data.summary) {
+                    const summary = data.data.summary;
+                    const totalFlow =
+                        Math.abs(summary.totalElgAmount) +
+                        Math.abs(summary.totalLgAmount) +
+                        Math.abs(summary.totalMdAmount) +
+                        Math.abs(summary.totalSmAmount);
+
+                    resultDiv.innerHTML = `
+                        <div class="result success">
+                            <h3>✓ API 调用成功</h3>
+                            <p>HTTP 状态码: ${response.status}</p>
+                            <p>返回数据条数: ${data.data.marketFlow.length}</p>
+                            <p>totalElgAmount: ${summary.totalElgAmount.toLocaleString()}</p>
+                            <p>totalLgAmount: ${summary.totalLgAmount.toLocaleString()}</p>
+                            <p>totalMdAmount: ${summary.totalMdAmount.toLocaleString()}</p>
+                            <p>totalSmAmount: ${summary.totalSmAmount.toLocaleString()}</p>
+                            <p><strong>totalFlow: ${totalFlow.toLocaleString()}</strong></p>
+                            <p style="color: green; font-weight: bold;">前端应该能正常显示数据！</p>
+                            <h4>完整响应:</h4>
+                            <pre>${JSON.stringify(data, null, 2)}</pre>
+                        </div>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="result error">
+                            <h3>✗ 数据格式错误</h3>
+                            <pre>${JSON.stringify(data, null, 2)}</pre>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('错误:', error);
+                resultDiv.innerHTML = `
+                    <div class="result error">
+                        <h3>✗ 请求失败</h3>
+                        <p>错误信息: ${error.message}</p>
+                        <p>请检查：</p>
+                        <ul>
+                            <li>后端服务是否运行在 http://localhost:3000</li>
+                            <li>CORS 配置是否正确</li>
+                            <li>浏览器控制台是否有其他错误</li>
+                        </ul>
+                    </div>
+                `;
+            }
+        }
+    </script>
+</body>
+</html>

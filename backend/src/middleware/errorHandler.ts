@@ -11,6 +11,9 @@ import { sendError } from '../utils/responseHelper';
  */
 const isDevelopment = process.env.NODE_ENV === 'development';
 
+import fs from 'fs';
+import path from 'path';
+
 /**
  * 错误日志记录
  * @param error 错误对象
@@ -22,12 +25,26 @@ function logError(error: Error, req: Request): void {
   const url = req.originalUrl;
   const ip = req.ip;
 
-  console.error('\n=== Error Log ===');
-  console.error(`Timestamp: ${timestamp}`);
-  console.error(`Method: ${method}`);
-  console.error(`URL: ${url}`);
-  console.error(`IP: ${ip}`);
-  console.error(`Message: ${error.message}`);
+  const logMessage = `
+=== Error Log ===
+Timestamp: ${timestamp}
+Method: ${method}
+URL: ${url}
+IP: ${ip}
+Message: ${error.message}
+Stack: ${error.stack || 'No stack trace'}
+================
+`;
+
+  console.error(logMessage);
+
+  // Write to file
+  try {
+    const logPath = path.join(process.cwd(), 'error.log');
+    fs.appendFileSync(logPath, logMessage);
+  } catch (err) {
+    console.error('Failed to write to error log file:', err);
+  }
 
   if (error instanceof AppError) {
     console.error(`Code: ${error.code}`);

@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "start": "node start-services.js",
-    "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install",
+    "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install && cd specs && npm install",
     "install:python": "cd data-service && pip install -r requirements.txt",
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\" \"npm run dev:data-service\"",
     "dev:frontend": "cd frontend && npm run dev",
@@ -15,10 +15,18 @@
     "build": "npm run build:frontend && npm run build:backend",
     "build:frontend": "cd frontend && npm run build",
     "build:backend": "cd backend && npm run build",
-    "test": "npm run test:frontend && npm run test:backend && npm run test:data-service",
+    "test": "npm run test:frontend && npm run test:backend && npm run test:data-service && npm run test:specs",
     "test:frontend": "cd frontend && npm test",
     "test:backend": "cd backend && npm test",
-    "test:data-service": "cd data-service && python -m pytest"
+    "test:data-service": "cd data-service && python -m pytest",
+    "test:specs": "cd specs && npm run test:contract",
+    "specs:validate": "cd specs && npm run validate",
+    "specs:lint": "cd specs && npm run lint",
+    "specs:generate": "cd specs && npm run generate:types",
+    "specs:docs": "cd specs && npm run generate:docs",
+    "specs:preview": "cd specs && npm run preview",
+    "specs:all": "cd specs && npm run all",
+    "precommit": "npm run specs:validate && npm run specs:lint"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"

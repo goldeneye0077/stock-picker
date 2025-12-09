@@ -1,0 +1,186 @@
+openapi: 3.0.3
+info:
+  title: 数据服务 API
+  description: 数据处理和分析服务，负责数据采集、分析和信号生成
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8001
+    description: 本地开发环境
+  - url: http://localhost:8002
+    description: Docker 开发环境
+
+security:
+  - ApiKeyAuth: []
+
+tags:
+  - name: data-collection
+    description: 数据采集任务
+  - name: batch-collection
+    description: 批量数据采集
+
+paths:
+  /api/data/batch-collect-7days:
+    post:
+      tags:
+        - data-collection
+        - batch-collection
+      summary: 批量采集最近7天数据
+      description: |
+        高效批量采集最近7个交易日的A股全量数据
+        使用Tushare批量接口，大幅减少API调用次数
+      responses:
+        '200':
+          description: 任务启动成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchCollectionResponse'
+        '400':
+          description: 参数错误或任务已在进行中
+        '500':
+          description: 服务器内部错误
+
+  /api/data/status:
+    get:
+      tags:
+        - data-collection
+      summary: 查询数据采集状态
+      description: 查询当前数据采集任务的状态
+      responses:
+        '200':
+          description: 成功返回状态信息
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CollectionStatusResponse'
+
+  /api/data/fetch-stocks:
+    post:
+      tags:
+        - data-collection
+      summary: 获取股票列表
+      description: 从Tushare获取股票基本信息列表并保存到数据库
+      responses:
+        '200':
+          description: 成功获取并保存股票列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataFetchResponse'
+
+  /api/data/fetch-klines/{stock_code}:
+    post:
+      tags:
+        - data-collection
+      summary: 获取单只股票K线数据
+      description: 获取指定股票的K线数据并保存到数据库
+      parameters:
+        - name: stock_code
+          in: path
+          required: true
+          description: 股票代码（格式：000001.SZ 或 600000.SH）
+          schema:
+            type: string
+            pattern: '^[0-9]{6}\.(SZ|SH)$'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                start_date:
+                  type: string
+                  format: date
+                  description: 开始日期
+                end_date:
+                  type: string
+                  format: date
+                  description: 结束日期
+      responses:
+        '200':
+          description: 成功获取并保存K线数据
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataFetchResponse'
+        '404':
+          description: 股票不存在
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API密钥认证
+
+  schemas:
+    BatchCollectionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "批量数据采集任务已启动"
+        task_id:
+          type: string
+          description: 任务ID
+          example: "batch_7days_20240101_120000"
+        estimated_time:
+          type: integer
+          description: 预计耗时（秒）
+          example: 120
+
+    CollectionStatusResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        status:
+          type: string
+          enum: [idle, running, completed, failed]
+          description: 任务状态
+        current_task:
+          type: string
+          description: 当前任务名称
+        progress:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          description: 进度（0-1）
+        start_time:
+          type: string
+          format: date-time
+          description: 开始时间
+        elapsed_time:
+          type: integer
+          description: 已耗时（秒）
+        estimated_remaining:
+          type: integer
+          description: 预计剩余时间（秒）
+
+    DataFetchResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        records_fetched:
+          type: integer
+          description: 获取的记录数
+        records_saved:
+          type: integer
+          description: 保存的记录数
+        duplicates_skipped:
+          type: integer
+          description: 跳过的重复记录数
+        execution_time:
+          type: number
+          format: float
+          description: 执行时间（秒）

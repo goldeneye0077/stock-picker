@@ -9,7 +9,17 @@
       "Bash(cat /e/stock_an/stock-picker/backend/package.json)",
       "Bash(cat /e/stock_an/stock-picker/data-service/requirements.txt)",
       "mcp__memory__create_entities",
-      "mcp__memory__create_relations"
+      "mcp__memory__create_relations",
+      "Bash(find:*)",
+      "Bash(mkdir:*)",
+      "Bash(npm install:*)",
+      "Bash(npx redocly:*)",
+      "Bash(npm run validate)",
+      "Bash(npx tsc:*)",
+      "Bash(npm run build)",
+      "Bash(npm run setup)",
+      "Bash(pip install:*)",
+      "Bash(xargs:*)"
     ],
     "deny": [],
     "ask": []

@@ -1,0 +1,625 @@
+openapi: 3.0.3
+info:
+  title: 智能选股系统 API
+  description: |
+    基于成交量和K线走势分析主力资金介入的智能选股系统
+
+    主要功能：
+    - 股票基本信息管理
+    - K线数据查询
+    - 成交量分析
+    - 资金流向分析
+    - 买入信号生成
+    - 实时行情监控
+  version: 1.0.0
+  contact:
+    name: 开发团队
+    email: dev@example.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:3000
+    description: 本地开发环境
+  - url: http://localhost:3100
+    description: Docker 生产环境
+  - url: https://api.stock-picker.example.com
+    description: 生产环境
+
+tags:
+  - name: stocks
+    description: 股票相关操作
+  - name: analysis
+    description: 数据分析
+  - name: signals
+    description: 买入信号
+  - name: data-collection
+    description: 数据采集
+  - name: quotes
+    description: 实时行情
+  - name: health
+    description: 健康检查
+
+paths:
+  /health:
+    get:
+      tags:
+        - health
+      summary: 健康检查
+      description: 检查服务是否正常运行
+      responses:
+        '200':
+          description: 服务正常运行
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '500':
+          description: 服务异常
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/stocks:
+    get:
+      tags:
+        - stocks
+      summary: 获取股票列表
+      description: 获取所有股票的基本信息列表
+      parameters:
+        - name: limit
+          in: query
+          description: 返回记录数限制
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+        - name: offset
+          in: query
+          description: 偏移量
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: 成功返回股票列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockListResponse'
+        '400':
+          description: 参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/stocks/{code}:
+    get:
+      tags:
+        - stocks
+      summary: 获取股票详情
+      description: 根据股票代码获取详细信息，包括基本信息、K线数据等
+      parameters:
+        - name: code
+          in: path
+          description: 股票代码（如 000001.SZ）
+          required: true
+          schema:
+            type: string
+            pattern: '^[0-9]{6}\.(SZ|SH)$'
+            example: '000001.SZ'
+      responses:
+        '200':
+          description: 成功返回股票详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StockDetailResponse'
+        '404':
+          description: 股票不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/analysis/market-overview:
+    get:
+      tags:
+        - analysis
+      summary: 市场概览
+      description: 获取市场整体情况概览
+      responses:
+        '200':
+          description: 成功返回市场概览数据
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketOverviewResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/analysis/signals:
+    get:
+      tags:
+        - analysis
+      summary: 获取买入信号
+      description: 获取最近生成的买入信号列表
+      parameters:
+        - name: days
+          in: query
+          description: 查询天数
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+            default: 7
+        - name: signal_type
+          in: query
+          description: 信号类型过滤
+          required: false
+          schema:
+            type: string
+            enum: [strong_buy, buy, watch, observe]
+        - name: stock_code
+          in: query
+          description: 股票代码过滤
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功返回信号列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignalsResponse'
+        '400':
+          description: 参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/analysis/volume:
+    get:
+      tags:
+        - analysis
+      summary: 成交量分析
+      description: 获取成交量异动分析数据
+      parameters:
+        - name: days
+          in: query
+          description: 查询天数
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+            default: 30
+        - name: stock_code
+          in: query
+          description: 股票代码过滤
+          required: false
+          schema:
+            type: string
+        - name: board
+          in: query
+          description: 板块过滤
+          required: false
+          schema:
+            type: string
+            enum: [main, gem, star, bse]
+      responses:
+        '200':
+          description: 成功返回成交量分析数据
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VolumeAnalysisResponse'
+        '400':
+          description: 参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    # 基础响应结构
+    BaseResponse:
+      type: object
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+          description: 请求是否成功
+          example: true
+        message:
+          type: string
+          description: 响应消息
+          example: "操作成功"
+        timestamp:
+          type: string
+          format: date-time
+          description: 响应时间戳
+          example: "2024-01-01T12:00:00Z"
+
+    ErrorResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          required:
+            - error
+          properties:
+            error:
+              type: object
+              properties:
+                code:
+                  type: string
+                  description: 错误代码
+                  example: "VALIDATION_ERROR"
+                details:
+                  type: object
+                  description: 错误详情
+                  example:
+                    field: "days"
+                    message: "参数必须为1-365之间的整数"
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, unhealthy]
+          example: "healthy"
+        timestamp:
+          type: string
+          format: date-time
+          example: "2024-01-01T12:00:00Z"
+        service:
+          type: string
+          example: "stock-picker-backend"
+
+    # 股票相关模型
+    StockItem:
+      type: object
+      required:
+        - code
+        - name
+        - exchange
+      properties:
+        code:
+          type: string
+          description: 股票代码
+          example: "000001.SZ"
+        name:
+          type: string
+          description: 股票名称
+          example: "平安银行"
+        exchange:
+          type: string
+          description: 交易所
+          enum: [SZ, SH]
+          example: "SZ"
+        industry:
+          type: string
+          description: 行业
+          example: "银行"
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+        updated_at:
+          type: string
+          format: date-time
+          description: 更新时间
+
+    KlineItem:
+      type: object
+      required:
+        - date
+        - open
+        - high
+        - low
+        - close
+        - volume
+      properties:
+        date:
+          type: string
+          format: date
+          description: 交易日
+          example: "2024-01-01"
+        open:
+          type: number
+          format: float
+          description: 开盘价
+          example: 10.5
+        high:
+          type: number
+          format: float
+          description: 最高价
+          example: 11.2
+        low:
+          type: number
+          format: float
+          description: 最低价
+          example: 10.3
+        close:
+          type: number
+          format: float
+          description: 收盘价
+          example: 10.8
+        volume:
+          type: integer
+          description: 成交量（股）
+          example: 1000000
+        amount:
+          type: number
+          format: float
+          description: 成交额（元）
+          example: 10800000
+
+    StockListResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          required:
+            - data
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/StockItem'
+            total:
+              type: integer
+              description: 总记录数
+              example: 100
+            limit:
+              type: integer
+              description: 返回记录数限制
+              example: 100
+            offset:
+              type: integer
+              description: 偏移量
+              example: 0
+
+    StockDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          required:
+            - data
+          properties:
+            data:
+              type: object
+              properties:
+                stock:
+                  $ref: '#/components/schemas/StockItem'
+                klines:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/KlineItem'
+                volume_analysis:
+                  $ref: '#/components/schemas/VolumeAnalysisItem'
+                latest_signal:
+                  $ref: '#/components/schemas/SignalItem'
+
+    # 分析相关模型
+    MarketOverviewResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          required:
+            - data
+          properties:
+            data:
+              type: object
+              properties:
+                totalStocks:
+                  type: integer
+                  description: 总股票数
+                  example: 5000
+                upCount:
+                  type: integer
+                  description: 上涨股票数
+                  example: 2500
+                downCount:
+                  type: integer
+                  description: 下跌股票数
+                  example: 2000
+                flatCount:
+                  type: integer
+                  description: 平盘股票数
+                  example: 500
+                todaySignals:
+                  type: integer
+                  description: 今日信号数
+                  example: 50
+                volumeSurges:
+                  type: integer
+                  description: 成交量异动数
+                  example: 30
+                topVolumeSurge:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/VolumeSurgeItem'
+
+    VolumeAnalysisItem:
+      type: object
+      properties:
+        stock_code:
+          type: string
+          description: 股票代码
+        date:
+          type: string
+          format: date
+          description: 分析日期
+        volume_ratio:
+          type: number
+          format: float
+          description: 量比
+          example: 2.5
+        avg_volume_20:
+          type: integer
+          description: 20日平均成交量
+        is_volume_surge:
+          type: boolean
+          description: 是否成交量异动
+        analysis_result:
+          type: string
+          description: 分析结果
+
+    VolumeSurgeItem:
+      type: object
+      properties:
+        stock_code:
+          type: string
+          description: 股票代码
+        name:
+          type: string
+          description: 股票名称
+        volume_ratio:
+          type: number
+          format: float
+          description: 量比
+        date:
+          type: string
+          format: date
+          description: 日期
+
+    VolumeAnalysisResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          required:
+            - data
+          properties:
+            data:
+              type: object
+              properties:
+                volumeAnalysis:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/VolumeAnalysisItem'
+                volumeSurges:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/VolumeSurgeItem'
+                total:
+                  type: integer
+                  description: 总记录数
+
+    SignalItem:
+      type: object
+      required:
+        - stock_code
+        - signal_type
+        - confidence
+      properties:
+        stock_code:
+          type: string
+          description: 股票代码
+        stock_name:
+          type: string
+          description: 股票名称
+        signal_type:
+          type: string
+          enum: [strong_buy, buy, watch, observe]
+          description: 信号类型
+        confidence:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          description: 置信度
+          example: 0.85
+        price:
+          type: number
+          format: float
+          description: 价格
+        volume:
+          type: integer
+          description: 成交量
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+
+    SignalsResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          required:
+            - data
+          properties:
+            data:
+              type: object
+              properties:
+                signals:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/SignalItem'
+                summary:
+                  type: object
+                  additionalProperties:
+                    type: object
+                    properties:
+                      count:
+                        type: integer
+                      avgConfidence:
+                        type: number
+                        format: float
+
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API密钥认证
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT令牌认证
+
+security:
+  - ApiKeyAuth: []
+  - BearerAuth: []

@@ -512,7 +512,7 @@ const Dashboard: React.FC = () => {
                       </div>
                     </div>
                   }
-                  overlayStyle={{ maxWidth: '450px' }}
+                  styles={{ root: { maxWidth: '450px' } }}
                   placement="bottomLeft"
                 >
                   <InfoCircleOutlined style={{ color: '#1890ff', cursor: 'pointer' }} />

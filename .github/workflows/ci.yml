@@ -1,0 +1,268 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+
+jobs:
+  validate-specs:
+    name: Validate OpenAPI Specifications
+    uses: ./.github/workflows/validate-specs.yml
+
+  test-backend:
+    name: Test Backend
+    runs-on: ubuntu-latest
+    needs: validate-specs
+    if: needs.validate-specs.result == 'success'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: 'backend/package-lock.json'
+
+    - name: Install backend dependencies
+      run: |
+        cd backend
+        npm ci
+
+    - name: Run backend tests
+      run: |
+        cd backend
+        npm test
+      env:
+        NODE_ENV: test
+
+    - name: Upload test coverage
+      uses: codecov/codecov-action@v4
+      with:
+        directory: backend/coverage
+        flags: backend
+
+  test-frontend:
+    name: Test Frontend
+    runs-on: ubuntu-latest
+    needs: validate-specs
+    if: needs.validate-specs.result == 'success'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: 'frontend/package-lock.json'
+
+    - name: Install frontend dependencies
+      run: |
+        cd frontend
+        npm ci
+
+    - name: Run frontend tests
+      run: |
+        cd frontend
+        npm test -- --run
+      env:
+        NODE_ENV: test
+
+    - name: Upload test coverage
+      uses: codecov/codecov-action@v4
+      with:
+        directory: frontend/coverage
+        flags: frontend
+
+  test-data-service:
+    name: Test Data Service
+    runs-on: ubuntu-latest
+    needs: validate-specs
+    if: needs.validate-specs.result == 'success'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Install data service dependencies
+      run: |
+        cd data-service
+        pip install -r requirements.txt
+
+    - name: Run data service tests
+      run: |
+        cd data-service
+        python -m pytest
+      env:
+        NODE_ENV: test
+
+  build:
+    name: Build All Services
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend, test-data-service]
+    if: |
+      needs.test-backend.result == 'success' &&
+      needs.test-frontend.result == 'success' &&
+      needs.test-data-service.result == 'success'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Build backend
+      run: |
+        cd backend
+        npm run build
+
+    - name: Build frontend
+      run: |
+        cd frontend
+        npm run build
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-artifacts
+        path: |
+          backend/dist/
+          frontend/dist/
+        retention-days: 7
+
+  deploy-preview:
+    name: Deploy Preview
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'pull_request' && needs.build.result == 'success'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: build-artifacts
+
+    - name: Setup Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build Docker images
+      run: |
+        docker build -t stock-picker-backend ./backend
+        docker build -t stock-picker-frontend ./frontend
+        docker build -t stock-picker-data-service ./data-service
+
+    - name: Log in to Docker Hub
+      if: github.event_name == 'push'
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Push Docker images
+      if: github.event_name == 'push'
+      run: |
+        docker tag stock-picker-backend ${{ secrets.DOCKER_USERNAME }}/stock-picker-backend:${{ github.sha }}
+        docker tag stock-picker-frontend ${{ secrets.DOCKER_USERNAME }}/stock-picker-frontend:${{ github.sha }}
+        docker tag stock-picker-data-service ${{ secrets.DOCKER_USERNAME }}/stock-picker-data-service:${{ github.sha }}
+
+        docker push ${{ secrets.DOCKER_USERNAME }}/stock-picker-backend:${{ github.sha }}
+        docker push ${{ secrets.DOCKER_USERNAME }}/stock-picker-frontend:${{ github.sha }}
+        docker push ${{ secrets.DOCKER_USERNAME }}/stock-picker-data-service:${{ github.sha }}
+
+  notify:
+    name: Notify Status
+    runs-on: ubuntu-latest
+    needs: [validate-specs, test-backend, test-frontend, test-data-service, build]
+    if: always()
+
+    steps:
+    - name: Send Slack notification
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        channel: '#ci-cd'
+        username: 'CI/CD Bot'
+        icon_emoji: ':robot_face:'
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+    - name: Update PR status
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const allJobs = ${{ toJSON(needs) }};
+          const failedJobs = Object.entries(allJobs)
+            .filter(([jobName, job]) => job.result === 'failure')
+            .map(([jobName]) => jobName);
+
+          const success = failedJobs.length === 0;
+
+          const emoji = success ? '✅' : '❌';
+          const status = success ? 'SUCCESS' : 'FAILURE';
+
+          const report = `
+          ## CI/CD Pipeline ${emoji}
+
+          **Overall Status:** ${status}
+
+          ### Job Results
+          ${Object.entries(allJobs).map(([jobName, job]) => {
+            const jobEmoji = job.result === 'success' ? '✅' :
+                           job.result === 'failure' ? '❌' : '⚠️';
+            return `- ${jobEmoji} ${jobName}: ${job.result || 'pending'}`;
+          }).join('\n')}
+
+          ${failedJobs.length > 0 ? `
+          ### Failed Jobs
+          ${failedJobs.map(job => `- ${job}`).join('\n')}
+          ` : ''}
+
+          ### Details
+          [View full pipeline](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          `;
+
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+          });
+
+          const botComment = comments.find(comment =>
+            comment.user.type === 'Bot' &&
+            comment.body.includes('CI/CD Pipeline')
+          );
+
+          if (botComment) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: botComment.id,
+              body: report
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: report
+            });
+          }

@@ -6,7 +6,7 @@
 
 import React, { useMemo, useCallback } from 'react';
 import { Table, Tag, Typography } from 'antd';
-import { LineChartOutlined } from '@ant-design/icons';
+import { LineChartOutlined, BarChartOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { StockItem } from '../../services/stockService';
 
@@ -17,6 +17,7 @@ interface StockTableProps {
   loading: boolean;
   onRowClick: (record: StockItem) => void;
   onAnalysisClick: (record: StockItem) => void;
+  onFundamentalClick: (record: StockItem) => void;
 }
 
 // 提取数值用于排序
@@ -34,7 +35,8 @@ const StockTableComponent: React.FC<StockTableProps> = ({
   data,
   loading,
   onRowClick,
-  onAnalysisClick
+  onAnalysisClick,
+  onFundamentalClick
 }) => {
   // 使用 useMemo 缓存列定义，避免每次渲染都重新创建
   const columns: ColumnsType<StockItem> = useMemo(() => [
@@ -181,21 +183,34 @@ const StockTableComponent: React.FC<StockTableProps> = ({
     {
       title: '操作',
       key: 'action',
-      width: 100,
+      width: 180,
       fixed: 'right' as const,
       render: (_: any, record) => (
-        <a
-          onClick={(e) => {
-            e.stopPropagation();
-            onAnalysisClick(record);
-          }}
-        >
-          <LineChartOutlined style={{ marginRight: 4 }} />
-          技术分析
-        </a>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <a
+            onClick={(e) => {
+              e.stopPropagation();
+              onAnalysisClick(record);
+            }}
+            style={{ color: '#1890ff' }}
+          >
+            <LineChartOutlined style={{ marginRight: 4 }} />
+            技术分析
+          </a>
+          <a
+            onClick={(e) => {
+              e.stopPropagation();
+              onFundamentalClick(record);
+            }}
+            style={{ color: '#52c41a' }}
+          >
+            <BarChartOutlined style={{ marginRight: 4 }} />
+            基本面分析
+          </a>
+        </div>
       )
     }
-  ], [onRowClick, onAnalysisClick]); // 依赖项：回调函数变化时重新创建列定义
+  ], [onRowClick, onAnalysisClick, onFundamentalClick]); // 依赖项：回调函数变化时重新创建列定义
 
   return (
     <Table

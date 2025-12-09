@@ -1,0 +1,21 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+echo "🔍 运行 OpenAPI 规范检查..."
+
+# 验证 OpenAPI 规范
+cd specs
+npm run validate
+if [ $? -ne 0 ]; then
+  echo "❌ OpenAPI 规范验证失败"
+  exit 1
+fi
+
+# 检查规范质量
+npm run lint
+if [ $? -ne 0 ]; then
+  echo "⚠️  OpenAPI 规范质量检查有警告"
+  # 不阻止提交，只显示警告
+fi
+
+echo "✅ OpenAPI 规范检查通过"

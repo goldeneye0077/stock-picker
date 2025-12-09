@@ -10,6 +10,7 @@ import { StockSearchBar, StockTable } from '../components/StockList';
 import { useStockList, useStockDetail } from '../hooks/useStockList';
 import { fetchStockHistory } from '../services/stockService';
 import KLineChart from '../components/KLineChart';
+import FundamentalDetailModal from '../components/Fundamental/FundamentalDetailModal';
 import type { StockItem } from '../services/stockService';
 
 const { TabPane } = Tabs;
@@ -34,6 +35,7 @@ const StockList: React.FC = () => {
   // 本地状态
   const [isDetailModalVisible, setIsDetailModalVisible] = useState(false);
   const [isAnalysisModalVisible, setIsAnalysisModalVisible] = useState(false);
+  const [isFundamentalModalVisible, setIsFundamentalModalVisible] = useState(false);
   const [currentStock, setCurrentStock] = useState<StockItem | null>(null);
   const [klineData, setKlineData] = useState<any[]>([]);
 
@@ -85,6 +87,13 @@ const StockList: React.FC = () => {
     }
   }, [fetchAnalysisData]);
 
+  // 显示基本面分析模态框 - 使用 useCallback 优化
+  const showFundamentalModal = useCallback((record: StockItem) => {
+    setCurrentStock(record);
+    setIsFundamentalModalVisible(true);
+    // 基本面数据在弹窗组件内部加载
+  }, []);
+
   // 关闭模态框 - 使用 useCallback 优化
   const handleCloseDetailModal = useCallback(() => {
     setIsDetailModalVisible(false);
@@ -98,6 +107,11 @@ const StockList: React.FC = () => {
     setKlineData([]);
     resetDetail();
   }, [resetDetail]);
+
+  const handleCloseFundamentalModal = useCallback(() => {
+    setIsFundamentalModalVisible(false);
+    setCurrentStock(null);
+  }, []);
 
   return (
     <div style={{ padding: '24px', maxWidth: '100%', overflow: 'hidden' }}>
@@ -139,6 +153,7 @@ const StockList: React.FC = () => {
             loading={loading}
             onRowClick={showDetailModal}
             onAnalysisClick={showAnalysisModal}
+            onFundamentalClick={showFundamentalModal}
           />
         </div>
       </Card>
@@ -280,6 +295,16 @@ const StockList: React.FC = () => {
           </TabPane>
         </Tabs>
       </Modal>
+
+      {/* 基本面分析模态框 */}
+      {currentStock && (
+        <FundamentalDetailModal
+          visible={isFundamentalModalVisible}
+          stockCode={currentStock.code}
+          stockName={currentStock.name}
+          onClose={handleCloseFundamentalModal}
+        />
+      )}
     </div>
   );
 };

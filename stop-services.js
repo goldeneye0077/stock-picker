@@ -18,9 +18,11 @@ const execPromise = util.promisify(exec);
 // 配置
 const CONFIG = {
   services: [
-    { name: '后端服务', port: 3000, processNames: ['node', 'ts-node', 'nodemon'] },
+    { name: '后端服务(3000)', port: 3000, processNames: ['node', 'ts-node', 'nodemon'] },
+    { name: '后端服务(3100)', port: 3100, processNames: ['node', 'ts-node', 'nodemon'] },
     { name: '前端服务', port: 3001, processNames: ['node', 'vite'] },
-    { name: '数据服务', port: 8002, processNames: ['python', 'uvicorn'] }
+    { name: '数据服务(8002)', port: 8002, processNames: ['python', 'uvicorn'] },
+    { name: '数据服务(8001)', port: 8001, processNames: ['python', 'uvicorn'] }
   ]
 };
 

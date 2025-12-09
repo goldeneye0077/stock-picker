@@ -45,10 +45,10 @@ const CONFIG = {
       name: '数据服务',
       color: '\x1b[32m', // 绿色
       command: 'python',
-      args: ['-m', 'uvicorn', 'src.main:app', '--reload', '--port', '8002'],
+      args: ['-m', 'uvicorn', 'src.main:app', '--reload', '--port', '8003'],
       cwd: path.join(__dirname, 'data-service'),
-      port: 8002,
-      healthCheck: 'http://localhost:8002/health',
+      port: 8003,
+      healthCheck: 'http://localhost:8003/health',
       envFile: path.join(__dirname, 'data-service', '.env')
     }
   ],

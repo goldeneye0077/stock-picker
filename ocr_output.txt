@@ -1,0 +1,131 @@
+ĞÅÏ¢: ÓÃÌá¹©µÄÄ£Ê½ÎŞ·¨ÕÒµ½ÎÄ¼ş¡£
+C:\Users\007\AppData\Roaming\Python\Python313\site-packages\paddle\utils\cpp_extension\extension_utils.py:718: UserWarning: No ccache found. Please be aware that recompiling all source files may be required. You can download and install ccache from: https://github.com/ccache/ccache/blob/master/doc/INSTALL.md
+  warnings.warn(warning_message)
+[32mCreating model: ('PP-LCNet_x1_0_doc_ori', None)[0m
+[32mModel files already exist. Using cached files. To redownload, please delete the directory manually: `C:\Users\007\.paddlex\official_models\PP-LCNet_x1_0_doc_ori`.[0m
+WARNING: Logging before InitGoogleLogging() is written to STDERR
+I1023 16:53:13.077579 41136 onednn_context.cc:81] oneDNN v3.6.2
+[32mCreating model: ('UVDoc', None)[0m
+[32mModel files already exist. Using cached files. To redownload, please delete the directory manually: `C:\Users\007\.paddlex\official_models\UVDoc`.[0m
+[32mCreating model: ('PP-LCNet_x1_0_textline_ori', None)[0m
+[32mModel files already exist. Using cached files. To redownload, please delete the directory manually: `C:\Users\007\.paddlex\official_models\PP-LCNet_x1_0_textline_ori`.[0m
+[32mCreating model: ('PP-OCRv5_server_det', None)[0m
+[32mModel files already exist. Using cached files. To redownload, please delete the directory manually: `C:\Users\007\.paddlex\official_models\PP-OCRv5_server_det`.[0m
+[32mCreating model: ('PP-OCRv5_server_rec', None)[0m
+[32mModel files already exist. Using cached files. To redownload, please delete the directory manually: `C:\Users\007\.paddlex\official_models\PP-OCRv5_server_rec`.[0m
+E:\stock_an\stock-picker\test_ocr.py:29: DeprecationWarning: Please use `predict` instead.
+  result = ocr.ocr("test_image.png")
+ÒÑ±£´æ²âÊÔÍ¼Æ¬µ½ test_image.png
+
+¿ªÊ¼ OCR Ê¶±ğ...
+
+ÍêÕû OCR ½á¹ûÀàĞÍ£º <class 'list'>
+½á¹û³¤¶È£º 1
+
+ÌáÈ¡µÄÎÄ×Ö£º
+µÚÒ»²ã½á¹ûÊıÁ¿: 15
+
+µÚ 1 ĞĞÊ¶±ğ½á¹û:
+  ÀàĞÍ: <class 'str'>
+  ³¤¶È: 10
+  ×ø±êĞÅÏ¢: i
+  ÎÄ×ÖĞÅÏ¢ÀàĞÍ: <class 'str'>
+  ÎÄ×ÖĞÅÏ¢: n
+
+µÚ 2 ĞĞÊ¶±ğ½á¹û:
+  ÀàĞÍ: <class 'str'>
+  ³¤¶È: 10
+  ×ø±êĞÅÏ¢: p
+  ÎÄ×ÖĞÅÏ¢ÀàĞÍ: <class 'str'>
+  ÎÄ×ÖĞÅÏ¢: a
+
+µÚ 3 ĞĞÊ¶±ğ½á¹û:
+  ÀàĞÍ: <class 'str'>
+  ³¤¶È: 20
+  ×ø±êĞÅÏ¢: d
+  ÎÄ×ÖĞÅÏ¢ÀàĞÍ: <class 'str'>
+  ÎÄ×ÖĞÅÏ¢: o
+
+µÚ 4 ĞĞÊ¶±ğ½á¹û:
+  ÀàĞÍ: <class 'str'>
+  ³¤¶È: 8
+  ×ø±êĞÅÏ¢: d
+  ÎÄ×ÖĞÅÏ¢ÀàĞÍ: <class 'str'>
+  ÎÄ×ÖĞÅÏ¢: t
+
+µÚ 5 ĞĞÊ¶±ğ½á¹û:
+  ÀàĞÍ: <class 'str'>
+  ³¤¶È: 14
+  ×ø±êĞÅÏ¢: m
+  ÎÄ×ÖĞÅÏ¢ÀàĞÍ: <class 'str'>
+  ÎÄ×ÖĞÅÏ¢: o
+
+µÚ 6 ĞĞÊ¶±ğ½á¹û:
+  ÀàĞÍ: <class 'str'>
+  ³¤¶È: 15
+  ×ø±êĞÅÏ¢: t
+  ÎÄ×ÖĞÅÏ¢ÀàĞÍ: <class 'str'>
+  ÎÄ×ÖĞÅÏ¢: e
+
+µÚ 7 ĞĞÊ¶±ğ½á¹û:
+  ÀàĞÍ: <class 'str'>
+  ³¤¶È: 9
+  ×ø±êĞÅÏ¢: t
+  ÎÄ×ÖĞÅÏ¢ÀàĞÍ: <class 'str'>
+  ÎÄ×ÖĞÅÏ¢: e
+
+µÚ 8 ĞĞÊ¶±ğ½á¹û:
+  ÀàĞÍ: <class 'str'>
+  ³¤¶È: 21
+  ×ø±êĞÅÏ¢: t
+  ÎÄ×ÖĞÅÏ¢ÀàĞÍ: <class 'str'>
+  ÎÄ×ÖĞÅÏ¢: e
+
+µÚ 9 ĞĞÊ¶±ğ½á¹û:
+  ÀàĞÍ: <class 'str'>
+  ³¤¶È: 15
+  ×ø±êĞÅÏ¢: r
+  ÎÄ×ÖĞÅÏ¢ÀàĞÍ: <class 'str'>
+  ÎÄ×ÖĞÅÏ¢: e
+
+µÚ 10 ĞĞÊ¶±ğ½á¹û:
+  ÀàĞÍ: <class 'str'>
+  ³¤¶È: 9
+  ×ø±êĞÅÏ¢: r
+  ÎÄ×ÖĞÅÏ¢ÀàĞÍ: <class 'str'>
+  ÎÄ×ÖĞÅÏ¢: e
+
+µÚ 11 ĞĞÊ¶±ğ½á¹û:
+  ÀàĞÍ: <class 'str'>
+  ³¤¶È: 10
+  ×ø±êĞÅÏ¢: r
+  ÎÄ×ÖĞÅÏ¢ÀàĞÍ: <class 'str'>
+  ÎÄ×ÖĞÅÏ¢: e
+
+µÚ 12 ĞĞÊ¶±ğ½á¹û:
+  ÀàĞÍ: <class 'str'>
+  ³¤¶È: 9
+  ×ø±êĞÅÏ¢: r
+  ÎÄ×ÖĞÅÏ¢ÀàĞÍ: <class 'str'>
+  ÎÄ×ÖĞÅÏ¢: e
+
+µÚ 13 ĞĞÊ¶±ğ½á¹û:
+  ÀàĞÍ: <class 'str'>
+  ³¤¶È: 9
+  ×ø±êĞÅÏ¢: v
+  ÎÄ×ÖĞÅÏ¢ÀàĞÍ: <class 'str'>
+  ÎÄ×ÖĞÅÏ¢: i
+
+µÚ 14 ĞĞÊ¶±ğ½á¹û:
+  ÀàĞÍ: <class 'str'>
+  ³¤¶È: 27
+  ×ø±êĞÅÏ¢: t
+  ÎÄ×ÖĞÅÏ¢ÀàĞÍ: <class 'str'>
+  ÎÄ×ÖĞÅÏ¢: e
+
+µÚ 15 ĞĞÊ¶±ğ½á¹û:
+  ÀàĞÍ: <class 'str'>
+  ³¤¶È: 9
+  ×ø±êĞÅÏ¢: r
+  ÎÄ×ÖĞÅÏ¢ÀàĞÍ: <class 'str'>
+  ÎÄ×ÖĞÅÏ¢: e

@@ -24,10 +24,22 @@ a:hover {
 
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
   min-width: 320px;
   min-height: 100vh;
+}
+
+/* 强制覆盖 ProLayout 的滚动行为 */
+.ant-layout-content,
+.ant-pro-layout-content {
+  overflow-y: auto !important;
+  height: 100% !important;
+  /* 确保内容可以滚动 */
+  min-height: 0 !important; 
+}
+
+/* 确保外层容器不截断 */
+.ant-layout {
+  height: 100%;
 }
 
 h1 {

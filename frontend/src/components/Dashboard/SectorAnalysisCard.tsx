@@ -67,7 +67,7 @@ export const SectorAnalysisCard: React.FC = () => {
     ];
 
     return (
-        <Card title={`板块分析 (${displayDate})`} bordered={false}>
+        <Card title={`板块分析 (${displayDate})`} variant="borderless">
             <Table
                 dataSource={data}
                 columns={columns}

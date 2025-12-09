@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>板块资金流向测试</title>
+  <style>
+    body {
+      font-family: 'Microsoft YaHei', Arial, sans-serif;
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #f0f2f5;
+    }
+    h1 {
+      color: #1890ff;
+      text-align: center;
+    }
+    .status {
+      padding: 15px;
+      margin: 20px 0;
+      border-radius: 4px;
+      background: #e6f7ff;
+      border: 1px solid #91d5ff;
+    }
+    .success {
+      background: #f6ffed;
+      border-color: #b7eb8f;
+      color: #52c41a;
+    }
+    .error {
+      background: #fff1f0;
+      border-color: #ffa39e;
+      color: #f5222d;
+    }
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 15px;
+      margin: 20px 0;
+    }
+    .stat-card {
+      background: white;
+      padding: 20px;
+      border-radius: 4px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    .stat-title {
+      color: #8c8c8c;
+      font-size: 14px;
+      margin-bottom: 10px;
+    }
+    .stat-value {
+      font-size: 24px;
+      font-weight: bold;
+    }
+    .positive {
+      color: #cf1322;
+    }
+    .negative {
+      color: #3f8600;
+    }
+    table {
+      width: 100%;
+      background: white;
+      border-collapse: collapse;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      margin-top: 20px;
+    }
+    th, td {
+      padding: 12px;
+      text-align: left;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    th {
+      background: #fafafa;
+      font-weight: 600;
+      color: #262626;
+    }
+    .btn {
+      background: #1890ff;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .btn:hover {
+      background: #40a9ff;
+    }
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #8c8c8c;
+    }
+  </style>
+</head>
+<body>
+  <h1>📊 板块资金流向分析测试</h1>
+
+  <div id="status" class="status">
+    <strong>状态:</strong> 准备就绪
+  </div>
+
+  <div style="text-align: center; margin: 20px 0;">
+    <button class="btn" onclick="fetchData()">🔄 获取板块资金流向数据</button>
+  </div>
+
+  <div id="summary" style="display: none;">
+    <h2>统计概览</h2>
+    <div class="summary">
+      <div class="stat-card">
+        <div class="stat-title">主力净流入</div>
+        <div class="stat-value" id="totalNet">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-title">超大单净流入</div>
+        <div class="stat-value" id="totalElg">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-title">大单净流入</div>
+        <div class="stat-value" id="totalLg">-</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-title">流入/流出板块</div>
+        <div class="stat-value" id="sectors">-</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="loading" class="loading" style="display: none;">
+    ⏳ 正在加载数据...
+  </div>
+
+  <div id="data-container"></div>
+
+  <script>
+    async function fetchData() {
+      const statusDiv = document.getElementById('status');
+      const loadingDiv = document.getElementById('loading');
+      const summaryDiv = document.getElementById('summary');
+      const dataContainer = document.getElementById('data-container');
+
+      try {
+        statusDiv.textContent = '正在请求数据...';
+        statusDiv.className = 'status';
+        loadingDiv.style.display = 'block';
+        dataContainer.innerHTML = '';
+        summaryDiv.style.display = 'none';
+
+        const response = await fetch('http://localhost:3000/api/analysis/sector-moneyflow?days=7');
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const result = await response.json();
+
+        if (!result.success) {
+          throw new Error(result.message || '请求失败');
+        }
+
+        // 显示成功状态
+        statusDiv.innerHTML = `<strong>✓ 成功!</strong> 获取到 ${result.data.sectorFlow.length} 条板块数据`;
+        statusDiv.className = 'status success';
+
+        // 显示统计摘要
+        const summary = result.data.summary;
+        document.getElementById('totalNet').innerHTML = formatAmount(summary.totalNetAmount);
+        document.getElementById('totalElg').innerHTML = formatAmount(summary.totalElgAmount);
+        document.getElementById('totalLg').innerHTML = formatAmount(summary.totalLgAmount);
+        document.getElementById('sectors').textContent = `${summary.inflowSectors} / ${summary.outflowSectors}`;
+        summaryDiv.style.display = 'block';
+
+        // 显示数据表格
+        displayTable(result.data.sectorFlow.slice(0, 20)); // 只显示前20条
+
+      } catch (error) {
+        statusDiv.innerHTML = `<strong>✗ 错误:</strong> ${error.message}`;
+        statusDiv.className = 'status error';
+        console.error('Error:', error);
+      } finally {
+        loadingDiv.style.display = 'none';
+      }
+    }
+
+    function formatAmount(value) {
+      const amount = (value / 100000000).toFixed(2);
+      const className = value > 0 ? 'positive' : 'negative';
+      const sign = value > 0 ? '+' : '';
+      return `<span class="${className}">${sign}${amount}亿</span>`;
+    }
+
+    function displayTable(data) {
+      if (data.length === 0) {
+        document.getElementById('data-container').innerHTML = '<p class="loading">没有数据</p>';
+        return;
+      }
+
+      let html = '<h2>板块数据 (前20条)</h2><table>';
+      html += '<thead><tr>';
+      html += '<th>日期</th><th>板块名称</th><th>涨跌幅</th><th>主力净流入</th>';
+      html += '<th>超大单</th><th>大单</th><th>中单</th><th>小单</th><th>排名</th>';
+      html += '</tr></thead><tbody>';
+
+      data.forEach(item => {
+        html += '<tr>';
+        html += `<td>${item.trade_date}</td>`;
+        html += `<td><strong>${item.name}</strong></td>`;
+        html += `<td>${formatPercent(item.pct_change)}</td>`;
+        html += `<td>${formatAmount(item.net_amount)}</td>`;
+        html += `<td>${formatAmount(item.buy_elg_amount)}</td>`;
+        html += `<td>${formatAmount(item.buy_lg_amount)}</td>`;
+        html += `<td>${formatAmount(item.buy_md_amount)}</td>`;
+        html += `<td>${formatAmount(item.buy_sm_amount)}</td>`;
+        html += `<td>${item.rank}</td>`;
+        html += '</tr>';
+      });
+
+      html += '</tbody></table>';
+      document.getElementById('data-container').innerHTML = html;
+    }
+
+    function formatPercent(value) {
+      const className = value > 0 ? 'positive' : value < 0 ? 'negative' : '';
+      const sign = value > 0 ? '+' : '';
+      return `<span class="${className}">${sign}${value.toFixed(2)}%</span>`;
+    }
+
+    // 页面加载时自动获取数据
+    window.onload = () => {
+      setTimeout(fetchData, 500);
+    };
+  </script>
+</body>
+</html>

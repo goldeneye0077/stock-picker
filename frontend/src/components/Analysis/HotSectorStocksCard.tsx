@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Collapse, Table, Tag, Space, Statistic, Row, Col, Empty, Button, Tooltip, message, Badge } from 'antd';
+import { Card, Collapse, Table, Tag, Space, Statistic, Row, Col, Empty, Button, Tooltip, message, Badge, Pagination } from 'antd';
 import {
   RiseOutlined,
   FallOutlined,
@@ -42,6 +42,10 @@ const HotSectorStocksCardComponent: React.FC = () => {
   const [data, setData] = useState<HotSector[]>([]);
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState<any>(null);
+  
+  // 分页状态
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(5);
 
   // 获取热点板块数据
   const fetchData = useCallback(async () => {
@@ -66,6 +70,9 @@ const HotSectorStocksCardComponent: React.FC = () => {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // 计算当前页数据
+  const currentData = data.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   // 股票表格列定义
   const stockColumns: ColumnsType<Stock> = [
@@ -226,41 +233,62 @@ const HotSectorStocksCardComponent: React.FC = () => {
 
       {/* 板块列表 */}
       {data.length > 0 ? (
-        <Collapse
-          accordion
-          ghost
-          expandIcon={({ isActive }) => isActive ? <FireOutlined /> : <TrophyOutlined />}
-        >
-          {data.map((sector, index) => (
-            <Panel
-              header={
-                <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-                  <Space>
-                    <Badge count={index + 1} style={{ backgroundColor: '#1890ff' }} />
-                    <strong style={{ fontSize: '16px' }}>{sector.sectorName}</strong>
+        <>
+          <Collapse
+            accordion
+            ghost
+            expandIcon={({ isActive }) => isActive ? <FireOutlined /> : <TrophyOutlined />}
+          >
+            {currentData.map((sector, index) => (
+              <Panel
+                header={
+                  <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+                    <Space>
+                      <Badge count={(currentPage - 1) * pageSize + index + 1} style={{ backgroundColor: '#1890ff' }} />
+                      <strong style={{ fontSize: '16px' }}>{sector.sectorName}</strong>
+                    </Space>
+                    <Space>
+                      <Tag color="blue">
+                        涨跌: {sector.sectorPctChange > 0 ? '+' : ''}{sector.sectorPctChange.toFixed(2)}%
+                      </Tag>
+                      <Tag color={sector.sectorMoneyFlow > 0 ? 'red' : 'green'}>
+                        资金: {(sector.sectorMoneyFlow / 100000000).toFixed(2)}亿
+                      </Tag>
+                    </Space>
                   </Space>
-                  <Space>
-                    <Tag color="blue">
-                      涨跌: {sector.sectorPctChange > 0 ? '+' : ''}{sector.sectorPctChange.toFixed(2)}%
-                    </Tag>
-                    <Tag color={sector.sectorMoneyFlow > 0 ? 'red' : 'green'}>
-                      资金: {(sector.sectorMoneyFlow / 100000000).toFixed(2)}亿
-                    </Tag>
-                  </Space>
-                </Space>
-              }
-              key={sector.sectorName}
-            >
-              <Table
-                columns={stockColumns}
-                dataSource={sector.stocks.map((stock, idx) => ({ ...stock, key: idx }))}
-                pagination={false}
-                size="small"
-                scroll={{ x: 800 }}
-              />
-            </Panel>
-          ))}
-        </Collapse>
+                }
+                key={sector.sectorName}
+              >
+                <Table
+                  columns={stockColumns}
+                  dataSource={sector.stocks.map((stock, idx) => ({ ...stock, key: idx }))}
+                  pagination={false}
+                  size="small"
+                  scroll={{ x: 800 }}
+                />
+              </Panel>
+            ))}
+          </Collapse>
+          
+          {/* 分页器 */}
+          <Pagination
+            current={currentPage}
+            total={data.length}
+            pageSize={pageSize}
+            onChange={(page, size) => {
+              setCurrentPage(page);
+              if (size) setPageSize(size);
+            }}
+            onShowSizeChange={(current, size) => {
+              setPageSize(size);
+              setCurrentPage(1);
+            }}
+            style={{ marginTop: 16, textAlign: 'right' }}
+            showSizeChanger
+            pageSizeOptions={['5', '10', '20']}
+            showTotal={(total) => `共 ${total} 个板块`}
+          />
+        </>
       ) : (
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
