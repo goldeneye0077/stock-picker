@@ -11,16 +11,55 @@ const Settings: React.FC = () => {
   const [form] = Form.useForm();
   const [dataStatus, setDataStatus] = useState<any>(null);
   const [schedulerStatus, setSchedulerStatus] = useState<any>(null);
+  const [multiSourceStatus, setMultiSourceStatus] = useState<any>(null);
+  const [qualityMetrics, setQualityMetrics] = useState<any>(null);
+  const [incrementalStatus, setIncrementalStatus] = useState<any>(null);
   const [loadingData, setLoadingData] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState(false);
+  const [loadingMultiSource, setLoadingMultiSource] = useState(false);
+  const [loadingQuality, setLoadingQuality] = useState(false);
   const [collecting, setCollecting] = useState(false);
   const [progressModalVisible, setProgressModalVisible] = useState(false);
   const [progress, setProgress] = useState(0);
   const [currentStep, setCurrentStep] = useState('');
   const [startTime, setStartTime] = useState<Date | null>(null);
 
-  const onFinish = (values: any) => {
-    console.log('Settings saved:', values);
+  const onFinish = async (values: any) => {
+    try {
+      // 保存多数据源配置
+      if (values.dataSource) {
+        await axios.put(`${DATA_SERVICE_URL}/api/data/collection-config/preferred_source?config_value=${encodeURIComponent(values.dataSource)}`);
+      }
+
+      if (values.fallbackOrder && values.fallbackOrder.length > 0) {
+        await axios.put(`${DATA_SERVICE_URL}/api/data/collection-config/fallback_order?config_value=${encodeURIComponent(values.fallbackOrder.join(','))}`);
+      }
+
+      if (values.cacheTTL) {
+        await axios.put(`${DATA_SERVICE_URL}/api/data/multi-source/cache-ttl/${values.cacheTTL}`);
+      }
+
+      if (values.enableIncremental !== undefined) {
+        await axios.put(`${DATA_SERVICE_URL}/api/data/collection-config/incremental_enabled?config_value=${encodeURIComponent(values.enableIncremental.toString())}`);
+      }
+
+      if (values.incrementalDays) {
+        await axios.put(`${DATA_SERVICE_URL}/api/data/collection-config/incremental_days?config_value=${encodeURIComponent(values.incrementalDays.toString())}`);
+      }
+
+      message.success('设置保存成功');
+      console.log('Settings saved:', values);
+
+      // 刷新状态
+      setTimeout(() => {
+        fetchMultiSourceStatus();
+        fetchIncrementalStatus();
+      }, 1000);
+
+    } catch (error) {
+      console.error('保存设置失败:', error);
+      message.error('保存设置失败');
+    }
   };
 
   // 获取数据采集状态
@@ -48,35 +87,150 @@ const Settings: React.FC = () => {
     }
   };
 
-  // 手动触发数据采集
+  // 获取多数据源状态
+  const fetchMultiSourceStatus = async () => {
+    setLoadingMultiSource(true);
+    try {
+      const response = await axios.get(`${DATA_SERVICE_URL}/api/data/multi-source/status`);
+      if (response.data.success) {
+        setMultiSourceStatus(response.data.data);
+      }
+    } catch (error) {
+      console.error('获取多数据源状态失败:', error);
+    } finally {
+      setLoadingMultiSource(false);
+    }
+  };
+
+  // 获取数据质量指标
+  const fetchQualityMetrics = async () => {
+    setLoadingQuality(true);
+    try {
+      const response = await axios.get(`${DATA_SERVICE_URL}/api/data/quality-metrics?days=7`);
+      if (response.data.success) {
+        setQualityMetrics(response.data.data);
+      }
+    } catch (error) {
+      console.error('获取数据质量指标失败:', error);
+      // 如果API不存在，设置默认值
+      setQualityMetrics({
+        days: 7,
+        total_metrics: 0,
+        healthy_metrics: 0
+      });
+    } finally {
+      setLoadingQuality(false);
+    }
+  };
+
+  // 获取增量更新状态
+  const fetchIncrementalStatus = async () => {
+    try {
+      const response = await axios.get(`${DATA_SERVICE_URL}/api/data/incremental-status`);
+      if (response.data.success) {
+        setIncrementalStatus(response.data.data);
+      }
+    } catch (error) {
+      console.error('获取增量更新状态失败:', error);
+      // 如果API不存在，设置默认状态
+      setIncrementalStatus({
+        incremental_enabled: false,
+        last_collection_date: '--',
+        stats: {
+          total_count: 0,
+          success_rate: 0
+        }
+      });
+    }
+  };
+
+  // 获取配置
+  const fetchConfig = async () => {
+    try {
+      const response = await axios.get(`${DATA_SERVICE_URL}/api/data/collection-config`);
+      if (response.data.success) {
+        const config = response.data.data;
+        const formValues: any = {};
+
+        if (config.preferred_source) {
+          formValues.dataSource = config.preferred_source.value;
+        }
+
+        if (config.fallback_order) {
+          formValues.fallbackOrder = config.fallback_order.value.split(',').filter((item: string) => item.trim());
+        }
+
+        if (config.cache_ttl) {
+          formValues.cacheTTL = parseInt(config.cache_ttl.value);
+        }
+
+        if (config.incremental_enabled) {
+          formValues.enableIncremental = config.incremental_enabled.value === 'true';
+        }
+
+        if (config.incremental_days) {
+          formValues.incrementalDays = parseInt(config.incremental_days.value);
+        }
+
+        form.setFieldsValue(formValues);
+      }
+    } catch (error) {
+      console.error('获取配置失败:', error);
+    }
+  };
+
+  // 手动触发数据采集 - 快速更新今日数据
   const handleCollectData = async () => {
     setCollecting(true);
     setProgressModalVisible(true);
     setProgress(0);
-    setCurrentStep('正在启动数据采集任务...');
+    setCurrentStep('正在启动今日数据更新...');
     setStartTime(new Date());
 
     try {
-      const response = await axios.post(`${DATA_SERVICE_URL}/api/data/batch-collect-7days`, {
-        include_moneyflow: true
+      // 使用今日K线数据更新脚本（更快更稳定）
+      setCurrentStep('正在更新今日K线数据...');
+      setProgress(30);
+
+      const response = await axios.post(`${DATA_SERVICE_URL}/api/data/run-script`, {
+        script_name: 'update_today_kline.py'
       });
 
-      if (response.data.success) {
-        // 模拟进度更新
-        simulateProgress();
-      } else {
-        message.error('启动数据采集失败');
+      if (!response.data.success) {
+        message.error('今日数据更新失败');
         setProgressModalVisible(false);
         setCollecting(false);
+        return;
       }
+
+      // 等待3秒让脚本执行
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
+      // 检查数据状态
+      setCurrentStep('正在检查数据更新结果...');
+      setProgress(70);
+
+      // 刷新数据状态
+      await fetchDataStatus();
+
+      // 完成
+      setCurrentStep('今日数据更新完成！');
+      setProgress(100);
+
+      setTimeout(() => {
+        setProgressModalVisible(false);
+        setCollecting(false);
+        message.success('今日数据更新完成！');
+      }, 1000);
+
     } catch (error: any) {
-      message.error(`采集失败: ${error.message}`);
+      message.error(`数据更新失败: ${error.message}`);
       setProgressModalVisible(false);
       setCollecting(false);
     }
   };
 
-  // 模拟进度更新
+  // 模拟进度更新（保留备用）
   const simulateProgress = () => {
     const steps = [
       { progress: 4, step: '正在获取交易日历...', duration: 2000 },
@@ -125,11 +279,18 @@ const Settings: React.FC = () => {
   useEffect(() => {
     fetchDataStatus();
     fetchSchedulerStatus();
+    fetchMultiSourceStatus();
+    fetchQualityMetrics();
+    fetchIncrementalStatus();
+    fetchConfig();
 
     // 每30秒刷新一次状态
     const interval = setInterval(() => {
       fetchDataStatus();
       fetchSchedulerStatus();
+      fetchMultiSourceStatus();
+      fetchQualityMetrics();
+      fetchIncrementalStatus();
     }, 30000);
 
     return () => clearInterval(interval);
@@ -146,15 +307,45 @@ const Settings: React.FC = () => {
           </Space>
         }
         extra={
-          <Button
-            type="primary"
-            icon={<SyncOutlined spin={collecting} />}
-            onClick={handleCollectData}
-            loading={collecting}
-            disabled={collecting}
-          >
-            立即更新数据
-          </Button>
+          <Space>
+            <Button
+              type="primary"
+              icon={<SyncOutlined spin={collecting} />}
+              onClick={handleCollectData}
+              loading={collecting}
+              disabled={collecting}
+            >
+              立即更新数据
+            </Button>
+            <Button
+              icon={<CheckCircleOutlined />}
+              onClick={async () => {
+                try {
+                  await axios.post(`${DATA_SERVICE_URL}/api/data/multi-source/run-health-check`);
+                  message.success('健康检查已启动');
+                  setTimeout(() => fetchMultiSourceStatus(), 2000);
+                } catch (error) {
+                  message.error('启动健康检查失败');
+                }
+              }}
+            >
+              运行健康检查
+            </Button>
+            <Button
+              icon={<DatabaseOutlined />}
+              onClick={async () => {
+                try {
+                  await axios.post(`${DATA_SERVICE_URL}/api/data/multi-source/clear-cache`);
+                  message.success('缓存已清空');
+                  setTimeout(() => fetchMultiSourceStatus(), 1000);
+                } catch (error) {
+                  message.error('清空缓存失败');
+                }
+              }}
+            >
+              清空缓存
+            </Button>
+          </Space>
         }
         style={{ marginBottom: '24px' }}
       >
@@ -235,6 +426,237 @@ const Settings: React.FC = () => {
         </Spin>
       </Card>
 
+      {/* 多数据源状态卡片 */}
+      <Card
+        title={
+          <Space>
+            <DatabaseOutlined />
+            多数据源状态
+          </Space>
+        }
+        style={{ marginBottom: '24px' }}
+      >
+        <Spin spinning={loadingMultiSource}>
+          {multiSourceStatus && (
+            <div>
+              <Row gutter={16} style={{ marginBottom: '16px' }}>
+                <Col span={6}>
+                  <Statistic
+                    title="数据源总数"
+                    value={multiSourceStatus.total_sources || 0}
+                    prefix={<DatabaseOutlined />}
+                  />
+                </Col>
+                <Col span={6}>
+                  <Statistic
+                    title="首选数据源"
+                    value={multiSourceStatus.preferred_source || '未设置'}
+                  />
+                </Col>
+                <Col span={6}>
+                  <Statistic
+                    title="缓存大小"
+                    value={multiSourceStatus.cache_size || 0}
+                    suffix="条"
+                  />
+                </Col>
+                <Col span={6}>
+                  <Statistic
+                    title="缓存有效期"
+                    value={multiSourceStatus.cache_ttl || 0}
+                    suffix="秒"
+                  />
+                </Col>
+              </Row>
+
+              {/* 数据源详情 */}
+              {multiSourceStatus.sources && Object.keys(multiSourceStatus.sources).length > 0 && (
+                <div style={{ marginTop: '16px' }}>
+                  <Divider orientation="left">数据源详情</Divider>
+                  {Object.entries(multiSourceStatus.sources).map(([sourceName, sourceInfo]: [string, any]) => (
+                    <Card
+                      key={sourceName}
+                      size="small"
+                      style={{ marginBottom: '8px' }}
+                      title={
+                        <Space>
+                          <span>{sourceName}</span>
+                          <span style={{
+                            color: sourceInfo.health?.status === 'healthy' ? '#52c41a' :
+                                   sourceInfo.health?.status === 'degraded' ? '#faad14' : '#ff4d4f'
+                          }}>
+                            {sourceInfo.health?.status === 'healthy' ? '✅ 健康' :
+                             sourceInfo.health?.status === 'degraded' ? '⚠️ 降级' : '❌ 不可用'}
+                          </span>
+                        </Space>
+                      }
+                    >
+                      <Row gutter={16}>
+                        <Col span={8}>
+                          <div>可用性: {sourceInfo.available ? '✅ 可用' : '❌ 不可用'}</div>
+                          <div>成功率: {(sourceInfo.health?.success_rate * 100).toFixed(1)}%</div>
+                        </Col>
+                        <Col span={8}>
+                          <div>平均延迟: {sourceInfo.health?.avg_latency.toFixed(2)}秒</div>
+                          <div>总请求数: {sourceInfo.health?.total_requests}</div>
+                        </Col>
+                        <Col span={8}>
+                          <div>成功请求: {sourceInfo.health?.successful_requests}</div>
+                          <div>失败请求: {sourceInfo.health?.failed_requests}</div>
+                        </Col>
+                      </Row>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </Spin>
+      </Card>
+
+      {/* 数据质量监控卡片 */}
+      <Card
+        title={
+          <Space>
+            <CheckCircleOutlined />
+            数据质量监控
+          </Space>
+        }
+        style={{ marginBottom: '24px' }}
+      >
+        <Spin spinning={loadingQuality}>
+          {qualityMetrics && (
+            <div>
+              <Row gutter={16} style={{ marginBottom: '16px' }}>
+                <Col span={6}>
+                  <Statistic
+                    title="监控天数"
+                    value={qualityMetrics.days || 0}
+                    suffix="天"
+                  />
+                </Col>
+                <Col span={6}>
+                  <Statistic
+                    title="总指标数"
+                    value={qualityMetrics.total_metrics || 0}
+                  />
+                </Col>
+                <Col span={6}>
+                  <Statistic
+                    title="健康指标"
+                    value={qualityMetrics.healthy_metrics || 0}
+                  />
+                </Col>
+                <Col span={6}>
+                  <Statistic
+                    title="健康率"
+                    value={qualityMetrics.total_metrics > 0 ? ((qualityMetrics.healthy_metrics / qualityMetrics.total_metrics) * 100).toFixed(1) : 0}
+                    suffix="%"
+                  />
+                </Col>
+              </Row>
+
+              {/* 指标详情 */}
+              {qualityMetrics.metrics && qualityMetrics.metrics.length > 0 && (
+                <div style={{ marginTop: '16px' }}>
+                  <Divider orientation="left">关键指标</Divider>
+                  <Row gutter={16}>
+                    {qualityMetrics.metrics.slice(0, 4).map((metric: any, index: number) => (
+                      <Col span={6} key={index}>
+                        <Card size="small">
+                          <div style={{ textAlign: 'center' }}>
+                            <div style={{ fontSize: '20px', fontWeight: 'bold' }}>
+                              {metric.value}{metric.unit || ''}
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#666' }}>
+                              {metric.name}
+                            </div>
+                            <div style={{
+                              fontSize: '12px',
+                              color: metric.is_healthy ? '#52c41a' : '#ff4d4f'
+                            }}>
+                              {metric.is_healthy ? '✅ 健康' : '❌ 异常'}
+                            </div>
+                          </div>
+                        </Card>
+                      </Col>
+                    ))}
+                  </Row>
+                </div>
+              )}
+            </div>
+          )}
+        </Spin>
+      </Card>
+
+      {/* 增量更新状态卡片 */}
+      <Card
+        title={
+          <Space>
+            <SyncOutlined />
+            增量更新状态
+          </Space>
+        }
+        style={{ marginBottom: '24px' }}
+      >
+        {incrementalStatus ? (
+          <div>
+            <Row gutter={16} style={{ marginBottom: '16px' }}>
+              <Col span={6}>
+                <Statistic
+                  title="增量更新启用"
+                  value={incrementalStatus.incremental_enabled ? '✅ 已启用' : '❌ 未启用'}
+                />
+              </Col>
+              <Col span={6}>
+                <Statistic
+                  title="上次采集时间"
+                  value={incrementalStatus.last_collection_date || '--'}
+                />
+              </Col>
+              <Col span={6}>
+                <Statistic
+                  title="总采集次数"
+                  value={incrementalStatus.stats?.total_count || 0}
+                />
+              </Col>
+              <Col span={6}>
+                <Statistic
+                  title="成功率"
+                  value={incrementalStatus.stats?.success_rate?.toFixed(1) || 0}
+                  suffix="%"
+                />
+              </Col>
+            </Row>
+
+            {/* 上次增量采集详情 */}
+            {incrementalStatus.last_incremental && (
+              <Alert
+                message="上次增量采集详情"
+                description={
+                  <div>
+                    <div>开始时间: {incrementalStatus.last_incremental.start_date}</div>
+                    <div>结束时间: {incrementalStatus.last_incremental.end_date}</div>
+                    <div>股票数量: {incrementalStatus.last_incremental.stock_count}</div>
+                    <div>K线数据: {incrementalStatus.last_incremental.kline_count}</div>
+                    <div>耗时: {incrementalStatus.last_incremental.elapsed_time?.toFixed(1)}秒</div>
+                  </div>
+                }
+                type="info"
+                showIcon
+              />
+            )}
+          </div>
+        ) : (
+          <Alert
+            message="增量更新状态"
+            description="增量更新功能已整合到设置模块中，您可以在下方系统设置中配置增量更新参数。"
+            type="info"
+            showIcon
+          />
+        )}
+      </Card>
+
       {/* 系统设置卡片 */}
       <Card title="系统设置">
         <Form
@@ -246,6 +668,10 @@ const Settings: React.FC = () => {
             volumeThreshold: 2.0,
             fundThreshold: 100,
             dataSource: 'tushare',
+            fallbackOrder: ['akshare'],
+            cacheTTL: 300,
+            enableIncremental: false,
+            incrementalDays: 7,
             refreshInterval: 30,
             theme: 'dark',
           }}
@@ -297,12 +723,55 @@ const Settings: React.FC = () => {
           <Divider>数据源设置</Divider>
           <Form.Item
             name="dataSource"
-            label="数据源"
+            label="首选数据源"
           >
             <Select>
               <Option value="tushare">Tushare Pro</Option>
-              <Option value="sina">新浪财经</Option>
-              <Option value="eastmoney">东方财富</Option>
+              <Option value="akshare">AKShare</Option>
+              <Option value="auto">自动选择</Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item
+            name="fallbackOrder"
+            label="备用数据源顺序"
+          >
+            <Select mode="multiple">
+              <Option value="tushare">Tushare Pro</Option>
+              <Option value="akshare">AKShare</Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item
+            name="cacheTTL"
+            label="缓存有效期（秒）"
+          >
+            <Select>
+              <Option value={60}>60秒</Option>
+              <Option value={300}>5分钟</Option>
+              <Option value={600}>10分钟</Option>
+              <Option value={1800}>30分钟</Option>
+              <Option value={3600}>1小时</Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item
+            name="enableIncremental"
+            label="启用增量更新"
+            valuePropName="checked"
+          >
+            <Switch />
+          </Form.Item>
+
+          <Form.Item
+            name="incrementalDays"
+            label="增量更新天数"
+          >
+            <Select>
+              <Option value={1}>1天</Option>
+              <Option value={3}>3天</Option>
+              <Option value={7}>7天</Option>
+              <Option value={14}>14天</Option>
             </Select>
           </Form.Item>
 

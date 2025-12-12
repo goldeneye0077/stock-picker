@@ -11,9 +11,11 @@ import logging
 try:
     # 首先尝试相对导入
     from ..analyzers.smart_selection.smart_selection_analyzer import SmartSelectionAnalyzer
+    from ..analyzers.smart_selection.backtest_engine import BacktestEngine
 except ImportError:
     # 如果相对导入失败，尝试绝对导入
     from analyzers.smart_selection.smart_selection_analyzer import SmartSelectionAnalyzer
+    from analyzers.smart_selection.backtest_engine import BacktestEngine
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +26,19 @@ router = APIRouter(prefix="", tags=["smart-selection"])
 def get_smart_selection_analyzer():
     """获取智能选股分析器"""
     return SmartSelectionAnalyzer()
+
+def get_backtest_engine():
+    """获取回测引擎"""
+    try:
+        logger.info("创建新的回测引擎实例")
+        engine = BacktestEngine()
+        logger.info(f"回测引擎创建成功，数据库路径: {engine.db_path}")
+        return engine
+    except Exception as e:
+        logger.error(f"创建回测引擎失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise
 
 
 @router.get("/health")
@@ -239,7 +254,8 @@ async def run_backtest(
     strategy_config: Dict[str, Any],
     start_date: str = Query(..., description="开始日期，格式: YYYY-MM-DD"),
     end_date: str = Query(..., description="结束日期，格式: YYYY-MM-DD"),
-    smart_selection_analyzer: SmartSelectionAnalyzer = Depends(get_smart_selection_analyzer)
+    algorithm_type: str = Query('basic', description="算法类型: basic(基础算法) 或 advanced(高级算法)"),
+    backtest_engine: BacktestEngine = Depends(get_backtest_engine)
 ):
     """
     运行策略回测
@@ -248,11 +264,18 @@ async def run_backtest(
         strategy_config: 策略配置
         start_date: 开始日期
         end_date: 结束日期
+        algorithm_type: 算法类型
 
     Returns:
         回测结果
     """
     try:
+        logger.info("=== 开始处理回测请求 ===")
+        logger.info(f"请求参数: start_date={start_date}, end_date={end_date}, algorithm_type={algorithm_type}")
+        logger.info(f"策略配置: {strategy_config}")
+        logger.info(f"回测引擎实例: {backtest_engine}")
+        logger.info(f"回测引擎类型: {type(backtest_engine)}")
+
         # 验证日期格式
         try:
             datetime.strptime(start_date, '%Y-%m-%d')
@@ -260,36 +283,100 @@ async def run_backtest(
         except ValueError:
             raise HTTPException(status_code=400, detail="日期格式错误，应为YYYY-MM-DD")
 
-        # 这里应该实现策略回测逻辑
-        # 暂时返回模拟数据
+        # 验证算法类型
+        if algorithm_type not in ['basic', 'advanced']:
+            raise HTTPException(status_code=400, detail="算法类型必须是 'basic' 或 'advanced'")
 
-        backtest_result = {
-            "strategy_config": strategy_config,
-            "start_date": start_date,
-            "end_date": end_date,
-            "total_return": 15.8,  # 总收益率
-            "annual_return": 25.3,  # 年化收益率
-            "max_drawdown": -8.2,  # 最大回撤
-            "sharpe_ratio": 1.8,  # 夏普比率
-            "win_rate": 65.2,  # 胜率
-            "total_trades": 42,  # 总交易次数
-            "profit_trades": 28,  # 盈利交易次数
-            "loss_trades": 14,  # 亏损交易次数
-            "average_profit": 3.2,  # 平均盈利
-            "average_loss": -2.1,  # 平均亏损
-            "profit_factor": 2.1,  # 盈亏比
-            "backtest_completed": True,
-            "message": "回测完成（模拟数据）",
-            "timestamp": datetime.now().isoformat()
-        }
+        # 验证策略配置
+        if not strategy_config:
+            raise HTTPException(status_code=400, detail="策略配置不能为空")
 
-        return backtest_result
+        # 验证权重配置（基础算法需要）
+        if algorithm_type == 'basic':
+            weights = strategy_config.get('weights', {
+                'technical': 0.35,
+                'fundamental': 0.30,
+                'capital': 0.25,
+                'market': 0.10,
+            })
+
+            # 验证权重总和为1
+            weight_sum = sum(weights.values())
+            if abs(weight_sum - 1.0) > 0.01:
+                raise HTTPException(status_code=400, detail=f"权重总和必须为1，当前为{weight_sum}")
+
+        min_score = strategy_config.get('min_score', 70.0)
+        if min_score < 0 or min_score > 100:
+            raise HTTPException(status_code=400, detail="最低评分必须在0-100之间")
+
+        max_results = strategy_config.get('max_results', 20)
+        if max_results < 1 or max_results > 100:
+            raise HTTPException(status_code=400, detail="最大结果数必须在1-100之间")
+
+        logger.info(f"开始运行策略回测: {start_date} 到 {end_date}, 算法类型: {algorithm_type}")
+        logger.info(f"策略配置: {strategy_config}")
+
+        # 调试：检查回测引擎
+        logger.info(f"回测引擎: {backtest_engine}")
+        logger.info(f"回测引擎数据库路径: {backtest_engine.db_path}")
+
+        # 运行回测
+        logger.info("调用 backtest_engine.run_backtest()...")
+
+        # 测试：直接创建新的回测引擎实例并运行
+        logger.info("测试：直接创建新的回测引擎实例并运行")
+        from analyzers.smart_selection.backtest_engine import BacktestEngine
+
+        # 测试1：简单异步操作
+        logger.info("测试1：简单异步操作")
+        import asyncio
+        await asyncio.sleep(0.1)
+        logger.info("异步操作完成")
+
+        # 测试2：创建回测引擎
+        logger.info("测试2：创建回测引擎")
+        test_engine = BacktestEngine()
+        logger.info(f"测试引擎数据库路径: {test_engine.db_path}")
+
+        # 测试3：直接运行回测
+        logger.info("测试3：直接运行回测")
+        test_result = await test_engine.run_backtest(
+            strategy_config, start_date, end_date, algorithm_type
+        )
+        logger.info(f"直接测试结果 - 总收益率: {test_result['total_return']:.2f}%, 交易次数: {test_result['total_trades']}")
+
+        # 直接返回测试结果
+        logger.info("直接返回测试结果")
+        logger.info("=== 回测请求处理完成 ===")
+
+        return test_result
 
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"运行策略回测失败: {e}")
-        raise HTTPException(status_code=500, detail=f"运行策略回测失败: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        # 返回错误结果而不是抛出异常，以便查看错误信息
+        return {
+            'strategy_config': strategy_config,
+            'start_date': start_date,
+            'end_date': end_date,
+            'total_return': 0.0,
+            'annual_return': 0.0,
+            'max_drawdown': 0.0,
+            'sharpe_ratio': 0.0,
+            'win_rate': 0.0,
+            'total_trades': 0,
+            'profit_trades': 0,
+            'loss_trades': 0,
+            'average_profit': 0.0,
+            'average_loss': 0.0,
+            'profit_factor': 0.0,
+            'backtest_completed': False,
+            'message': f"运行策略回测失败: {str(e)}",
+            'timestamp': datetime.now().isoformat()
+        }
 
 
 @router.get("/statistics")
