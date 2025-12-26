@@ -1,37 +1,132 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from ..utils.database import get_database
+from ..data_sources.tushare_client import TushareClient
 from loguru import logger
+from datetime import datetime, timedelta
 
 router = APIRouter()
+
+async def _get_latest_date(db, table: str) -> str | None:
+    cursor = await db.execute(f"SELECT MAX(date) FROM {table}")
+    row = await cursor.fetchone()
+    return row[0] if row and row[0] else None
+
+async def _build_market_overview(db):
+    cursor = await db.execute("SELECT COUNT(*) as count FROM stocks")
+    total_stocks = await cursor.fetchone()
+
+    cursor = await db.execute("""
+        SELECT COUNT(*) as count FROM buy_signals
+        WHERE date(created_at) = date('now')
+    """)
+    today_signals = await cursor.fetchone()
+
+    latest_volume_date = await _get_latest_date(db, "volume_analysis")
+    volume_surges = 0
+    top_volume_surge = []
+
+    if latest_volume_date:
+        cursor = await db.execute("""
+            SELECT COUNT(*) as count
+            FROM volume_analysis
+            WHERE date = ? AND is_volume_surge = 1
+        """, (latest_volume_date,))
+        surge_count = await cursor.fetchone()
+        volume_surges = surge_count[0] if surge_count else 0
+
+        cursor = await db.execute("""
+            SELECT
+                va.stock_code,
+                s.name as name,
+                va.volume_ratio,
+                va.date
+            FROM volume_analysis va
+            LEFT JOIN stocks s ON s.code = va.stock_code
+            WHERE va.date = ? AND va.is_volume_surge = 1
+            ORDER BY va.volume_ratio DESC
+            LIMIT 10
+        """, (latest_volume_date,))
+        rows = await cursor.fetchall()
+        top_volume_surge = [dict(r) for r in rows]
+
+    latest_fund_date = await _get_latest_date(db, "fund_flow")
+    fund_flow_positive = 0
+    if latest_fund_date:
+        cursor = await db.execute("""
+            SELECT COUNT(*) as count
+            FROM fund_flow
+            WHERE date = ? AND main_fund_flow > 0
+        """, (latest_fund_date,))
+        positive = await cursor.fetchone()
+        fund_flow_positive = positive[0] if positive else 0
+
+    return {
+        "success": True,
+        "data": {
+            "totalStocks": total_stocks[0] if total_stocks else 0,
+            "todaySignals": today_signals[0] if today_signals else 0,
+            "volumeSurges": volume_surges,
+            "fundFlowPositive": fund_flow_positive,
+            "topVolumeSurge": top_volume_surge,
+            "dataDate": latest_volume_date or latest_fund_date or None,
+        }
+    }
 
 @router.get("/overview")
 async def get_analysis_overview():
     """Get analysis overview"""
     try:
         async with get_database() as db:
-            # Get total stocks
-            cursor = await db.execute("SELECT COUNT(*) as count FROM stocks")
-            total_stocks = await cursor.fetchone()
+            result = await _build_market_overview(db)
+            result["data"].pop("topVolumeSurge", None)
+            result["data"].pop("dataDate", None)
+            return result
+    except Exception as e:
+        logger.error(f"Error fetching analysis overview: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch analysis overview")
 
-            # Get today's signals
+@router.get("/market-overview")
+async def get_market_overview():
+    try:
+        async with get_database() as db:
+            return await _build_market_overview(db)
+    except Exception as e:
+        logger.error(f"Error fetching market overview: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch market overview")
+
+@router.get("/signals")
+async def get_recent_signals(
+    days: int = Query(1, ge=1, le=365),
+    limit: int = Query(50, ge=1, le=200)
+):
+    try:
+        since = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+        async with get_database() as db:
             cursor = await db.execute("""
-                SELECT COUNT(*) as count FROM buy_signals
-                WHERE date(created_at) = date('now')
-            """)
-            today_signals = await cursor.fetchone()
+                SELECT
+                    bs.stock_code,
+                    s.name as stock_name,
+                    bs.signal_type,
+                    bs.confidence,
+                    bs.created_at
+                FROM buy_signals bs
+                LEFT JOIN stocks s ON bs.stock_code = s.code
+                WHERE datetime(bs.created_at) >= datetime(?)
+                ORDER BY bs.confidence DESC, bs.created_at DESC
+                LIMIT ?
+            """, (since, limit))
+            rows = await cursor.fetchall()
 
             return {
                 "success": True,
                 "data": {
-                    "totalStocks": total_stocks[0] if total_stocks else 0,
-                    "todaySignals": today_signals[0] if today_signals else 0,
-                    "volumeSurges": 0,  # Placeholder
-                    "fundFlowPositive": 0  # Placeholder
+                    "days": days,
+                    "signals": [dict(r) for r in rows]
                 }
             }
     except Exception as e:
-        logger.error(f"Error fetching analysis overview: {e}")
-        raise HTTPException(status_code=500, detail="Failed to fetch analysis overview")
+        logger.error(f"Error fetching recent signals: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch recent signals")
 
 @router.get("/volume/{stock_code}")
 async def get_volume_analysis(stock_code: str):
@@ -53,6 +148,535 @@ async def get_volume_analysis(stock_code: str):
     except Exception as e:
         logger.error(f"Error fetching volume analysis: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch volume analysis")
+
+@router.get("/volume")
+async def get_volume_surges(
+    days: int = Query(10, ge=1, le=365),
+    limit: int = Query(50, ge=1, le=200)
+):
+    try:
+        since = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+        async with get_database() as db:
+            cursor = await db.execute("""
+                SELECT
+                    va.stock_code,
+                    s.name as stock_name,
+                    s.exchange as exchange,
+                    va.volume_ratio,
+                    va.date
+                FROM volume_analysis va
+                LEFT JOIN stocks s ON s.code = va.stock_code
+                WHERE va.date >= ? AND va.is_volume_surge = 1
+                ORDER BY va.volume_ratio DESC
+                LIMIT ?
+            """, (since, limit))
+            rows = await cursor.fetchall()
+
+            return {
+                "success": True,
+                "data": {
+                    "days": days,
+                    "volumeSurges": [dict(r) for r in rows]
+                }
+            }
+    except Exception as e:
+        logger.error(f"Error fetching volume surges: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch volume surges")
+
+@router.get("/main-force")
+async def get_main_force(
+    days: int = Query(7, ge=1, le=365),
+    limit: int = Query(20, ge=1, le=200)
+):
+    try:
+        since = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+        async with get_database() as db:
+            cursor = await db.execute("""
+                SELECT
+                    ff.stock_code,
+                    s.name as name,
+                    SUM(ff.main_fund_flow) as main_flow_sum,
+                    AVG(COALESCE(ff.large_order_ratio, 0)) as avg_large_ratio
+                FROM fund_flow ff
+                LEFT JOIN stocks s ON s.code = ff.stock_code
+                WHERE ff.date >= ?
+                GROUP BY ff.stock_code
+                ORDER BY main_flow_sum DESC
+                LIMIT ?
+            """, (since, limit))
+            rows = await cursor.fetchall()
+
+            latest_kline_date = await _get_latest_date(db, "klines")
+            volume_map: dict[str, int] = {}
+
+            stock_codes = [r["stock_code"] for r in rows if r and r["stock_code"]]
+            if latest_kline_date and stock_codes:
+                placeholders = ",".join(["?"] * len(stock_codes))
+                cursor = await db.execute(
+                    f"SELECT stock_code, volume FROM klines WHERE date = ? AND stock_code IN ({placeholders})",
+                    (latest_kline_date, *stock_codes)
+                )
+                krows = await cursor.fetchall()
+                volume_map = {kr["stock_code"]: int(kr["volume"] or 0) for kr in krows}
+
+            main_force = []
+            strong_count = 0
+            moderate_count = 0
+            weak_count = 0
+            total_strength = 0.0
+            total_volume = 0
+
+            for r in rows:
+                stock_code = r["stock_code"]
+                name = r["name"] or "未知"
+                main_flow_sum = float(r["main_flow_sum"] or 0)
+                avg_large_ratio = float(r["avg_large_ratio"] or 0)
+
+                strength_yi = main_flow_sum / 1e8
+                if main_flow_sum >= 1e8 and avg_large_ratio >= 0.3:
+                    behavior = "强势介入"
+                    level = "strong"
+                    strong_count += 1
+                elif main_flow_sum >= 5e7 and avg_large_ratio >= 0.2:
+                    behavior = "稳步建仓"
+                    level = "moderate"
+                    moderate_count += 1
+                elif main_flow_sum > 0:
+                    behavior = "小幅流入"
+                    level = "weak"
+                    weak_count += 1
+                else:
+                    behavior = "观望"
+                    level = "watch"
+
+                strength_index = 0.0
+                if main_flow_sum > 0:
+                    strength_index = (main_flow_sum / 1e7) * 5 + avg_large_ratio * 50
+                    strength_index = max(0.0, min(100.0, strength_index))
+
+                trend = "上升" if main_flow_sum > 0 else "下降"
+                volume = volume_map.get(stock_code, 0)
+
+                main_force.append({
+                    "stock": stock_code,
+                    "name": name,
+                    "behavior": behavior,
+                    "strength": round(strength_yi, 2),
+                    "strengthIndex": round(strength_index, 1),
+                    "level": level,
+                    "trend": trend,
+                    "date": latest_kline_date,
+                    "days": days,
+                    "volume": volume,
+                })
+
+                if main_flow_sum > 0:
+                    total_strength += strength_yi
+                total_volume += volume
+
+            positive_count = sum(1 for item in main_force if item["level"] != "watch")
+            avg_strength = (total_strength / positive_count) if positive_count else 0.0
+
+            return {
+                "success": True,
+                "data": {
+                    "mainForce": main_force,
+                    "summary": {
+                        "strongCount": strong_count,
+                        "moderateCount": moderate_count,
+                        "weakCount": weak_count,
+                        "avgStrength": round(avg_strength, 2),
+                        "totalVolume": total_volume,
+                    }
+                }
+            }
+    except Exception as e:
+        logger.error(f"Error fetching main force analysis: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch main force analysis")
+
+@router.get("/market-moneyflow")
+async def get_market_moneyflow(
+    days: int = Query(30, ge=1, le=365),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+):
+    try:
+        async with get_database() as db:
+            if date_from and date_to:
+                cursor = await db.execute(
+                    """
+                    SELECT *
+                    FROM market_moneyflow
+                    WHERE trade_date >= ? AND trade_date <= ?
+                    ORDER BY trade_date DESC
+                    """,
+                    (date_from, date_to),
+                )
+            else:
+                cursor = await db.execute(
+                    """
+                    SELECT *
+                    FROM market_moneyflow
+                    WHERE trade_date >= date('now', '-' || ? || ' days')
+                    ORDER BY trade_date DESC
+                    """,
+                    (days,),
+                )
+
+            rows = await cursor.fetchall()
+            market_flow = [dict(r) for r in rows]
+
+            summary = {
+                "totalNetAmount": 0.0,
+                "totalElgAmount": 0.0,
+                "totalLgAmount": 0.0,
+                "totalMdAmount": 0.0,
+                "totalSmAmount": 0.0,
+                "avgNetAmountRate": 0.0,
+                "latestSHIndex": 0.0,
+                "latestSZIndex": 0.0,
+                "latestSHChange": 0.0,
+                "latestSZChange": 0.0,
+            }
+
+            if market_flow:
+                latest = market_flow[0]
+                summary["latestSHIndex"] = float(latest.get("close_sh") or 0.0)
+                summary["latestSZIndex"] = float(latest.get("close_sz") or 0.0)
+                summary["latestSHChange"] = float(latest.get("pct_change_sh") or 0.0)
+                summary["latestSZChange"] = float(latest.get("pct_change_sz") or 0.0)
+
+                summary["totalNetAmount"] = sum(float(item.get("net_amount") or 0.0) for item in market_flow)
+                summary["totalElgAmount"] = sum(float(item.get("buy_elg_amount") or 0.0) for item in market_flow)
+                summary["totalLgAmount"] = sum(float(item.get("buy_lg_amount") or 0.0) for item in market_flow)
+                summary["totalMdAmount"] = sum(float(item.get("buy_md_amount") or 0.0) for item in market_flow)
+                summary["totalSmAmount"] = sum(float(item.get("buy_sm_amount") or 0.0) for item in market_flow)
+                summary["avgNetAmountRate"] = (
+                    sum(float(item.get("net_amount_rate") or 0.0) for item in market_flow) / len(market_flow)
+                )
+
+            return {
+                "success": True,
+                "data": {
+                    "marketFlow": market_flow,
+                    "summary": summary,
+                },
+            }
+    except Exception as e:
+        logger.error(f"Error fetching market moneyflow: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch market moneyflow")
+
+@router.get("/sector-moneyflow")
+async def get_sector_moneyflow(
+    days: int = Query(30, ge=1, le=365),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+):
+    try:
+        async with get_database() as db:
+            if date_from and date_to:
+                cursor = await db.execute(
+                    """
+                    SELECT *
+                    FROM sector_moneyflow
+                    WHERE trade_date >= ? AND trade_date <= ?
+                    ORDER BY trade_date DESC, net_amount DESC
+                    """,
+                    (date_from, date_to),
+                )
+            else:
+                cursor = await db.execute(
+                    """
+                    SELECT *
+                    FROM sector_moneyflow
+                    WHERE trade_date >= date('now', '-' || ? || ' days')
+                    ORDER BY trade_date DESC, net_amount DESC
+                    """,
+                    (days,),
+                )
+
+            rows = await cursor.fetchall()
+            sector_flow = [dict(r) for r in rows]
+
+            summary = {
+                "totalNetAmount": 0.0,
+                "totalElgAmount": 0.0,
+                "totalLgAmount": 0.0,
+                "totalMdAmount": 0.0,
+                "totalSmAmount": 0.0,
+                "avgNetAmountRate": 0.0,
+                "inflowSectors": 0,
+                "outflowSectors": 0,
+            }
+
+            if sector_flow:
+                summary["totalNetAmount"] = sum(float(item.get("net_amount") or 0.0) for item in sector_flow)
+                summary["totalElgAmount"] = sum(float(item.get("buy_elg_amount") or 0.0) for item in sector_flow)
+                summary["totalLgAmount"] = sum(float(item.get("buy_lg_amount") or 0.0) for item in sector_flow)
+                summary["totalMdAmount"] = sum(float(item.get("buy_md_amount") or 0.0) for item in sector_flow)
+                summary["totalSmAmount"] = sum(float(item.get("buy_sm_amount") or 0.0) for item in sector_flow)
+                summary["avgNetAmountRate"] = (
+                    sum(float(item.get("net_amount_rate") or 0.0) for item in sector_flow) / len(sector_flow)
+                )
+                summary["inflowSectors"] = sum(1 for item in sector_flow if float(item.get("net_amount") or 0.0) > 0.0)
+                summary["outflowSectors"] = sum(1 for item in sector_flow if float(item.get("net_amount") or 0.0) < 0.0)
+
+            return {
+                "success": True,
+                "data": {
+                    "sectorFlow": sector_flow,
+                    "summary": summary,
+                },
+            }
+    except Exception as e:
+        logger.error(f"Error fetching sector moneyflow: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch sector moneyflow")
+
+@router.get("/sector-volume")
+async def get_sector_volume(
+    days: int = Query(5, ge=1, le=30),
+):
+    try:
+        async with get_database() as db:
+            sql = """
+                WITH latest_date AS (
+                    SELECT MAX(date) as max_date FROM klines
+                ),
+                today_sector_data AS (
+                    SELECT
+                        s.industry as sector,
+                        COUNT(DISTINCT k.stock_code) as stock_count,
+                        SUM(k.volume) as total_volume,
+                        SUM(k.amount) as total_amount,
+                        SUM(CASE WHEN (k.close - k.open) > 0 THEN 1 ELSE 0 END) as up_count,
+                        SUM(CASE WHEN (k.close - k.open) < 0 THEN 1 ELSE 0 END) as down_count,
+                        AVG(CASE WHEN k.open > 0 THEN ((k.close - k.open) / k.open * 100) ELSE 0 END) as avg_change
+                    FROM klines k
+                    INNER JOIN stocks s ON k.stock_code = s.code
+                    WHERE k.date = (SELECT max_date FROM latest_date)
+                      AND s.industry IS NOT NULL
+                      AND s.industry != ''
+                    GROUP BY s.industry
+                ),
+                historical_sector_data AS (
+                    SELECT
+                        s.industry as sector,
+                        AVG(k.volume) as avg_volume,
+                        AVG(k.amount) as avg_amount
+                    FROM klines k
+                    INNER JOIN stocks s ON k.stock_code = s.code
+                    WHERE k.date >= date((SELECT max_date FROM latest_date), '-' || ? || ' days')
+                      AND k.date < (SELECT max_date FROM latest_date)
+                      AND s.industry IS NOT NULL
+                      AND s.industry != ''
+                    GROUP BY s.industry
+                ),
+                leading_stocks AS (
+                    SELECT
+                        s.industry as sector,
+                        s.name as leading_stock,
+                        CASE WHEN k.open > 0 THEN ((k.close - k.open) / k.open * 100) ELSE 0 END as leading_change
+                    FROM klines k
+                    INNER JOIN stocks s ON k.stock_code = s.code
+                    WHERE k.date = (SELECT max_date FROM latest_date)
+                      AND s.industry IS NOT NULL
+                      AND s.industry != ''
+                    GROUP BY s.industry
+                    HAVING CASE WHEN k.open > 0 THEN ((k.close - k.open) / k.open * 100) ELSE 0 END =
+                        MAX(CASE WHEN k.open > 0 THEN ((k.close - k.open) / k.open * 100) ELSE 0 END)
+                )
+                SELECT
+                    t.sector,
+                    t.total_volume as volume,
+                    t.total_amount as amount,
+                    CASE
+                        WHEN h.avg_volume > 0 THEN ROUND(((t.total_volume - h.avg_volume) / h.avg_volume * 100), 2)
+                        ELSE 0
+                    END as volume_change,
+                    t.stock_count,
+                    t.up_count,
+                    t.down_count,
+                    ROUND(t.avg_change, 2) as avg_change,
+                    COALESCE(l.leading_stock, '') as leading_stock,
+                    COALESCE(ROUND(l.leading_change, 2), 0) as leading_stock_change
+                FROM today_sector_data t
+                LEFT JOIN historical_sector_data h ON t.sector = h.sector
+                LEFT JOIN leading_stocks l ON t.sector = l.sector
+                WHERE t.sector IS NOT NULL
+                ORDER BY volume_change DESC
+            """
+            cursor = await db.execute(sql, (days,))
+            rows = await cursor.fetchall()
+            sectors = [dict(r) for r in rows]
+
+            summary = {
+                "totalVolume": 0.0,
+                "avgVolumeChange": 0.0,
+                "activeSectors": 0,
+                "weakSectors": 0,
+            }
+
+            if sectors:
+                summary["totalVolume"] = sum(float(item.get("volume") or 0.0) for item in sectors)
+                summary["avgVolumeChange"] = (
+                    sum(float(item.get("volume_change") or 0.0) for item in sectors) / len(sectors)
+                )
+                summary["activeSectors"] = sum(
+                    1 for item in sectors if float(item.get("volume_change") or 0.0) > 20.0
+                )
+                summary["weakSectors"] = sum(
+                    1 for item in sectors if float(item.get("volume_change") or 0.0) < -10.0
+                )
+
+            return {
+                "success": True,
+                "data": {
+                    "sectors": sectors,
+                    "summary": summary,
+                },
+            }
+    except Exception as e:
+        logger.error(f"Error fetching sector volume analysis: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch sector volume analysis")
+
+@router.get("/hot-sector-stocks")
+async def get_hot_sector_stocks(
+    days: int = Query(1, ge=1, le=30),
+    limit: int = Query(10, ge=1, le=50),
+):
+    try:
+        async with get_database() as db:
+            sql = """
+                WITH latest_date AS (
+                    SELECT MAX(date) as max_date FROM klines
+                ),
+                hot_sectors AS (
+                    SELECT DISTINCT
+                        s.industry as sector_name,
+                        COALESCE(MAX(sm.net_amount), 0) as sector_money_flow,
+                        COALESCE(MAX(sm.pct_change), 0) as sector_pct_change
+                    FROM stocks s
+                    INNER JOIN klines k ON s.code = k.stock_code
+                    LEFT JOIN sector_moneyflow sm ON (
+                        (sm.name = s.industry
+                        OR sm.name LIKE '%' || s.industry || '%'
+                        OR s.industry LIKE '%' || sm.name || '%')
+                        AND sm.trade_date >= date((SELECT max_date FROM latest_date), '-' || ? || ' days')
+                    )
+                    WHERE k.date >= date((SELECT max_date FROM latest_date), '-' || ? || ' days')
+                      AND s.industry IS NOT NULL
+                      AND s.industry != ''
+                    GROUP BY s.industry
+                    HAVING COUNT(DISTINCT k.stock_code) >= 3
+                ),
+                sector_stocks AS (
+                    SELECT
+                        hs.sector_name,
+                        hs.sector_money_flow,
+                        hs.sector_pct_change,
+                        s.code as stock_code,
+                        s.name as stock_name,
+                        k.close as price,
+                        k.volume,
+                        ROUND(((k.close - k.open) / k.open * 100), 2) as change_percent,
+                        COALESCE(va.volume_ratio, 1.0) as volume_ratio,
+                        COALESCE(ff.main_fund_flow, 0) as main_fund_flow,
+                        (
+                            (CASE WHEN k.open > 0 THEN ((k.close - k.open) / k.open * 100) ELSE 0 END) * 0.4 +
+                            (COALESCE(va.volume_ratio, 1.0) - 1.0) * 10 * 0.3 +
+                            (COALESCE(ff.main_fund_flow, 0) / 10000000) * 0.3
+                        ) as score,
+                        ROW_NUMBER() OVER (PARTITION BY hs.sector_name ORDER BY
+                            (
+                                (CASE WHEN k.open > 0 THEN ((k.close - k.open) / k.open * 100) ELSE 0 END) * 0.4 +
+                                (COALESCE(va.volume_ratio, 1.0) - 1.0) * 10 * 0.3 +
+                                (COALESCE(ff.main_fund_flow, 0) / 10000000) * 0.3
+                            ) DESC
+                        ) as rank_in_sector
+                    FROM hot_sectors hs
+                    INNER JOIN stocks s ON s.industry = hs.sector_name
+                    INNER JOIN klines k ON s.code = k.stock_code AND k.date = (SELECT max_date FROM latest_date)
+                    LEFT JOIN volume_analysis va ON s.code = va.stock_code AND va.date = (SELECT max_date FROM latest_date)
+                    LEFT JOIN fund_flow ff ON s.code = ff.stock_code AND ff.date = (SELECT max_date FROM latest_date)
+                    WHERE k.volume > 0
+                )
+                SELECT
+                    sector_name,
+                    sector_money_flow,
+                    sector_pct_change,
+                    stock_code,
+                    stock_name,
+                    price,
+                    volume,
+                    change_percent,
+                    volume_ratio,
+                    main_fund_flow,
+                    ROUND(score, 2) as score,
+                    rank_in_sector
+                FROM sector_stocks
+                WHERE rank_in_sector <= ?
+                ORDER BY sector_money_flow DESC, rank_in_sector ASC
+            """
+            cursor = await db.execute(sql, (days, days, limit))
+            rows = await cursor.fetchall()
+            hot_sector_stocks = [dict(r) for r in rows]
+
+        sector_groups: dict[str, dict] = {}
+        for item in hot_sector_stocks:
+            name = item.get("sector_name") or ""
+            if not name:
+                continue
+            group = sector_groups.get(name)
+            if not group:
+                group = {
+                    "sectorName": name,
+                    "sectorMoneyFlow": float(item.get("sector_money_flow") or 0.0),
+                    "sectorPctChange": float(item.get("sector_pct_change") or 0.0),
+                    "stocks": [],
+                }
+                sector_groups[name] = group
+
+            group["stocks"].append(
+                {
+                    "stockCode": item.get("stock_code") or "",
+                    "stockName": item.get("stock_name") or "",
+                    "price": float(item.get("price") or 0.0),
+                    "volume": int(item.get("volume") or 0),
+                    "changePercent": float(item.get("change_percent") or 0.0),
+                    "volumeRatio": float(item.get("volume_ratio") or 0.0),
+                    "mainFundFlow": float(item.get("main_fund_flow") or 0.0),
+                    "score": float(item.get("score") or 0.0),
+                    "rank": int(item.get("rank_in_sector") or 0),
+                }
+            )
+
+        sectors = sorted(
+            sector_groups.values(),
+            key=lambda x: float(x.get("sectorMoneyFlow") or 0.0),
+            reverse=True,
+        )
+
+        summary = {
+            "totalSectors": len(sectors),
+            "totalStocks": len(hot_sector_stocks),
+            "avgSectorMoneyFlow": 0.0,
+        }
+
+        if sectors:
+            summary["avgSectorMoneyFlow"] = sum(
+                float(item.get("sectorMoneyFlow") or 0.0) for item in sectors
+            ) / len(sectors)
+
+        return {
+            "success": True,
+            "data": {
+                "sectors": sectors,
+                "summary": summary,
+            },
+        }
+    except Exception as e:
+        logger.error(f"Error fetching hot sector stocks: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch hot sector stocks")
 
 @router.get("/market/sentiment")
 async def get_market_sentiment():
@@ -252,3 +876,261 @@ async def get_sector_analysis():
     except Exception as e:
         logger.error(f"Error fetching sector analysis: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch sector analysis")
+
+
+@router.get("/auction/super-main-force")
+async def get_auction_super_main_force(
+    limit: int = Query(50, ge=1, le=200),
+    trade_date: str | None = Query(None),
+    exclude_auction_limit_up: bool = Query(True)
+):
+    try:
+        async with get_database() as db:
+            target_date = None
+
+            if trade_date:
+                s = str(trade_date).strip()
+                dt = None
+                try:
+                    if len(s) >= 10 and "-" in s:
+                        dt = datetime.strptime(s[:10], "%Y-%m-%d").date()
+                    elif len(s) == 8 and s.isdigit():
+                        dt = datetime.strptime(s, "%Y%m%d").date()
+                except Exception:
+                    dt = None
+
+                if dt:
+                    target_date = dt.strftime("%Y-%m-%d")
+
+            if not target_date:
+                cursor = await db.execute(
+                    "SELECT DATE(snapshot_time) AS d FROM quote_history ORDER BY d DESC LIMIT 1"
+                )
+                row = await cursor.fetchone()
+                if not row or not row[0]:
+                    return {
+                        "success": True,
+                        "data": {
+                            "tradeDate": None,
+                            "dataSource": "none",
+                            "items": [],
+                            "summary": {
+                                "count": 0,
+                                "avgHeat": 0.0,
+                                "totalAmount": 0.0,
+                                "limitUpCandidates": 0
+                            }
+                        }
+                    }
+                target_date = str(row[0])
+
+            data_source = "quote_history"
+
+            snapshot_time = f"{target_date} 09:26:00"
+            cursor = await db.execute(
+                """
+                SELECT
+                    stock_code,
+                    pre_close,
+                    open,
+                    high,
+                    low,
+                    close,
+                    vol,
+                    amount,
+                    num
+                FROM quote_history
+                WHERE snapshot_time = ?
+                """,
+                (snapshot_time,),
+            )
+            rows = await cursor.fetchall()
+            records = [dict(row) for row in rows]
+
+            if not records:
+                return {
+                    "success": True,
+                    "message": f"未找到 {target_date} 的集合竞价快照数据",
+                    "data": {
+                        "tradeDate": target_date,
+                        "dataSource": "none",
+                        "items": [],
+                        "summary": {
+                            "count": 0,
+                            "avgHeat": 0.0,
+                            "totalAmount": 0.0,
+                            "limitUpCandidates": 0
+                        }
+                    }
+                }
+
+            stock_codes = [str(r.get("stock_code") or "") for r in records if r.get("stock_code")]
+            stock_codes = list({c for c in stock_codes if c})
+
+            stock_info_map: dict[str, dict] = {}
+            daily_basic_map: dict[str, dict] = {}
+
+            trade_date_ret = target_date
+
+            if stock_codes:
+                placeholders = ",".join(["?"] * len(stock_codes))
+
+                cursor = await db.execute(
+                    f"SELECT code, name, industry, exchange FROM stocks WHERE code IN ({placeholders})",
+                    stock_codes
+                )
+                stock_rows = await cursor.fetchall()
+                for row in stock_rows:
+                    code = row["code"]
+                    stock_info_map[code] = {
+                        "name": row["name"],
+                        "industry": row["industry"],
+                        "exchange": row["exchange"],
+                    }
+
+                cursor = await db.execute(
+                    f"""
+                    SELECT stock_code, turnover_rate, volume_ratio
+                    FROM daily_basic
+                    WHERE trade_date = ? AND stock_code IN ({placeholders})
+                    """,
+                    (trade_date_ret, *stock_codes),
+                )
+                db_rows = await cursor.fetchall()
+                for row in db_rows:
+                    code = row["stock_code"]
+                    daily_basic_map[code] = {
+                        "turnover_rate": float(row["turnover_rate"] or 0.0),
+                        "volume_ratio": float(row["volume_ratio"] or 0.0),
+                    }
+
+        items = []
+        total_amount = 0.0
+
+        for r in records:
+            stock_code = str(r.get("stock_code") or "")
+            if not stock_code:
+                continue
+
+            info = stock_info_map.get(stock_code, {})
+
+            price = float(r.get("open") or r.get("close") or 0.0)
+            pre_close = float(r.get("pre_close") or 0.0)
+            vol = int(r.get("vol") or 0)
+            amount = float(r.get("amount") or 0.0)
+
+            if vol <= 0 and amount <= 0:
+                continue
+
+            daily_basic = daily_basic_map.get(stock_code, {})
+            turnover_rate = float(daily_basic.get("turnover_rate") or 0.0)
+            volume_ratio = float(daily_basic.get("volume_ratio") or 0.0)
+            float_share = 0.0
+
+            gap_percent = 0.0
+            if pre_close > 0:
+                gap_percent = (price - pre_close) / pre_close * 100.0
+
+            heat_score = 0.0
+            heat_score += max(volume_ratio, 0.0) * 40.0
+            heat_score += max(turnover_rate, 0.0) * 2.0
+            heat_score += max(gap_percent, -20.0) * 3.0
+            heat_score += max(amount, 0.0) / 1e7
+
+            name = str(info.get("name") or "")
+            upper_name = name.upper()
+
+            limit_pct = 10.0
+            if "ST" in upper_name:
+                limit_pct = 5.0
+            elif stock_code.startswith(("300", "301", "688", "689")):
+                limit_pct = 20.0
+            elif stock_code.startswith(("8", "4")):
+                limit_pct = 30.0
+
+            limit_price = round(pre_close * (1.0 + limit_pct / 100.0) + 1e-9, 2) if pre_close > 0 else 0.0
+            auction_limit_up = pre_close > 0 and price > 0 and price >= (limit_price - 0.0001)
+
+            if exclude_auction_limit_up and auction_limit_up:
+                continue
+
+            likely_limit_up = (not auction_limit_up) and gap_percent >= 7.0 and volume_ratio >= 1.5
+
+            exchange = info.get("exchange") or ""
+            ts_code = stock_code
+            if exchange:
+                ts_code = f"{stock_code}.{exchange}"
+
+            items.append({
+                "stock": stock_code,
+                "tsCode": ts_code,
+                "name": info.get("name") or "",
+                "industry": info.get("industry") or "",
+                "price": round(price, 3),
+                "preClose": round(pre_close, 3),
+                "gapPercent": round(gap_percent, 2),
+                "vol": vol,
+                "amount": round(amount, 2),
+                "turnoverRate": round(turnover_rate, 3),
+                "volumeRatio": round(volume_ratio, 3),
+                "floatShare": float_share,
+                "heatScore": round(heat_score, 2),
+                "likelyLimitUp": likely_limit_up,
+                "auctionLimitUp": auction_limit_up,
+            })
+
+        if not items:
+            return {
+                "success": True,
+                "data": {
+                    "tradeDate": trade_date_ret,
+                    "dataSource": data_source,
+                    "items": [],
+                    "summary": {
+                        "count": 0,
+                        "avgHeat": 0.0,
+                        "totalAmount": 0.0,
+                        "limitUpCandidates": 0
+                    }
+                }
+            }
+
+        items.sort(key=lambda x: x["heatScore"], reverse=True)
+        unique_items: list[dict] = []
+        seen_codes: set[str] = set()
+        for item in items:
+            code = str(item.get("stock") or "")
+            if not code or code in seen_codes:
+                continue
+            seen_codes.add(code)
+            unique_items.append(item)
+
+        items = unique_items[:limit]
+        total_amount = sum(float(i.get("amount") or 0.0) for i in items)
+
+        for idx, item in enumerate(items, 1):
+            item["rank"] = idx
+
+        count = len(items)
+        avg_heat = sum(i["heatScore"] for i in items) / count if count else 0.0
+        limit_up_candidates = sum(1 for i in items if i["likelyLimitUp"])
+
+        return {
+            "success": True,
+            "data": {
+                "tradeDate": trade_date_ret,
+                "dataSource": data_source,
+                "items": items,
+                "summary": {
+                    "count": count,
+                    "avgHeat": round(avg_heat, 2),
+                    "totalAmount": round(total_amount, 2),
+                    "limitUpCandidates": limit_up_candidates
+                }
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching auction super main force: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch auction super main force")

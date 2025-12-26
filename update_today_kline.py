@@ -64,11 +64,25 @@ class TodayKlineUpdater:
 
             # 检查今天是否是交易日
             today = datetime.now().strftime('%Y%m%d')
+            current_hour = datetime.now().hour
+            
+            # 如果今天是交易日，但时间在 16:00 之前，Tushare 通常还没有日线数据
+            # 这种情况下，我们应该获取上一个交易日的数据
             if today in trading_days:
-                return today
-            else:
-                # 返回最近交易日
-                return trading_days[0] if trading_days else None
+                if current_hour < 16:
+                    print(f"当前时间 ({datetime.now().strftime('%H:%M')}) 早于 16:00，今日日线数据可能未生成，尝试获取上一交易日数据")
+                    # 找到今天的索引
+                    try:
+                        idx = trading_days.index(today)
+                        if idx + 1 < len(trading_days):
+                            return trading_days[idx + 1]
+                    except ValueError:
+                        pass
+                else:
+                    return today
+            
+            # 如果今天不是交易日，或者未找到，返回列表中的第一个（即最近的交易日）
+            return trading_days[0] if trading_days else None
 
         except Exception as e:
             logger.error(f"获取交易日失败: {e}")

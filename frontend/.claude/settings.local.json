@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C \"E:/stock_an/stock-picker\" status)",
+      "Bash(git -C \"E:/stock_an/stock-picker\" log --oneline -5)",
+      "Bash(git -C \"E:/stock_an/stock-picker\" diff --stat)",
+      "Bash(git -C \"E:/stock_an/stock-picker\" add -A)"
+    ]
+  }
+}

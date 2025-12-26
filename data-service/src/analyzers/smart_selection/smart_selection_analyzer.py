@@ -42,7 +42,7 @@ class SmartSelectionAnalyzer:
         """
         try:
             async with aiosqlite.connect(self.db_path) as db:
-                # 获取所有股票基本信息
+                # 获取所有股票基本信息，随机取样2000只
                 cursor = await db.execute("""
                     SELECT s.code, s.name, s.exchange, s.industry
                     FROM stocks s
@@ -51,8 +51,8 @@ class SmartSelectionAnalyzer:
                         WHERE k.stock_code = s.code
                         LIMIT 1
                     )
-                    ORDER BY s.code
-                    LIMIT 300
+                    ORDER BY RANDOM()
+                    LIMIT 2000  -- 随机取样2000只股票，提高性能
                 """)
 
                 rows = await cursor.fetchall()
@@ -149,13 +149,17 @@ class SmartSelectionAnalyzer:
                         'avg_volume_20d': round(sum(volumes[:20]) / 20, 2) if len(volumes) >= 20 else volumes[0]
                     }
 
+                    # 计算技术面评分
+                    technical_score = self._calculate_technical_score(technical_data)
+                    technical_data['technical_score'] = round(technical_score, 1)
+
                     return technical_data
 
         except Exception as e:
             logger.error(f"获取技术面数据失败 {stock_code}: {e}")
 
         # 返回模拟数据用于测试
-        return {
+        technical_data = {
             'current_price': 15.0,
             'price_change_5d': 2.5,
             'volume_ratio': 1.8,
@@ -165,6 +169,12 @@ class SmartSelectionAnalyzer:
             'volume': 1000000,
             'avg_volume_20d': 800000
         }
+
+        # 计算技术面评分
+        technical_score = self._calculate_technical_score(technical_data)
+        technical_data['technical_score'] = round(technical_score, 1)
+
+        return technical_data
 
     async def _get_fundamental_data(self, stock_code: str) -> Optional[Dict[str, Any]]:
         """
@@ -338,7 +348,7 @@ class SmartSelectionAnalyzer:
         """根据实际数据计算基本面评分"""
         score = 0.0
 
-        # 1. 盈利能力评分 (40分)
+        # 1. 盈利能力评分 (40分) - 更严格的标准
         if roe > 25.0:
             score += 40
         elif roe > 20.0:
@@ -349,8 +359,12 @@ class SmartSelectionAnalyzer:
             score += 10
         elif roe > 5.0:
             score += 5
+        elif roe <= 0:  # 负ROE严重扣分
+            score -= 20
+        elif roe < 3.0:  # 极低ROE扣分
+            score -= 10
 
-        # 2. 估值水平评分 (30分)
+        # 2. 估值水平评分 (30分) - 更严格的估值标准
         if pe > 0:  # 避免除零错误
             if pe < 8.0:
                 score += 30
@@ -361,9 +375,13 @@ class SmartSelectionAnalyzer:
             elif pe < 20.0:
                 score += 5
             elif pe > 40.0:
-                score -= 10  # 过高估值扣分
+                score -= 20  # 过高估值严重扣分
+            elif pe > 30.0:
+                score -= 10
+        else:  # PE为0或负数（亏损）
+            score -= 15
 
-        # 3. 成长性评分 (30分)
+        # 3. 成长性评分 (30分) - 增加负增长惩罚
         if revenue_growth > 30.0:
             score += 30
         elif revenue_growth > 20.0:
@@ -372,6 +390,10 @@ class SmartSelectionAnalyzer:
             score += 10
         elif revenue_growth > 10.0:
             score += 5
+        elif revenue_growth < 0:  # 负增长严重扣分
+            score -= 20
+        elif revenue_growth < 5.0:  # 低增长扣分
+            score -= 10
 
         # 4. 财务健康度评分 (20分) - 负债率越低越好
         if debt_ratio < 30.0:
@@ -383,7 +405,12 @@ class SmartSelectionAnalyzer:
         elif debt_ratio < 60.0:
             score += 5
         elif debt_ratio > 80.0:
-            score -= 10  # 高负债扣分
+            score -= 20  # 高负债严重扣分
+        elif debt_ratio > 70.0:
+            score -= 10
+
+        # 5. 额外惩罚：面临退市风险的股票（如ST股）
+        # 这里可以根据股票名称或状态判断，暂时留空
 
         return max(0, min(100, score))
 
@@ -410,11 +437,14 @@ class SmartSelectionAnalyzer:
                     "revenue_growth": 10.0, "profit_growth": 8.0, "debt_ratio": 50.0
                 })
 
-                # 计算基本面评分
+                # 计算基本面评分 - 行业默认值应该比实际数据评分低
                 fundamental_score = self._calculate_fundamental_score_from_data(
                     defaults["roe"], defaults["pe"], defaults["pb"],
                     defaults["revenue_growth"], defaults["profit_growth"], defaults["debt_ratio"]
                 )
+
+                # 行业默认值评分减半，鼓励使用实际数据
+                adjusted_score = max(0, fundamental_score * 0.5)
 
                 return {
                     'roe': defaults["roe"],
@@ -423,9 +453,9 @@ class SmartSelectionAnalyzer:
                     'revenue_growth': defaults["revenue_growth"],
                     'profit_growth': defaults["profit_growth"],
                     'debt_ratio': defaults["debt_ratio"],
-                    'overall_fundamental_score': round(fundamental_score, 1),
-                    'dividend_score': 50.0,
-                    'quality_score': 60.0,
+                    'overall_fundamental_score': round(adjusted_score, 1),
+                    'dividend_score': 30.0,  # 降低
+                    'quality_score': 40.0,   # 降低
                     'has_fundamental_data': False,  # 标记没有实际基本面数据
                     'industry': industry,
                     'data_source': 'industry_default'
@@ -562,17 +592,27 @@ class SmartSelectionAnalyzer:
                     'sector_rank': sector_rank,
                 }
 
+                # 计算市场面评分
+                market_score = self._calculate_market_score(market_data)
+                market_data['market_score'] = round(market_score, 1)
+
                 return market_data
 
         except Exception as e:
             logger.error(f"获取市场面数据失败 {stock_code}: {e}")
 
         # 返回模拟数据用于测试
-        return {
+        market_data = {
             'industry': '银行',
             'avg_sector_change': 1.2,
             'sector_rank': 50,
         }
+
+        # 计算市场面评分
+        market_score = self._calculate_market_score(market_data)
+        market_data['market_score'] = round(market_score, 1)
+
+        return market_data
 
     def _calculate_technical_score(self, technical_data: Dict[str, Any]) -> float:
         """
@@ -587,34 +627,34 @@ class SmartSelectionAnalyzer:
         score = 0.0  # 从0分开始，更严格
 
         try:
-            # 1. 成交量异动评分 (40分)
+            # 1. 成交量异动评分 (40分) - 降低门槛，适应大盘股
             volume_ratio = technical_data.get('volume_ratio')
             if volume_ratio:
-                if volume_ratio > 3.0:  # 提高标准
+                if volume_ratio > 2.5:  # 降低标准，原3.0
                     score += 40
-                elif volume_ratio > 2.0:
+                elif volume_ratio > 1.8:  # 降低标准，原2.0
                     score += 30
-                elif volume_ratio > 1.5:
+                elif volume_ratio > 1.3:  # 降低标准，原1.5
                     score += 20
-                elif volume_ratio > 1.0:
+                elif volume_ratio > 0.8:  # 降低标准，原1.0
                     score += 10
-                elif volume_ratio > 0.5:
+                elif volume_ratio > 0.3:  # 降低标准，原0.5
                     score += 5
                 else:
                     score += 0  # 不放量不加分
 
-            # 2. 价格趋势评分 (30分)
+            # 2. 价格趋势评分 (30分) - 降低门槛，适应大盘股
             price_change = technical_data.get('price_change_5d')
             if price_change:
-                if price_change > 10.0:  # 提高标准
+                if price_change > 7.0:  # 降低标准，原10.0
                     score += 30
-                elif price_change > 5.0:
+                elif price_change > 3.5:  # 降低标准，原5.0
                     score += 20
-                elif price_change > 2.0:
+                elif price_change > 1.0:  # 降低标准，原2.0
                     score += 10
                 elif price_change > 0:
                     score += 5
-                elif price_change > -2.0:
+                elif price_change > -1.0:  # 降低标准，原-2.0
                     score += 2
                 else:
                     score += 0  # 下跌不加分
@@ -1169,13 +1209,23 @@ class SmartSelectionAnalyzer:
 
             logger.info(f"开始智能选股，策略权重: {weights}, 最低评分: {min_score}")
 
-            # 获取股票列表
+            # 获取股票列表（已限制数量并随机排序）
             stocks = await self._get_stock_list()
             if not stocks:
                 logger.warning("未找到股票列表")
                 return []
 
-            results = []
+            logger.info(f"开始分析 {len(stocks)} 只股票（随机取样）")
+
+            # 分市场选股：上证和深证分别选股，确保市场均衡
+            shanghai_results = []
+            shenzhen_results = []
+            other_results = []
+
+            # 存储所有结果（包括低于min_score的），用于备选
+            all_shanghai = []
+            all_shenzhen = []
+            all_other = []
 
             # 分析每只股票
             for stock in stocks:
@@ -1184,19 +1234,90 @@ class SmartSelectionAnalyzer:
 
                 result = await self.analyze_stock(stock, weights)
 
-                if result and result['overall_score'] >= min_score:
-                    results.append(result)
+                if not result:
+                    continue
+
+                stock_code = result['stock_code']
+
+                # 根据股票代码分类
+                if stock_code.startswith('60'):  # 上证股票
+                    all_shanghai.append(result)
+                    if result['overall_score'] >= min_score:
+                        shanghai_results.append(result)
+                elif stock_code.startswith('00') or stock_code.startswith('30'):  # 深证股票
+                    all_shenzhen.append(result)
+                    if result['overall_score'] >= min_score:
+                        shenzhen_results.append(result)
+                else:  # 其他（如科创板、北交所等）
+                    all_other.append(result)
+                    if result['overall_score'] >= min_score:
+                        other_results.append(result)
 
                 # 避免过度消耗资源
                 await asyncio.sleep(0.01)
 
-            # 按综合评分排序
-            results.sort(key=lambda x: x['overall_score'], reverse=True)
+            # 各市场分别排序（包括所有股票）
+            all_shanghai.sort(key=lambda x: x['overall_score'], reverse=True)
+            all_shenzhen.sort(key=lambda x: x['overall_score'], reverse=True)
+            all_other.sort(key=lambda x: x['overall_score'], reverse=True)
+            shanghai_results.sort(key=lambda x: x['overall_score'], reverse=True)
+            shenzhen_results.sort(key=lambda x: x['overall_score'], reverse=True)
+            other_results.sort(key=lambda x: x['overall_score'], reverse=True)
 
-            # 限制结果数量
+            # 均衡选取：确保上证和深证都有代表
+            results = []
+            max_per_market = max(1, max_results // 3)  # 每个市场最多取1/3
+
+            # 强制每个市场至少选一只股票（即使评分很低）
+            # 上证市场
+            if all_shanghai:
+                # 优先取达到min_score的
+                if shanghai_results:
+                    results.extend(shanghai_results[:max_per_market])
+                else:
+                    # 如果没有达到min_score的，取该市场最好的（即使评分很低）
+                    results.extend(all_shanghai[:1])
+                    logger.info(f"上证市场无达标股票，选取最佳: {all_shanghai[0]['stock_code']} ({all_shanghai[0]['overall_score']}分)")
+            else:
+                logger.warning("上证市场无股票数据")
+
+            # 深证市场
+            if all_shenzhen:
+                if shenzhen_results:
+                    results.extend(shenzhen_results[:max_per_market])
+                else:
+                    results.extend(all_shenzhen[:1])
+                    logger.info(f"深证市场无达标股票，选取最佳: {all_shenzhen[0]['stock_code']} ({all_shenzhen[0]['overall_score']}分)")
+            else:
+                logger.warning("深证市场无股票数据")
+
+            # 其他市场
+            if all_other:
+                if other_results:
+                    results.extend(other_results[:max_per_market])
+                else:
+                    results.extend(all_other[:1])
+                    logger.info(f"其他市场无达标股票，选取最佳: {all_other[0]['stock_code']} ({all_other[0]['overall_score']}分)")
+            else:
+                logger.warning("其他市场无股票数据")
+
+            # 如果总数不足，从所有结果中补足
+            if len(results) < max_results:
+                all_qualified_results = shanghai_results + shenzhen_results + other_results
+                all_qualified_results.sort(key=lambda x: x['overall_score'], reverse=True)
+                # 补充时排除已选中的
+                for result in all_qualified_results:
+                    if result not in results and len(results) < max_results:
+                        results.append(result)
+
+            # 最终排序
+            results.sort(key=lambda x: x['overall_score'], reverse=True)
             results = results[:max_results]
 
             logger.info(f"智能选股完成，找到 {len(results)} 只符合条件的股票")
+            logger.info(f"上证股票统计: 总数{len(all_shanghai)}只，达标{len(shanghai_results)}只，入选{len([r for r in results if r['stock_code'].startswith('60')])}只")
+            logger.info(f"深证股票统计: 总数{len(all_shenzhen)}只，达标{len(shenzhen_results)}只，入选{len([r for r in results if r['stock_code'].startswith('00') or r['stock_code'].startswith('30')])}只")
+            logger.info(f"其他股票统计: 总数{len(all_other)}只，达标{len(other_results)}只，入选{len([r for r in results if not (r['stock_code'].startswith('60') or r['stock_code'].startswith('00') or r['stock_code'].startswith('30'))])}只")
 
             return results
 

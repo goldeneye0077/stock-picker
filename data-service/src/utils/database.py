@@ -2,10 +2,12 @@ import aiosqlite
 import os
 from pathlib import Path
 from loguru import logger
+from contextlib import asynccontextmanager
 
 DATABASE_PATH = Path(__file__).parent.parent.parent.parent / "data" / "stock_picker.db"
 
-def get_database():
+@asynccontextmanager
+async def get_database():
     """
     Get database connection as async context manager
 
@@ -14,7 +16,12 @@ def get_database():
             cursor = await db.execute("SELECT * FROM stocks")
             ...
     """
-    return aiosqlite.connect(DATABASE_PATH)
+    db = await aiosqlite.connect(DATABASE_PATH)
+    db.row_factory = aiosqlite.Row
+    try:
+        yield db
+    finally:
+        await db.close()
 
 async def init_database():
     """Initialize database tables"""
@@ -96,6 +103,22 @@ async def init_database():
                 analysis_data TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (stock_code) REFERENCES stocks (code)
+            )
+        """)
+
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS advanced_selection_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT NOT NULL,
+                strategy_id INTEGER,
+                strategy_name TEXT,
+                stock_code TEXT NOT NULL,
+                stock_name TEXT NOT NULL,
+                composite_score REAL NOT NULL,
+                selection_date TEXT NOT NULL,
+                risk_advice TEXT,
+                selection_reason TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
 
@@ -730,6 +753,134 @@ async def init_database():
         await db.execute("CREATE INDEX IF NOT EXISTS idx_fundamental_scores_stock_code ON fundamental_scores(stock_code)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_fundamental_scores_score_date ON fundamental_scores(score_date)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_fundamental_scores_overall_score ON fundamental_scores(overall_score)")
+
+        # ==================== 增量更新相关表 ====================
+
+        # 超强主力配置表
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS super_mainforce_config (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                alpha REAL NOT NULL,
+                beta REAL NOT NULL,
+                gamma REAL NOT NULL,
+                daily_threshold REAL NOT NULL,
+                auction_threshold REAL NOT NULL,
+                open_threshold REAL NOT NULL,
+                overall_threshold REAL NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # 超强主力信号表
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS super_mainforce_signals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                stock_code TEXT NOT NULL,
+                signal_date TEXT NOT NULL,
+                s_daily REAL NOT NULL,
+                s_auction REAL NOT NULL,
+                s_open REAL NOT NULL,
+                s_total REAL NOT NULL,
+                advice TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (stock_code) REFERENCES stocks (code),
+                UNIQUE(stock_code, signal_date)
+            )
+        """)
+
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_sm_signals_date ON super_mainforce_signals(signal_date)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_sm_signals_stock ON super_mainforce_signals(stock_code)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_sm_signals_total ON super_mainforce_signals(s_total)")
+
+        # 采集历史表（记录每次数据采集的信息）
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS collection_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                collection_type TEXT NOT NULL,  -- 'full' 或 'incremental'
+                start_date TEXT NOT NULL,
+                end_date TEXT NOT NULL,
+                stock_count INTEGER DEFAULT 0,
+                kline_count INTEGER DEFAULT 0,
+                flow_count INTEGER DEFAULT 0,
+                indicator_count INTEGER DEFAULT 0,
+                status TEXT DEFAULT 'completed',  -- 'pending', 'running', 'completed', 'failed'
+                error_message TEXT,
+                elapsed_time REAL,  -- 耗时（秒）
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # 数据采集配置表
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS collection_config (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                config_key TEXT UNIQUE NOT NULL,
+                config_value TEXT,
+                description TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # 数据质量监控表
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS data_quality_monitor (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                monitor_date TEXT NOT NULL,
+                metric_name TEXT NOT NULL,
+                metric_value REAL NOT NULL,
+                threshold REAL,
+                status TEXT,  -- 'normal', 'warning', 'error'
+                alert_message TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # 数据源健康状态表
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS data_source_health (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_name TEXT NOT NULL,
+                status TEXT NOT NULL,  -- 'healthy', 'degraded', 'unavailable'
+                success_rate REAL,
+                avg_latency REAL,
+                last_check_time DATETIME,
+                error_message TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # 创建增量更新相关索引
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_collection_history_type ON collection_history(collection_type)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_collection_history_dates ON collection_history(start_date, end_date)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_collection_history_status ON collection_history(status)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_collection_history_created ON collection_history(created_at)")
+
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_data_quality_monitor_date ON data_quality_monitor(monitor_date)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_data_quality_monitor_metric ON data_quality_monitor(metric_name)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_data_quality_monitor_status ON data_quality_monitor(status)")
+
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_data_source_health_source ON data_source_health(source_name)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_data_source_health_status ON data_source_health(status)")
+
+        # 初始化采集配置
+        await db.execute("""
+            INSERT OR REPLACE INTO collection_config (config_key, config_value, description)
+            VALUES
+                ('incremental_enabled', 'false', '是否启用增量更新'),
+                ('incremental_days', '7', '增量更新天数'),
+                ('full_collection_days', '30', '全量更新天数'),
+                ('max_retries', '3', '最大重试次数'),
+                ('retry_delay', '2', '重试延迟（秒）'),
+                ('hot_stock_guarantee', 'true', '热门股票保障'),
+                ('data_validation_enabled', 'true', '数据验证启用'),
+                ('quality_threshold', '85', '数据质量阈值（分）'),
+                ('alert_enabled', 'true', '报警启用')
+        """)
 
         await db.commit()
         logger.info("Database initialized successfully")

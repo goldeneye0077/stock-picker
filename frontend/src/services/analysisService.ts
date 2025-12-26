@@ -200,6 +200,39 @@ export interface HotSectorStocksParams {
   limit?: number;
 }
 
+export interface AuctionSuperMainForceItem {
+  stock: string;
+  tsCode: string;
+  name: string;
+  industry: string;
+  price: number;
+  preClose: number;
+  gapPercent: number;
+  vol: number;
+  amount: number;
+  turnoverRate: number;
+  volumeRatio: number;
+  floatShare: number;
+  heatScore: number;
+  likelyLimitUp: boolean;
+  auctionLimitUp?: boolean;
+  rank: number;
+}
+
+export interface AuctionSuperMainForceSummary {
+  count: number;
+  avgHeat: number;
+  totalAmount: number;
+  limitUpCandidates: number;
+}
+
+export interface AuctionSuperMainForceData {
+  tradeDate: string | null;
+  dataSource?: 'quote_history' | 'none';
+  items: AuctionSuperMainForceItem[];
+  summary: AuctionSuperMainForceSummary;
+}
+
 /**
  * 获取热点板块交叉分析数据
  */
@@ -224,6 +257,74 @@ export async function fetchHotSectorStocksData(params: HotSectorStocksParams = {
   }
 
   return result.data;
+}
+
+export async function fetchAuctionSuperMainForce(
+  limit: number = 50,
+  tradeDate?: string,
+  excludeAuctionLimitUp: boolean = true
+): Promise<AuctionSuperMainForceData> {
+  const searchParams = new URLSearchParams({ limit: String(limit) });
+
+  if (tradeDate) {
+    searchParams.append('trade_date', tradeDate);
+  }
+
+  searchParams.append('exclude_auction_limit_up', excludeAuctionLimitUp ? 'true' : 'false');
+
+  const response = await fetch(
+    `${API_BASE_URL}${API_ENDPOINTS.ANALYSIS}/auction/super-main-force?${searchParams}`
+  );
+
+  if (!response.ok) {
+    throw new Error('获取集合竞价超强主力数据失败');
+  }
+
+  const result = await response.json();
+
+  if (!result.success) {
+    throw new Error(result.message || '获取集合竞价超强主力数据失败');
+  }
+
+  return result.data as AuctionSuperMainForceData;
+}
+
+export async function collectAuctionSnapshot(
+  tradeDate: string,
+  tsCodes?: string[],
+  force: boolean = false
+): Promise<{ inserted: number }> {
+  const searchParams = new URLSearchParams({
+    trade_date: tradeDate,
+    sync: 'true',
+  });
+
+  if (force) {
+    searchParams.append('force', 'true');
+  }
+
+  if (tsCodes?.length) {
+    for (const tsCode of tsCodes) {
+      searchParams.append('ts_codes', tsCode);
+    }
+  }
+
+  const response = await fetch(
+    `${API_BASE_URL}${API_ENDPOINTS.QUOTES}/update-auction?${searchParams}`,
+    { method: 'POST' }
+  );
+
+  if (!response.ok) {
+    throw new Error('集合竞价采集失败');
+  }
+
+  const result = await response.json();
+
+  if (result.status !== 'success') {
+    throw new Error(result.message || '集合竞价采集失败');
+  }
+
+  return { inserted: Number(result.inserted || 0) };
 }
 
 

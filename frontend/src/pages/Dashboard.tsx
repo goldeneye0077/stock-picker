@@ -131,6 +131,8 @@ const Dashboard: React.FC = () => {
           name: item.name,
           behavior: item.behavior,
           strength: item.strength,
+          strengthIndex: item.strengthIndex ?? 0,
+          level: item.level ?? 'weak',
           trend: item.trend,
           volumeRatio: volumeItem?.volumeRatio || 0,
           days: item.days,
@@ -138,7 +140,7 @@ const Dashboard: React.FC = () => {
         };
       })
       // 按强度指数排序
-      .sort((a, b) => b.strength - a.strength);
+      .sort((a, b) => b.strengthIndex - a.strengthIndex);
 
     return intersection;
   }, [volumeAnalysis, mainForceData]);
@@ -343,7 +345,7 @@ const Dashboard: React.FC = () => {
                         weak: '#666'
                       };
                       return (
-                        <Tag color={colors[record.trend] || '#666'} style={{ fontWeight: 'bold' }}>
+                        <Tag color={colors[record.level] || '#666'} style={{ fontWeight: 'bold' }}>
                           {text}
                         </Tag>
                       );
@@ -351,8 +353,8 @@ const Dashboard: React.FC = () => {
                   },
                   {
                     title: '强度指数',
-                    dataIndex: 'strength',
-                    key: 'strength',
+                    dataIndex: 'strengthIndex',
+                    key: 'strengthIndex',
                     width: 120,
                     render: (strength) => (
                       <Progress
@@ -402,12 +404,12 @@ const Dashboard: React.FC = () => {
                     render: (_, record: any) => {
                       let rating = '';
                       let color = '';
-                      const score = record.strength + (record.volumeRatio - 1) * 10;
+                      const score = record.strengthIndex + (record.volumeRatio - 1) * 10;
 
-                      if (score >= 100 && record.strength >= 70) {
+                      if (score >= 100 && record.strengthIndex >= 70) {
                         rating = '强烈推荐';
                         color = '#ff4d4f';
-                      } else if (score >= 80 && record.strength >= 60) {
+                      } else if (score >= 80 && record.strengthIndex >= 60) {
                         rating = '值得关注';
                         color = '#faad14';
                       } else {

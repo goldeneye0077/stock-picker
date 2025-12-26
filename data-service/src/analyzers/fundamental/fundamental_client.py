@@ -591,23 +591,21 @@ class FundamentalClient:
         return comprehensive_data
 
     def _clean_nan_values(self, data: Any) -> Any:
-        """
-        清理数据中的 nan 值，将其转换为 None
-
-        Args:
-            data: 需要清理的数据
-
-        Returns:
-            清理后的数据
-        """
         import math
+        import numbers
 
         if isinstance(data, dict):
             return {k: self._clean_nan_values(v) for k, v in data.items()}
         elif isinstance(data, list):
             return [self._clean_nan_values(item) for item in data]
-        elif isinstance(data, float) and math.isnan(data):
-            return None
+        elif isinstance(data, numbers.Real):
+            try:
+                v = float(data)
+            except Exception:
+                return data
+            if math.isnan(v) or math.isinf(v):
+                return None
+            return data
         else:
             return data
 

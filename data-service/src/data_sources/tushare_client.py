@@ -10,7 +10,9 @@ from loguru import logger
 import os
 from datetime import datetime, timedelta
 
-class TushareClient:
+from .base import DataSource, DataSourceError, DataFormatError, DataSourceUnavailableError, DataSourceRateLimitError
+
+class TushareClient(DataSource):
     def __init__(self):
         self.token = os.getenv("TUSHARE_TOKEN")
         if not TUSHARE_AVAILABLE:
@@ -134,6 +136,54 @@ class TushareClient:
     def is_available(self) -> bool:
         """Check if Tushare client is available"""
         return self.pro is not None
+
+    async def get_stk_auction(self, trade_date: str, ts_code: Optional[str] = None) -> Optional[pd.DataFrame]:
+        """
+        获取当日集合竞价成交数据（9:25~9:29）
+        Args:
+            trade_date: 日期，支持 'YYYYMMDD' 或 'YYYY-MM-DD'
+            ts_code: 可选，单只股票代码（如 '000001.SZ'）
+        Returns:
+            DataFrame，列包含：ts_code, trade_date, vol, price, amount, pre_close, turnover_rate, volume_ratio, float_share
+        """
+        if not self.pro:
+            logger.warning("Tushare Pro client not initialized, cannot fetch stk_auction")
+            return None
+        try:
+            # 统一日期格式为 YYYYMMDD
+            s = str(trade_date).strip()
+            if len(s) >= 10 and "-" in s:
+                dt = datetime.strptime(s[:10], "%Y-%m-%d")
+                td = dt.strftime("%Y%m%d")
+            elif len(s) == 8 and s.isdigit():
+                td = s
+            else:
+                td = datetime.now().strftime("%Y%m%d")
+
+            kwargs = {
+                "trade_date": td,
+            }
+            if ts_code:
+                kwargs["ts_code"] = ts_code
+
+            df = self.pro.stk_auction(
+                **kwargs,
+                fields="ts_code,trade_date,vol,price,amount,pre_close,turnover_rate,volume_ratio,float_share"
+            )
+            if df is None or df.empty:
+                logger.info(f"No stk_auction data for {td} (ts_code={ts_code or 'ALL'})")
+                return None
+
+            # 规范列名与类型
+            df["trade_date"] = pd.to_datetime(df["trade_date"])
+            for col in ["vol", "price", "amount", "pre_close", "turnover_rate", "volume_ratio", "float_share"]:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors="coerce")
+            logger.info(f"Retrieved {len(df)} stk_auction records for {td}")
+            return df
+        except Exception as e:
+            logger.error(f"Error fetching stk_auction: {e}")
+            return None
 
     async def get_daily_data_by_date(self, trade_date: str) -> Optional[pd.DataFrame]:
         """
@@ -349,74 +399,72 @@ class TushareClient:
             return None
 
     async def get_realtime_quotes(self, ts_codes: List[str] = None) -> Optional[pd.DataFrame]:
-        """
-        获取实时行情数据
-
-        Args:
-            ts_codes: 股票代码列表，例如 ['000001.SZ', '600000.SH']
-                     如果为 None，则获取所有股票
-
-        Returns:
-            实时行情 DataFrame，包含以下字段：
-            - ts_code: 股票代码
-            - name: 股票名称
-            - pre_close: 昨收价
-            - open: 开盘价
-            - high: 最高价
-            - low: 最低价
-            - close: 最新价
-            - vol: 成交量（股）
-            - amount: 成交额（元）
-            - num: 成交笔数
-            - ask_volume1: 委托卖盘
-            - bid_volume1: 委托买盘
-        """
-        if not self.pro:
+        if not TUSHARE_AVAILABLE or ts is None:
+            logger.warning("Tushare module not available, cannot fetch realtime quotes")
             return None
 
         try:
-            # Tushare 的实时行情接口
-            # 注意：实际使用时可能需要不同的接口，这里以 daily 接口示例
-            # 如果有专门的实时接口，请替换为相应的接口
-
-            # 方案1：使用 pro_bar 获取最新数据
-            # 方案2：使用 query 接口获取实时数据
-
-            # 这里使用最新的日线数据模拟实时行情
-            # 实际项目中应使用 Tushare 的实时行情接口
-
-            # 尝试获取今天的数据，如果没有则使用最近的交易日
-            today = datetime.now()
-            df = None
-
-            for i in range(5):  # 尝试最近5天
-                check_date = (today - timedelta(days=i)).strftime('%Y%m%d')
-                df = self.pro.daily(
-                    trade_date=check_date,
-                    fields='ts_code,open,high,low,close,pre_close,vol,amount'
-                )
-
-                if df is not None and not df.empty:
-                    logger.info(f"Using trade date {check_date} for realtime quotes")
-                    break
-
-            if df is not None and not df.empty:
-                # 计算涨跌幅和涨跌额
-                df['change_percent'] = ((df['close'] - df['pre_close']) / df['pre_close'] * 100)
-                df['change_amount'] = df['close'] - df['pre_close']
-
-                # 添加模拟字段（实际应从实时接口获取）
-                df['num'] = 0  # 成交笔数
-                df['ask_volume1'] = 0  # 委托卖盘
-                df['bid_volume1'] = 0  # 委托买盘
-
-                logger.info(f"Retrieved realtime quotes for {len(df)} stocks")
+            if ts_codes and len(ts_codes) > 0:
+                codes: List[str] = ts_codes
             else:
-                logger.warning(f"No realtime data available in the last 5 days")
+                if not self.pro:
+                    logger.warning("Tushare Pro client not initialized, cannot fetch stock list for realtime quotes")
+                    return None
+                stock_basic = await self.get_stock_basic()
+                if stock_basic is None or stock_basic.empty:
+                    logger.warning("No stock basic data available for realtime quotes")
+                    return None
+                codes = [str(c) for c in stock_basic["ts_code"].tolist() if c]
 
+            chunks: List[List[str]] = []
+            chunk_size = 50
+            for i in range(0, len(codes), chunk_size):
+                chunk = codes[i:i + chunk_size]
+                if chunk:
+                    chunks.append(chunk)
+
+            frames: List[pd.DataFrame] = []
+            for chunk in chunks:
+                joined_codes = ",".join(chunk)
+                df_chunk = ts.realtime_quote(ts_code=joined_codes)
+                if df_chunk is not None and not df_chunk.empty:
+                    df_chunk.columns = [str(c).lower() for c in df_chunk.columns]
+                    frames.append(df_chunk)
+
+            if not frames:
+                logger.warning("No realtime data returned from realtime_quote")
+                return None
+
+            df = pd.concat(frames, ignore_index=True)
+
+            if "ts_code" not in df.columns:
+                logger.warning("realtime_quote result missing ts_code column")
+                return None
+
+            if "price" in df.columns:
+                df["close"] = df["price"]
+
+            if "volume" in df.columns and "vol" not in df.columns:
+                df["vol"] = df["volume"]
+
+            if "a1_v" in df.columns and "ask_volume1" not in df.columns:
+                df["ask_volume1"] = df["a1_v"]
+
+            if "b1_v" in df.columns and "bid_volume1" not in df.columns:
+                df["bid_volume1"] = df["b1_v"]
+
+            if "pre_close" in df.columns and "close" in df.columns:
+                pre_close = df["pre_close"].astype(float)
+                close = df["close"].astype(float)
+                df["change_amount"] = close - pre_close
+                non_zero = pre_close != 0
+                df["change_percent"] = 0.0
+                df.loc[non_zero, "change_percent"] = (df.loc[non_zero, "change_amount"] / pre_close[non_zero]) * 100.0
+
+            logger.info(f"Retrieved realtime quotes for {len(df)} records using realtime_quote")
             return df
         except Exception as e:
-            logger.error(f"Error fetching realtime quotes: {e}")
+            logger.error(f"Error fetching realtime quotes via realtime_quote: {e}")
             return None
 
     async def get_stock_realtime(self, ts_code: str) -> Optional[Dict]:
@@ -579,3 +627,21 @@ class TushareClient:
         except Exception as e:
             logger.error(f"Error fetching daily_basic for date {trade_date}: {e}")
             return None
+
+    def is_available(self) -> bool:
+        """
+        检查数据源是否可用
+
+        Returns:
+            True如果数据源可用，False否则
+        """
+        return self.pro is not None and TUSHARE_AVAILABLE and self.token is not None
+
+    def get_source_name(self) -> str:
+        """
+        获取数据源名称
+
+        Returns:
+            数据源名称
+        """
+        return "tushare"

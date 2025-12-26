@@ -13,17 +13,46 @@
  * - 彩色日志输出
  */
 
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const net = require('net');
+
+// 颜色定义
+const COLORS = {
+  reset: "\x1b[0m",
+  bright: "\x1b[1m",
+  dim: "\x1b[2m",
+  underscore: "\x1b[4m",
+  blink: "\x1b[5m",
+  reverse: "\x1b[7m",
+  hidden: "\x1b[8m",
+
+  black: "\x1b[30m",
+  red: "\x1b[31m",
+  green: "\x1b[32m",
+  yellow: "\x1b[33m",
+  blue: "\x1b[34m",
+  magenta: "\x1b[35m",
+  cyan: "\x1b[36m",
+  white: "\x1b[37m",
+
+  bgBlack: "\x1b[40m",
+  bgRed: "\x1b[41m",
+  bgGreen: "\x1b[42m",
+  bgYellow: "\x1b[43m",
+  bgBlue: "\x1b[44m",
+  bgMagenta: "\x1b[45m",
+  bgCyan: "\x1b[46m",
+  bgWhite: "\x1b[47m",
+};
 
 // 配置
 const CONFIG = {
   services: [
     {
       name: '后端服务',
-      color: '\x1b[36m', // 青色
+      color: COLORS.cyan,
       command: process.platform === 'win32' ? 'npm.cmd' : 'npm',
       args: ['run', 'dev'],
       cwd: path.join(__dirname, 'backend'),
@@ -33,7 +62,7 @@ const CONFIG = {
     },
     {
       name: '前端服务',
-      color: '\x1b[33m', // 黄色
+      color: COLORS.yellow,
       command: process.platform === 'win32' ? 'npm.cmd' : 'npm',
       args: ['run', 'dev'],
       cwd: path.join(__dirname, 'frontend'),
@@ -43,287 +72,172 @@ const CONFIG = {
     },
     {
       name: '数据服务',
-      color: '\x1b[32m', // 绿色
+      color: COLORS.green,
       command: 'python',
-      args: ['-m', 'uvicorn', 'src.main:app', '--reload', '--port', '8003'],
+      args: ['-m', 'uvicorn', 'src.main:app', '--reload', '--port', '8002'],
       cwd: path.join(__dirname, 'data-service'),
-      port: 8003,
-      healthCheck: 'http://localhost:8003/health',
-      envFile: path.join(__dirname, 'data-service', '.env')
+      port: 8002,
+      healthCheck: 'http://localhost:8002/health',
+      envFile: path.join(__dirname, 'data-service', '.env'),
+      env: {
+        PYTHONPATH: path.join(__dirname, 'data-service')
+      }
     }
   ],
   database: path.join(__dirname, 'data', 'stock_picker.db')
 };
 
-// 颜色代码
-const COLORS = {
-  reset: '\x1b[0m',
-  bright: '\x1b[1m',
-  red: '\x1b[31m',
-  green: '\x1b[32m',
-  yellow: '\x1b[33m',
-  blue: '\x1b[34m',
-  magenta: '\x1b[35m',
-  cyan: '\x1b[36m'
-};
-
 // 日志函数
-function log(message, color = COLORS.reset) {
+function log(message, color = COLORS.white) {
   console.log(`${color}${message}${COLORS.reset}`);
 }
 
-function logSuccess(message) {
-  log(`✓ ${message}`, COLORS.green);
-}
-
-function logError(message) {
-  log(`✗ ${message}`, COLORS.red);
-}
-
-function logWarning(message) {
-  log(`⚠ ${message}`, COLORS.yellow);
+function logHeader(message) {
+  console.log('\n' + COLORS.bright +COLORS.magenta + '='.repeat(50));
+  console.log(` ${message}`);
+  console.log('='.repeat(50) + COLORS.reset + '\n');
 }
 
 function logInfo(message) {
-  log(`ℹ ${message}`, COLORS.cyan);
+  log(`[信息] ${message}`, COLORS.blue);
 }
 
-function logHeader(message) {
-  console.log('\n' + '='.repeat(60));
-  log(message, COLORS.bright + COLORS.blue);
-  console.log('='.repeat(60) + '\n');
+function logSuccess(message) {
+  log(`[成功] ${message}`, COLORS.green);
 }
 
-// 检查命令是否存在
-function commandExists(command) {
-  return new Promise((resolve) => {
-    const testCmd = process.platform === 'win32' ? 'where' : 'which';
-    const proc = spawn(testCmd, [command], {
-      shell: true,
-      windowsHide: true,
-      stdio: 'pipe'
-    });
-
-    proc.on('close', (code) => {
-      resolve(code === 0);
-    });
-
-    proc.on('error', () => {
-      resolve(false);
-    });
-  });
+function logError(message) {
+  log(`[错误] ${message}`, COLORS.red);
 }
 
-// 检查端口是否被占用
-function isPortInUse(port) {
-  return new Promise((resolve) => {
-    const server = net.createServer();
-
-    server.once('error', (err) => {
-      if (err.code === 'EADDRINUSE') {
-        resolve(true);
-      } else {
-        resolve(false);
-      }
-    });
-
-    server.once('listening', () => {
-      server.close();
-      resolve(false);
-    });
-
-    server.listen(port);
-  });
-}
-
-// 环境检查
+// 检查函数
 async function checkEnvironment() {
-  logHeader('环境检查');
-
-  // 检查 Node.js
-  logInfo('检查 Node.js...');
-  const hasNode = await commandExists('node');
-  if (!hasNode) {
-    logError('未找到 Node.js，请先安装 Node.js');
-    return false;
-  }
-  const nodeVersion = require('child_process').execSync('node -v').toString().trim();
-  logSuccess(`Node.js 版本: ${nodeVersion}`);
-
-  // 检查 npm
-  logInfo('检查 npm...');
-  const hasNpm = await commandExists('npm');
-  if (!hasNpm) {
-    logError('未找到 npm');
-    return false;
-  }
-  const npmVersion = require('child_process').execSync('npm -v').toString().trim();
-  logSuccess(`npm 版本: ${npmVersion}`);
-
-  // 检查 Python
-  logInfo('检查 Python...');
-  const pythonCommands = ['python', 'python3'];
-  let pythonCmd = null;
-
-  for (const cmd of pythonCommands) {
-    if (await commandExists(cmd)) {
-      pythonCmd = cmd;
-      break;
-    }
-  }
-
-  if (!pythonCmd) {
-    logError('未找到 Python，请先安装 Python 3.8+');
-    return false;
-  }
-
+  logHeader('检查环境');
   try {
-    const pythonVersion = require('child_process').execSync(`${pythonCmd} --version`).toString().trim();
-    logSuccess(`Python 版本: ${pythonVersion}`);
-
-    // 更新数据服务的 Python 命令
-    CONFIG.services[2].command = pythonCmd;
-  } catch (error) {
-    logError('无法获取 Python 版本');
+    const nodeVer = execSync('node -v').toString().trim();
+    logSuccess(`Node.js: ${nodeVer}`);
+    
+    let pythonVer;
+    try {
+        pythonVer = execSync('python --version').toString().trim();
+    } catch {
+        pythonVer = execSync('python3 --version').toString().trim();
+    }
+    logSuccess(`Python: ${pythonVer}`);
+    return true;
+  } catch (e) {
+    logError(`环境检查失败: ${e.message}`);
     return false;
   }
-
-  return true;
 }
 
-// 检查依赖
 async function checkDependencies() {
-  logHeader('依赖检查');
+  logHeader('检查依赖');
+  
+  // 检查根目录 node_modules (Workspaces 模式下依赖可能被提升到这里)
+  const rootNodeModules = path.join(__dirname, 'node_modules');
+  if (fs.existsSync(rootNodeModules)) {
+      logSuccess('发现根目录依赖 (Workspaces mode)');
+      return true;
+  }
 
-  // 检查 Node 依赖
-  const nodeModules = [
-    path.join(__dirname, 'backend', 'node_modules'),
-    path.join(__dirname, 'frontend', 'node_modules')
+  // 如果根目录没有 node_modules，则检查各个子目录
+  const dirs = [
+      path.join(__dirname, 'backend', 'node_modules'),
+      path.join(__dirname, 'frontend', 'node_modules')
   ];
-
-  for (const modulePath of nodeModules) {
-    const serviceName = modulePath.includes('backend') ? '后端' : '前端';
-    if (!fs.existsSync(modulePath)) {
-      logWarning(`${serviceName}依赖未安装`);
-      logInfo(`正在安装 ${serviceName} 依赖...`);
-
-      const cwd = path.dirname(modulePath);
-      const npmInstall = spawn(
-        process.platform === 'win32' ? 'npm.cmd' : 'npm',
-        ['install'],
-        {
-          cwd,
-          stdio: 'inherit',
-          shell: true,
-          windowsHide: true
-        }
-      );
-
-      await new Promise((resolve, reject) => {
-        npmInstall.on('close', (code) => {
-          if (code === 0) {
-            resolve();
-          } else {
-            reject(new Error(`npm install failed with code ${code}`));
-          }
-        });
-        npmInstall.on('error', reject);
-      });
-
-      logSuccess(`${serviceName}依赖安装完成`);
-    } else {
-      logSuccess(`${serviceName}依赖已安装`);
-    }
-  }
-
-  // 检查 Python 依赖
-  const requirementsFile = path.join(__dirname, 'data-service', 'requirements.txt');
-  if (fs.existsSync(requirementsFile)) {
-    logInfo('检查 Python 依赖...');
-    // 简单检查，实际中可以验证 import
-    logSuccess('Python 依赖检查通过（如遇问题请运行: pip install -r data-service/requirements.txt）');
-  }
-
-  return true;
-}
-
-// 检查数据库
-async function checkDatabase() {
-  logHeader('数据库检查');
-
-  const dbPath = CONFIG.database;
-  const dataDir = path.dirname(dbPath);
-
-  // 确保 data 目录存在
-  if (!fs.existsSync(dataDir)) {
-    logWarning('data 目录不存在，正在创建...');
-    fs.mkdirSync(dataDir, { recursive: true });
-    logSuccess('data 目录创建成功');
-  }
-
-  // 检查数据库文件
-  if (!fs.existsSync(dbPath)) {
-    logWarning('数据库文件不存在');
-    logInfo('数据库将在首次启动时自动创建');
-  } else {
-    const stats = fs.statSync(dbPath);
-    const sizeInMB = (stats.size / 1024 / 1024).toFixed(2);
-    logSuccess(`数据库文件存在 (大小: ${sizeInMB} MB)`);
-  }
-
-  return true;
-}
-
-// 检查端口占用
-async function checkPorts() {
-  logHeader('端口检查');
-
-  for (const service of CONFIG.services) {
-    logInfo(`检查端口 ${service.port} (${service.name})...`);
-    const inUse = await isPortInUse(service.port);
-
-    if (inUse) {
-      logError(`端口 ${service.port} 已被占用！请关闭占用该端口的程序`);
-      return false;
-    }
-    logSuccess(`端口 ${service.port} 可用`);
-  }
-
-  return true;
-}
-
-// 检查环境变量文件
-async function checkEnvFiles() {
-  logHeader('环境配置检查');
-
-  for (const service of CONFIG.services) {
-    if (service.envFile) {
-      if (!fs.existsSync(service.envFile)) {
-        logWarning(`${service.name} 缺少 .env 文件: ${service.envFile}`);
-        logInfo('请参考 .env.example 创建配置文件');
-      } else {
-        logSuccess(`${service.name} 配置文件存在`);
+  
+  for (const dir of dirs) {
+      if (!fs.existsSync(dir)) {
+          logError(`缺少依赖: ${dir}`);
+          logInfo('请运行 scripts/setup.bat 或 npm run setup 安装依赖');
+          return false;
       }
-    }
   }
-
+  logSuccess('依赖检查通过');
   return true;
+}
+
+async function checkDatabase() {
+    logHeader('检查数据库');
+    if (fs.existsSync(CONFIG.database)) {
+        logSuccess(`数据库已存在: ${CONFIG.database}`);
+    } else {
+        logInfo(`数据库不存在，将在服务启动时自动创建: ${CONFIG.database}`);
+    }
+}
+
+async function checkEnvFiles() {
+    logHeader('检查配置文件');
+    for (const service of CONFIG.services) {
+        if (service.envFile) {
+            if (fs.existsSync(service.envFile)) {
+                logSuccess(`配置文件已存在: ${service.envFile}`);
+            } else {
+                logError(`缺少配置文件: ${service.envFile}`);
+                // 尝试从 .env.example 复制
+                const exampleFile = service.envFile + '.example';
+                if (fs.existsSync(exampleFile)) {
+                    logInfo(`尝试从示例文件复制: ${exampleFile}`);
+                    fs.copyFileSync(exampleFile, service.envFile);
+                    logSuccess(`已创建配置文件: ${service.envFile}`);
+                } else {
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
+function checkPort(port) {
+    return new Promise((resolve) => {
+        const server = net.createServer();
+        server.once('error', (err) => {
+            if (err.code === 'EADDRINUSE') {
+                resolve(false);
+            } else {
+                resolve(false); // 其他错误也视为不可用
+            }
+        });
+        server.once('listening', () => {
+            server.close();
+            resolve(true);
+        });
+        server.listen(port);
+    });
+}
+
+async function checkPorts() {
+    logHeader('检查端口');
+    let allOk = true;
+    for (const service of CONFIG.services) {
+        const isFree = await checkPort(service.port);
+        if (isFree) {
+            logSuccess(`端口 ${service.port} 可用 (${service.name})`);
+        } else {
+            logError(`端口 ${service.port} 被占用 (${service.name})`);
+            allOk = false;
+        }
+    }
+    return allOk;
 }
 
 // 启动单个服务
 function startService(service) {
-  return new Promise((resolve, reject) => {
-    log(`\n启动 ${service.name}...`, service.color + COLORS.bright);
-    logInfo(`目录: ${service.cwd}`);
-    logInfo(`命令: ${service.command} ${service.args.join(' ')}`);
-    logInfo(`端口: ${service.port}`);
-
-    const proc = spawn(service.command, service.args, {
-      cwd: service.cwd,
-      stdio: 'pipe',
-      shell: true,
-      windowsHide: true
-    });
+    return new Promise((resolve, reject) => {
+      log(`\n启动 ${service.name}...`, service.color + COLORS.bright);
+      logInfo(`目录: ${service.cwd}`);
+      logInfo(`命令: ${service.command} ${service.args.join(' ')}`);
+      logInfo(`端口: ${service.port}`);
+  
+      const proc = spawn(service.command, service.args, {
+        cwd: service.cwd,
+        stdio: 'pipe',
+        shell: true,
+        windowsHide: true,
+        env: { ...process.env, ...(service.env || {}) }
+      });
 
     // 处理输出
     proc.stdout.on('data', (data) => {

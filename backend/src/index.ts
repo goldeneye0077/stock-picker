@@ -5,9 +5,9 @@ import morgan from 'morgan';
 import dotenv from 'dotenv';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
-// import swaggerUi from 'swagger-ui-express';
+import swaggerUi from 'swagger-ui-express';
 import { initDatabase } from './config/database';
-// import { swaggerSpec } from './config/swagger';
+import { swaggerSpec } from './config/swagger';
 import stockRoutes from './routes/stocks';
 import analysisRoutes from './routes/analysis';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
@@ -15,47 +15,48 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
+const enableSwagger = process.env.ENABLE_SWAGGER !== 'false';
+
+function parseCorsOrigins(value?: string): string[] {
+  if (!value) return [];
+  return value
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+}
 
 // Middleware
 app.use(helmet());
-const allowedOrigins = [
-  'http://localhost:3000',
-  'http://localhost:3001',
-  'http://localhost:3002',
-  'http://localhost:3004',
-  'http://localhost:3005',
-  'http://localhost:3006',
-  'http://127.0.0.1:3000',
-  'http://127.0.0.1:3001',
-  'http://127.0.0.1:3002',
-  'http://127.0.0.1:3004',
-  'http://127.0.0.1:3005',
-  'http://127.0.0.1:3006'
-];
-if (process.env.FRONTEND_URL) {
-  allowedOrigins.push(process.env.FRONTEND_URL);
-}
+const localhostOriginRegex = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+const corsOrigins = new Set<string>([
+  ...parseCorsOrigins(process.env.CORS_ALLOW_ORIGINS),
+  ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : [])
+]);
 app.use(cors({
-  origin: allowedOrigins,
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (localhostOriginRegex.test(origin)) return callback(null, true);
+    if (corsOrigins.has(origin)) return callback(null, true);
+    return callback(new Error('Not allowed by CORS'));
+  },
   credentials: true
 }));
 app.use(morgan('combined'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// API Documentation - Temporarily disabled due to TypeScript configuration issues
-// TODO: Re-enable after fixing ts-node type resolution in monorepo setup
-// app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
-//   customCss: '.swagger-ui .topbar { display: none }',
-//   customSiteTitle: '智能选股系统 API 文档'
-// }));
+if (enableSwagger) {
+  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+    customCss: '.swagger-ui .topbar { display: none }',
+    customSiteTitle: '智能选股系统 API 文档'
+  }));
 
-// API Spec JSON
-// app.get('/api-docs.json', (req, res) => {
-//   res.setHeader('Content-Type', 'application/json');
-//   res.send(swaggerSpec);
-// });
+  app.get('/api-docs.json', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.send(swaggerSpec);
+  });
+}
 
 // Routes
 app.use('/api/stocks', stockRoutes);
@@ -105,7 +106,9 @@ async function startServer() {
     server.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📊 Stock Picker API: http://localhost:${PORT}`);
-      // console.log(`📚 API Documentation: http://localhost:${PORT}/api-docs`);
+      if (enableSwagger) {
+        console.log(`📚 API Documentation: http://localhost:${PORT}/api-docs`);
+      }
       console.log(`🔌 WebSocket: ws://localhost:${PORT}`);
     });
   } catch (error) {

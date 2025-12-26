@@ -19,7 +19,9 @@
       "Bash(npm run build)",
       "Bash(npm run setup)",
       "Bash(pip install:*)",
-      "Bash(xargs:*)"
+      "Bash(xargs:*)",
+      "Bash(ls:*)",
+      "mcp__minimax-coding-plan-mcp__web_search"
     ],
     "deny": [],
     "ask": []

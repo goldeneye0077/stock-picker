@@ -6,7 +6,8 @@
 
 import asyncio
 import logging
-from typing import Dict, List, Optional, Any, Tuple
+import os
+from typing import Dict, List, Optional, Any, Tuple, Callable
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
@@ -50,9 +51,9 @@ class AdvancedSelectionAnalyzer:
                     WHERE EXISTS (
                         SELECT 1 FROM klines k
                         WHERE k.stock_code = s.code
-                        AND k.date >= '2025-11-01'  -- 放宽日期限制，让更多股票参与
+                        AND k.date >= '2025-11-01'
                         GROUP BY k.stock_code
-                        HAVING COUNT(*) >= 10  -- 降低数据要求，至少10个交易日数据
+                        HAVING COUNT(*) >= 20
                     )
                     ORDER BY
                         CASE
@@ -60,7 +61,7 @@ class AdvancedSelectionAnalyzer:
                             ELSE 1  -- 没有行业数据的在后
                         END,
                         s.code
-                    LIMIT 2000  -- 限制数量，提高性能
+                    LIMIT 6000  -- 扩大限制，全量扫描
                 """)
 
                 rows = await cursor.fetchall()
@@ -148,6 +149,7 @@ class AdvancedSelectionAnalyzer:
 
             closes = df['close'].values
             volumes = df['volume'].values
+            close_series = pd.Series(closes)
 
             # 1. 动量因子
             # 20日收益率（中期动量）
@@ -162,35 +164,49 @@ class AdvancedSelectionAnalyzer:
 
             # 2. RSI动量
             if len(closes) >= 14:
-                # 计算14日RSI
-                delta = np.diff(closes)
-                gain = np.where(delta > 0, delta, 0)
-                loss = np.where(delta < 0, -delta, 0)
+                delta = close_series.diff()
+                gain = delta.where(delta > 0, 0.0)
+                loss = (-delta).where(delta < 0, 0.0)
 
-                avg_gain = pd.Series(gain).rolling(window=14).mean().iloc[-1]
-                avg_loss = pd.Series(loss).rolling(window=14).mean().iloc[-1]
+                avg_gain = gain.rolling(window=14).mean()
+                avg_loss = loss.rolling(window=14).mean()
 
-                if avg_loss != 0:
-                    rs = avg_gain / avg_loss
-                    rsi = 100 - (100 / (1 + rs))
-                    factors['rsi'] = rsi
-                else:
-                    factors['rsi'] = 100
+                rs = avg_gain / avg_loss.replace(0.0, np.nan)
+                rsi_series = 100 - (100 / (1 + rs))
+                rsi_last = rsi_series.iloc[-1]
+                rsi_prev = rsi_series.iloc[-2] if len(rsi_series) >= 2 else np.nan
+
+                if pd.isna(rsi_last):
+                    rsi_last = 50.0
+                if pd.isna(rsi_prev):
+                    rsi_prev = rsi_last
+
+                factors['rsi'] = float(rsi_last)
+                factors['rsi_prev'] = float(rsi_prev)
 
             # 3. MACD因子
             if len(closes) >= 26:
-                # 计算EMA
-                ema12 = pd.Series(closes).ewm(span=12).mean().iloc[-1]
-                ema26 = pd.Series(closes).ewm(span=26).mean().iloc[-1]
+                ema12_series = close_series.ewm(span=12).mean()
+                ema26_series = close_series.ewm(span=26).mean()
+                ema12 = ema12_series.iloc[-1]
+                ema26 = ema26_series.iloc[-1]
                 macd = ema12 - ema26
 
-                # 信号线（EMA9 of MACD）
-                macd_series = pd.Series(closes).ewm(span=12).mean() - pd.Series(closes).ewm(span=26).mean()
-                signal = macd_series.ewm(span=9).mean().iloc[-1]
+                macd_series = ema12_series - ema26_series
+                signal_series = macd_series.ewm(span=9).mean()
+                signal = signal_series.iloc[-1]
+                histogram_series = macd_series - signal_series
+                histogram = histogram_series.iloc[-1]
+                histogram_prev = histogram_series.iloc[-2] if len(histogram_series) >= 2 else np.nan
 
                 factors['macd'] = macd
                 factors['macd_signal'] = signal
-                factors['macd_histogram'] = macd - signal
+                if pd.isna(histogram):
+                    histogram = macd - signal
+                if pd.isna(histogram_prev):
+                    histogram_prev = histogram
+                factors['macd_histogram'] = float(histogram)
+                factors['macd_histogram_prev'] = float(histogram_prev)
 
             # 4. 波动率因子
             if len(closes) >= 20:
@@ -247,6 +263,29 @@ class AdvancedSelectionAnalyzer:
                 low_20d = np.min(closes[-20:])
                 price_position = (closes[-1] - low_20d) / (high_20d - low_20d) if (high_20d - low_20d) > 0 else 0.5
                 factors['price_position'] = price_position
+                
+                # 11. 突破信号 (硬性指标)
+                # 价格突破：当前价格 >= 过去20天最高价 * 0.98
+                factors['is_price_breakout'] = 1.0 if closes[-1] >= high_20d * 0.98 else 0.0
+                
+            # 12. 成交量突破
+            if len(volumes) >= 6:
+                # 过去5日均量 (不含今日)
+                vol_avg_5d = np.mean(volumes[-6:-1])
+                # 今日成交量 > 过去5日均量 * 1.5
+                factors['is_volume_breakout'] = 1.0 if (vol_avg_5d > 0 and volumes[-1] > vol_avg_5d * 1.5) else 0.0
+                factors['vol_avg_5d'] = vol_avg_5d  # 保存5日均量用于展示
+            else:
+                factors['is_volume_breakout'] = 0.0
+                factors['vol_avg_5d'] = 0.0
+            
+            # 13. 移动平均线 (MA)
+            if len(closes) >= 5:
+                factors['ma5'] = float(np.mean(closes[-5:]))
+            if len(closes) >= 10:
+                factors['ma10'] = float(np.mean(closes[-10:]))
+            if len(closes) >= 20:
+                factors['ma20'] = float(np.mean(closes[-20:]))
 
         except Exception as e:
             logger.error(f"计算技术因子失败: {e}")
@@ -382,9 +421,8 @@ class AdvancedSelectionAnalyzer:
         """
         try:
             async with aiosqlite.connect(self.db_path) as db:
-                # 获取最新基本面数据
                 cursor = await db.execute("""
-                    SELECT pe_ttm, pb, total_mv, trade_date
+                    SELECT pe, pe_ttm, pb, total_mv, trade_date
                     FROM daily_basic
                     WHERE stock_code = ?
                     ORDER BY trade_date DESC
@@ -394,14 +432,14 @@ class AdvancedSelectionAnalyzer:
                 row = await cursor.fetchone()
 
                 if row:
-                    pe_ttm = row[0]
-                    pb = row[1]
-                    total_mv = row[2]
-                    trade_date = row[3]
+                    pe = row[0]
+                    pe_ttm_raw = row[1]
+                    pb = row[2]
+                    total_mv = row[3]
+                    trade_date = row[4]
 
-                    logger.info(f"股票 {stock_code} 原始数据: pe_ttm={pe_ttm}, pb={pb}, total_mv={total_mv}")
+                    logger.info(f"股票 {stock_code} 原始估值数据: pe={pe}, pe_ttm={pe_ttm_raw}, pb={pb}, total_mv={total_mv}")
 
-                    # 获取行业信息
                     cursor = await db.execute("""
                         SELECT industry FROM stocks WHERE code = ?
                     """, (stock_code,))
@@ -410,40 +448,65 @@ class AdvancedSelectionAnalyzer:
 
                     logger.info(f"股票 {stock_code} 行业: {industry}")
 
-                    # 如果PE为NULL或0，使用行业平均PE
-                    if pe_ttm is None or pe_ttm == 0:
-                        industry_pe = {
-                            "银行": 6.5, "白酒": 28.0, "新能源": 35.0, "医药": 25.0,
-                            "科技": 30.0, "房地产": 8.0, "制造业": 15.0, "化工": 12.0,
-                            "化工原料": 12.0, "林业": 15.0,  # 添加缺失的行业
-                            "有色金属": 10.0, "机械设备": 14.0, "电子": 25.0,
-                            "计算机": 30.0, "通信": 20.0, "建筑装饰": 8.0,
-                            "交通运输": 10.0, "公用事业": 12.0, "农林牧渔": 15.0,
-                            "商业贸易": 10.0, "休闲服务": 20.0, "纺织服装": 12.0
-                        }
-                        pe_ttm = industry_pe.get(industry, 15.0)
-                        logger.info(f"股票 {stock_code} 使用行业平均PE: {pe_ttm}")
-                    else:
-                        pe_ttm = float(pe_ttm)
-
-                    # 处理PB
                     if pb is None:
-                        pb = 0
+                        pb = 0.0
                         logger.info(f"股票 {stock_code} PB为NULL，设置为0")
                     else:
                         pb = float(pb)
 
-                    # 处理总市值
                     if total_mv is None:
-                        total_mv = 0
+                        total_mv = 0.0
 
-                    # 计算ROE：ROE = PB / PE × 100%
-                    if pe_ttm > 0:
-                        roe = (pb / pe_ttm) * 100
-                    else:
-                        roe = 0
+                    pe_value = None
+                    if pe_ttm_raw is not None:
+                        try:
+                            pe_value = float(pe_ttm_raw)
+                        except Exception:
+                            pe_value = None
+                    elif pe is not None:
+                        try:
+                            pe_value = float(pe)
+                        except Exception:
+                            pe_value = None
 
-                    # 根据行业设置合理的增长率
+                    industry_pe = {
+                        "银行": 6.5, "白酒": 28.0, "新能源": 35.0, "医药": 25.0,
+                        "科技": 30.0, "房地产": 8.0, "制造业": 15.0, "化工": 12.0,
+                        "化工原料": 12.0, "林业": 15.0,
+                        "有色金属": 10.0, "机械设备": 14.0, "电子": 25.0,
+                        "计算机": 30.0, "通信": 20.0, "建筑装饰": 8.0,
+                        "交通运输": 10.0, "公用事业": 12.0, "农林牧渔": 15.0,
+                        "商业贸易": 10.0, "休闲服务": 20.0, "纺织服装": 12.0
+                    }
+
+                    pe_for_score = pe_value
+                    if pe_for_score is None or pe_for_score == 0:
+                        pe_for_score = industry_pe.get(industry, 15.0)
+                        logger.info(f"股票 {stock_code} 估值数据缺失，使用行业平均PE进行评分: {pe_for_score}")
+
+                    roe = None
+                    try:
+                        fin_cursor = await db.execute("""
+                            SELECT roe
+                            FROM financial_indicators
+                            WHERE stock_code = ?
+                            ORDER BY end_date DESC
+                            LIMIT 1
+                        """, (stock_code,))
+                        fin_row = await fin_cursor.fetchone()
+                        if fin_row and fin_row[0] is not None:
+                            roe = float(fin_row[0])
+                            logger.info(f"股票 {stock_code} 使用财务指标ROE: {roe}")
+                    except Exception as e:
+                        logger.error(f"获取股票 {stock_code} 财务指标ROE失败: {e}")
+
+                    if roe is None:
+                        if pe_for_score and pe_for_score > 0 and pb > 0:
+                            roe = (pb / pe_for_score) * 100
+                            logger.info(f"股票 {stock_code} 使用PB/PE估算ROE: {roe}")
+                        else:
+                            roe = 0.0
+
                     industry_growth = {
                         "银行": 8.0, "白酒": 15.0, "新能源": 25.0, "医药": 18.0,
                         "科技": 20.0, "房地产": 5.0, "制造业": 12.0, "化工": 10.0,
@@ -458,17 +521,16 @@ class AdvancedSelectionAnalyzer:
 
                     logger.info(f"股票 {stock_code} 营收增长率: {revenue_growth}, 利润增长率: {profit_growth}")
 
-                    # 计算PE分位数（简化版）
-                    pe_percentile = self._calculate_pe_percentile(pe_ttm)
+                    pe_percentile = self._calculate_pe_percentile(pe_for_score)
 
                     fundamental_score = self._calculate_fundamental_score(
-                        float(roe), float(pe_ttm), float(revenue_growth)
+                        float(roe), float(pe_for_score), float(revenue_growth)
                     )
 
-                    logger.info(f"股票 {stock_code} 基本面计算: ROE={roe:.2f}%, PE={pe_ttm:.2f}, 营收增长={revenue_growth:.1f}%, 基本面评分={fundamental_score:.1f}")
+                    logger.info(f"股票 {stock_code} 基本面计算: ROE={roe:.2f}%, PE={pe_for_score:.2f}, 营收增长={revenue_growth:.1f}%, 基本面评分={fundamental_score:.1f}")
 
                     return {
-                        'pe_ttm': float(pe_ttm),
+                        'pe_ttm': float(pe_value) if pe_value is not None else 0.0,
                         'pb': float(pb),
                         'roe': float(roe),
                         'revenue_growth': float(revenue_growth),
@@ -607,11 +669,17 @@ class AdvancedSelectionAnalyzer:
             'trend_quality_score': 0.0,
             'sector_score': 0.0,
             'fundamental_score': 0.0,
-            'composite_score': 0.0
+            'composite_score': 0.0,
+            'valuation_score': 0.0,
+            'quality_score': 0.0,
+            'growth_score': 0.0,
+            'volume_score': 0.0,
+            'sentiment_score': 0.0,
+            'risk_score': 0.0
         }
 
         try:
-            # 1. 技术动量评分 (35%)
+            # 1. 技术动量评分 (50%) - 核心权重
             momentum_score = 0.0
 
             # 20日动量
@@ -635,17 +703,23 @@ class AdvancedSelectionAnalyzer:
             # MACD金叉
             macd_hist = factors.get('macd_histogram', 0)
             if macd_hist > 0:
+                momentum_score += 5  # 略微降低MACD权重
+
+            # 突破信号 (新加权重)
+            if factors.get('is_price_breakout', 0) > 0:
+                momentum_score += 10
+            if factors.get('is_volume_breakout', 0) > 0:
                 momentum_score += 10
 
-            scores['momentum_score'] = min(momentum_score, 35)
+            scores['momentum_score'] = min(momentum_score, 50)
 
-            # 2. 趋势质量评分 (25%)
+            # 2. 趋势质量评分 (15%) - 辅助权重
             trend_quality_score = 0.0
 
             # 趋势斜率
             trend_slope = factors.get('trend_slope', 0)
             if trend_slope > 1.0:
-                trend_quality_score += 10
+                trend_quality_score += 8
             elif trend_slope > 0.5:
                 trend_quality_score += 5
             elif trend_slope > 0:
@@ -654,39 +728,141 @@ class AdvancedSelectionAnalyzer:
             # 趋势R²
             trend_r2 = factors.get('trend_r2', 0)
             if trend_r2 > 0.7:
-                trend_quality_score += 10
-            elif trend_r2 > 0.5:
                 trend_quality_score += 5
+            elif trend_r2 > 0.5:
+                trend_quality_score += 3
             elif trend_r2 > 0.3:
-                trend_quality_score += 2
+                trend_quality_score += 1
 
             # 夏普比率
             sharpe = factors.get('sharpe_ratio', 0)
             if sharpe > 1.0:
-                trend_quality_score += 5
+                trend_quality_score += 2
             elif sharpe > 0.5:
-                trend_quality_score += 3
-            elif sharpe > 0:
                 trend_quality_score += 1
 
-            scores['trend_quality_score'] = min(trend_quality_score, 25)
+            scores['trend_quality_score'] = min(trend_quality_score, 15)
 
-            # 3. 板块热度评分 (20%)
+            # 3. 板块热度评分 (25%) - 重要权重
             sector_heat = factors.get('sector_heat', 0)
-            scores['sector_score'] = sector_heat * 0.2  # 转换为20分制
+            scores['sector_score'] = sector_heat * 0.25
+            
+            # 4. 基本面评分 (20%) - 提高权重
+            raw_fundamental_score = factors.get('fundamental_score', 50)
+            scores['fundamental_score'] = raw_fundamental_score
 
-            # 4. 基本面评分 (20%)
-            fundamental_score = factors.get('fundamental_score', 50)
-            scores['fundamental_score'] = fundamental_score * 0.2  # 转换为20分制
+            pe_ttm = factors.get('pe_ttm', 0)
+            pe_percentile = factors.get('pe_percentile', 0.5)
+            roe = factors.get('roe', 0)
+            revenue_growth = factors.get('revenue_growth', 0)
+            profit_growth = factors.get('profit_growth', 0)
+
+            valuation_score = 0.0
+            if pe_ttm > 0:
+                if pe_ttm < 10.0:
+                    valuation_score += 35
+                elif pe_ttm < 15.0:
+                    valuation_score += 25
+                elif pe_ttm < 20.0:
+                    valuation_score += 15
+                elif pe_ttm < 30.0:
+                    valuation_score += 5
+                else:
+                    valuation_score += 0
+            else:
+                valuation_score += 10
+            valuation_score += max(0.0, min(1.0, pe_percentile)) * 20.0
+            scores['valuation_score'] = max(0.0, min(100.0, valuation_score))
+
+            quality_score = 0.0
+            if roe > 25.0:
+                quality_score += 50
+            elif roe > 20.0:
+                quality_score += 40
+            elif roe > 15.0:
+                quality_score += 30
+            elif roe > 10.0:
+                quality_score += 20
+            elif roe > 5.0:
+                quality_score += 10
+            elif roe > 0:
+                quality_score += 5
+            if profit_growth > 30.0:
+                quality_score += 20
+            elif profit_growth > 15.0:
+                quality_score += 10
+            elif profit_growth > 5.0:
+                quality_score += 5
+            scores['quality_score'] = max(0.0, min(100.0, quality_score))
+
+            growth_score = 0.0
+            if revenue_growth > 30.0:
+                growth_score += 50
+            elif revenue_growth > 20.0:
+                growth_score += 35
+            elif revenue_growth > 15.0:
+                growth_score += 25
+            elif revenue_growth > 10.0:
+                growth_score += 15
+            elif revenue_growth > 5.0:
+                growth_score += 8
+            elif revenue_growth > 0.0:
+                growth_score += 4
+            scores['growth_score'] = max(0.0, min(100.0, growth_score))
+
+            volume_score = 0.0
+            volume_ratio = factors.get('volume_ratio', 1.0)
+            if volume_ratio > 3.0:
+                volume_score += 40
+            elif volume_ratio > 2.0:
+                volume_score += 30
+            elif volume_ratio > 1.5:
+                volume_score += 20
+            elif volume_ratio > 1.0:
+                volume_score += 10
+            if factors.get('is_volume_breakout', 0) > 0:
+                volume_score += 20
+            scores['volume_score'] = max(0.0, min(100.0, volume_score))
+
+            sentiment_score = 50.0
+            sector_main_flow = factors.get('sector_main_flow', 0.0)
+            if sector_main_flow > 50000000:
+                sentiment_score = 90.0
+            elif sector_main_flow > 20000000:
+                sentiment_score = 80.0
+            elif sector_main_flow > 5000000:
+                sentiment_score = 70.0
+            elif sector_main_flow > 0:
+                sentiment_score = 60.0
+            elif sector_main_flow > -5000000:
+                sentiment_score = 50.0
+            else:
+                sentiment_score = 40.0
+            scores['sentiment_score'] = sentiment_score
+
+            risk_score = 50.0
+            volatility = factors.get('volatility', 0.0)
+            max_drawdown = factors.get('max_drawdown', 0.0)
+            if volatility < 20.0 and max_drawdown > -15.0:
+                risk_score = 80.0
+            elif volatility < 30.0 and max_drawdown > -25.0:
+                risk_score = 65.0
+            elif volatility < 40.0 and max_drawdown > -35.0:
+                risk_score = 55.0
+            else:
+                risk_score = 45.0
+            scores['risk_score'] = risk_score
+
+            fundamental_contribution = raw_fundamental_score * 0.2
 
             # 5. 技术面总分（动量+趋势质量）
             scores['technical_score'] = scores['momentum_score'] + scores['trend_quality_score']
 
             # 6. 综合评分
             scores['composite_score'] = (
-                scores['technical_score'] +  # 技术面60%
-                scores['sector_score'] +     # 板块20%
-                scores['fundamental_score']  # 基本面20%
+                scores['technical_score'] +
+                scores['sector_score'] +
+                fundamental_contribution
             )
 
             # 确保分数在0-100之间
@@ -755,6 +931,31 @@ class AdvancedSelectionAnalyzer:
             holding_period = self._determine_holding_period(scores['technical_score'], scores['fundamental_score'])
             target_price = self._calculate_target_price(current_price, composite_score)
             stop_loss_price = self._calculate_stop_loss_price(current_price, risk_level)
+            
+            # 计算建议买入点和高抛点
+            ma5 = float(all_factors.get('ma5', current_price))
+            ma10 = float(all_factors.get('ma10', current_price))
+            ma20 = float(all_factors.get('ma20', current_price))
+            
+            # 买入点策略：
+            # 强势股 (评分>80)：回调至MA5附近即可买入
+            # 中势股 (评分>60)：回调至MA10附近买入
+            # 弱势/稳健股：回调至MA20附近买入
+            if composite_score >= 80:
+                buy_point = ma5
+            elif composite_score >= 60:
+                buy_point = ma10
+            else:
+                buy_point = ma20
+            
+            # 确保买入点不超过当前价格 (如果是追涨，则为当前价)
+            if buy_point > current_price:
+                buy_point = current_price
+            
+            # 高抛点策略：
+            # 短线：目标价
+            # 超短线/高抛：目标价 * 0.95 (留有余地)
+            sell_point = target_price
 
             result = {
                 'stock_code': stock_code,
@@ -766,14 +967,26 @@ class AdvancedSelectionAnalyzer:
                 'trend_quality_score': round(scores['trend_quality_score'], 2),
                 'sector_score': round(scores['sector_score'], 2),
                 'fundamental_score': round(scores['fundamental_score'], 2),
+                'valuation_score': round(scores.get('valuation_score', 0.0), 2),
+                'quality_score': round(scores.get('quality_score', 0.0), 2),
+                'growth_score': round(scores.get('growth_score', 0.0), 2),
+                'volume_score': round(scores.get('volume_score', 0.0), 2),
+                'sentiment_score': round(scores.get('sentiment_score', 0.0), 2),
+                'risk_score': round(scores.get('risk_score', 0.0), 2),
                 'current_price': current_price,
                 'price_change_20d': all_factors.get('momentum_20d', 0),
+                'price_change_60d': all_factors.get('momentum_60d', 0),
                 'volume_ratio': all_factors.get('volume_ratio', 1.0),
                 'rsi': all_factors.get('rsi', 50),
+                'rsi_prev': all_factors.get('rsi_prev', all_factors.get('rsi', 50)),
+                'price_position': all_factors.get('price_position', 0.5),
+                'macd_histogram': all_factors.get('macd_histogram', 0),
+                'macd_histogram_prev': all_factors.get('macd_histogram_prev', all_factors.get('macd_histogram', 0)),
                 'macd_signal': all_factors.get('macd_histogram', 0),
                 'trend_slope': all_factors.get('trend_slope', 0),
                 'trend_r2': all_factors.get('trend_r2', 0),
                 'sharpe_ratio': all_factors.get('sharpe_ratio', 0),
+                'volatility': all_factors.get('volatility', 0),
                 'max_drawdown': all_factors.get('max_drawdown', 0),
                 'sector_heat': all_factors.get('sector_heat', 0),
                 'roe': all_factors.get('roe', 0),
@@ -785,7 +998,11 @@ class AdvancedSelectionAnalyzer:
                 'risk_level': risk_level,
                 'target_price': target_price,
                 'stop_loss_price': stop_loss_price,
-                'holding_period': holding_period
+                'holding_period': holding_period,
+                'is_price_breakout': all_factors.get('is_price_breakout', 0),
+                'is_volume_breakout': all_factors.get('is_volume_breakout', 0),
+                'buy_point': round(buy_point, 2),
+                'sell_point': round(sell_point, 2)
             }
 
             return result
@@ -795,169 +1012,499 @@ class AdvancedSelectionAnalyzer:
             return None
 
     def _generate_selection_reason(self, factors: Dict[str, Any], scores: Dict[str, float]) -> str:
-        """
-        生成入选理由
-
-        Args:
-            factors: 因子数据
-            scores: 评分数据
-
-        Returns:
-            入选理由
-        """
         reasons = []
 
-        # 动量理由
-        momentum_20d = factors.get('momentum_20d', 0)
-        if momentum_20d > 10.0:
-            reasons.append('强势上涨')
-        elif momentum_20d > 5.0:
-            reasons.append('趋势向上')
+        if factors.get('is_price_breakout', 0) > 0:
+            reasons.append('价格突破(创20日新高)')
+        
+        if factors.get('is_volume_breakout', 0) > 0:
+            vol_ratio = factors.get('volume_ratio', 1.0)
+            reasons.append(f'放量突破(量比{vol_ratio:.1f})')
 
-        # 技术面理由
+        # 2. 动量理由
+        momentum_20d = factors.get('momentum_20d', 0)
+        if momentum_20d > 20.0:
+            reasons.append(f'超强动量(+{momentum_20d:.1f}%)')
+        elif momentum_20d > 10.0:
+            reasons.append(f'强势上涨(+{momentum_20d:.1f}%)')
+        elif momentum_20d > 5.0:
+            reasons.append(f'温和上涨(+{momentum_20d:.1f}%)')
+
+        # 3. 技术面理由
         rsi = factors.get('rsi', 50)
-        if 40 < rsi < 70:
+        if 70 < rsi < 85:
+            reasons.append(f'RSI强势({rsi:.0f})')
+        elif 40 < rsi <= 70:
             reasons.append('技术指标健康')
 
         macd_hist = factors.get('macd_histogram', 0)
         if macd_hist > 0:
             reasons.append('MACD金叉')
 
-        # 趋势质量理由
+        # 4. 趋势质量理由
         trend_r2 = factors.get('trend_r2', 0)
-        if trend_r2 > 0.7:
-            reasons.append('趋势稳定')
-        elif trend_r2 > 0.5:
-            reasons.append('趋势良好')
+        trend_slope = factors.get('trend_slope', 0)
+        if trend_r2 > 0.8:
+            reasons.append('趋势极稳')
+        elif trend_r2 > 0.6 and trend_slope > 0.5:
+            reasons.append('上升通道')
 
-        # 板块理由
+        # 5. 板块理由
         sector_heat = factors.get('sector_heat', 0)
+        industry = factors.get('industry', '未知')
         if sector_heat > 70:
-            reasons.append('热门板块')
+            reasons.append(f'热门板块({industry})')
         elif sector_heat > 50:
-            reasons.append('板块活跃')
+            reasons.append(f'板块活跃({industry})')
 
-        # 基本面理由
+        # 6. 基本面理由
         roe = factors.get('roe', 0)
-        if roe > 20.0:
-            reasons.append('盈利能力强')
-        elif roe > 15.0:
-            reasons.append('盈利能力良好')
-
         pe_ttm = factors.get('pe_ttm', 0)
-        if 0 < pe_ttm < 15:
-            reasons.append('估值合理')
+        
+        if roe > 20.0 and pe_ttm < 30:
+            reasons.append(f'绩优低估(ROE{roe:.0f}%)')
+        elif roe > 15.0:
+            reasons.append('盈利良好')
+        elif 0 < pe_ttm < 15:
+            reasons.append(f'估值低(PE{pe_ttm:.1f})')
 
         if not reasons:
             reasons.append('综合评分达标')
 
-        return '、'.join(reasons[:3])  # 最多显示3个理由
+        return '、'.join(reasons[:4])
+
+    def _enhance_value_strategy_reason(self, result: Dict[str, Any]) -> None:
+        base_reason = str(result.get('selection_reason') or '')
+        try:
+            roe = float(result.get('roe') or 0)
+        except Exception:
+            roe = 0.0
+        try:
+            pe_ttm = float(result.get('pe_ttm') or 0)
+        except Exception:
+            pe_ttm = 0.0
+        try:
+            revenue_growth = float(result.get('revenue_growth') or 0)
+        except Exception:
+            revenue_growth = 0.0
+
+        parts: List[str] = []
+
+        if roe > 15.0:
+            parts.append(f'ROE{roe:.1f}%')
+        if 0 < pe_ttm < 40.0:
+            parts.append(f'PE{pe_ttm:.1f}')
+        if revenue_growth > 10.0:
+            parts.append(f'营收增长{revenue_growth:.1f}%')
+
+        if not parts:
+            return
+
+        if base_reason:
+            parts.extend(base_reason.split('、'))
+
+        combined: List[str] = []
+        for p in parts:
+            if p and p not in combined:
+                combined.append(p)
+            if len(combined) >= 4:
+                break
+
+        result['selection_reason'] = '、'.join(combined)
+
+    def _apply_strategy_weights(self, result: Dict[str, Any], strategy_id: int) -> None:
+        factor_scores = {
+            'momentum': float(result.get('momentum_score') or 0.0),
+            'trend': float(result.get('trend_quality_score') or 0.0),
+            'valuation': float(result.get('valuation_score') or 0.0),
+            'quality': float(result.get('quality_score') or 0.0),
+            'growth': float(result.get('growth_score') or 0.0),
+            'volume': float(result.get('volume_score') or 0.0),
+            'sentiment': float(result.get('sentiment_score') or 0.0),
+            'risk': float(result.get('risk_score') or 0.0),
+        }
+
+        if strategy_id == 1:
+            weights = {
+                'momentum': 0.40,
+                'volume': 0.25,
+                'sentiment': 0.20,
+                'trend': 0.10,
+                'quality': 0.05,
+                'valuation': 0.0,
+                'growth': 0.0,
+                'risk': 0.0,
+            }
+        elif strategy_id == 2:
+            weights = {
+                'trend': 0.35,
+                'momentum': 0.25,
+                'quality': 0.20,
+                'valuation': 0.15,
+                'volume': 0.05,
+                'growth': 0.0,
+                'sentiment': 0.0,
+                'risk': 0.0,
+            }
+        elif strategy_id == 3:
+            weights = {
+                'quality': 0.35,
+                'growth': 0.30,
+                'valuation': 0.20,
+                'trend': 0.10,
+                'volume': 0.05,
+                'momentum': 0.0,
+                'sentiment': 0.0,
+                'risk': 0.0,
+            }
+        elif strategy_id == 4:
+            weights = {
+                'momentum': 0.5,
+                'volume': 0.3,
+                'sentiment': 0.1,
+                'trend': 0.1,
+                'quality': 0.0,
+                'valuation': 0.0,
+                'growth': 0.0,
+                'risk': 0.0,
+            }
+        elif strategy_id == 5:
+            weights = {
+                'valuation': 0.32,
+                'risk': 0.22,
+                'volume': 0.18,
+                'quality': 0.13,
+                'momentum': 0.10,
+                'sentiment': 0.05,
+                'trend': 0.0,
+                'growth': 0.0,
+            }
+        else:
+            return
+
+        composite = 0.0
+        for name, weight in weights.items():
+            if weight <= 0.0:
+                continue
+            score = max(0.0, min(100.0, factor_scores.get(name, 0.0)))
+            composite += score * weight
+
+        composite = max(0.0, min(100.0, composite))
+
+        if strategy_id == 5:
+            bonus = 0.0
+
+            try:
+                price_position = float(result.get('price_position') or 0.5)
+            except Exception:
+                price_position = 0.5
+            try:
+                rsi = float(result.get('rsi') or 50.0)
+            except Exception:
+                rsi = 50.0
+            try:
+                rsi_prev = float(result.get('rsi_prev') or rsi)
+            except Exception:
+                rsi_prev = rsi
+            try:
+                macd_hist = float(result.get('macd_histogram') or 0.0)
+            except Exception:
+                macd_hist = 0.0
+            try:
+                macd_hist_prev = float(result.get('macd_histogram_prev') or macd_hist)
+            except Exception:
+                macd_hist_prev = macd_hist
+            try:
+                volume_ratio = float(result.get('volume_ratio') or 1.0)
+            except Exception:
+                volume_ratio = 1.0
+            try:
+                momentum_20d = float(result.get('price_change_20d') or 0.0)
+            except Exception:
+                momentum_20d = 0.0
+            try:
+                pe_ttm = float(result.get('pe_ttm') or 0.0)
+            except Exception:
+                pe_ttm = 0.0
+
+            if price_position < 0.20:
+                bonus += 6.0
+            elif price_position < 0.35:
+                bonus += 3.0
+
+            if rsi < 30.0:
+                bonus += 6.0
+            elif rsi < 40.0:
+                bonus += 3.0
+
+            if rsi > rsi_prev:
+                bonus += 3.0
+
+            if macd_hist > 0.0:
+                bonus += 6.0
+            elif macd_hist > macd_hist_prev:
+                bonus += 3.0
+
+            if volume_ratio > 1.5:
+                bonus += 4.0
+            elif volume_ratio > 1.2:
+                bonus += 2.0
+
+            if -20.0 <= momentum_20d <= 5.0:
+                bonus += 3.0
+
+            if 0 < pe_ttm <= 25.0:
+                bonus += 2.0
+
+            composite = min(100.0, composite + bonus)
+
+            base_reason = str(result.get('selection_reason') or '')
+            parts: List[str] = []
+            if price_position < 0.35:
+                parts.append('底部区间')
+            if rsi < 40.0:
+                parts.append(f'RSI{rsi:.0f}')
+            if rsi > rsi_prev:
+                parts.append('RSI回升')
+            if macd_hist > 0.0:
+                parts.append('MACD转强')
+            elif macd_hist > macd_hist_prev:
+                parts.append('MACD回升')
+            if volume_ratio > 1.2:
+                parts.append(f'量比{volume_ratio:.1f}')
+            if 0 < pe_ttm < 20.0:
+                parts.append(f'低估(PE{pe_ttm:.1f})')
+            if base_reason:
+                parts.extend(base_reason.split('、'))
+
+            combined: List[str] = []
+            for p in parts:
+                if p and p not in combined:
+                    combined.append(p)
+                if len(combined) >= 4:
+                    break
+            if combined:
+                result['selection_reason'] = '、'.join(combined)
+
+        result['composite_score'] = round(composite, 2)
+
+        if strategy_id == 3:
+            self._enhance_value_strategy_reason(result)
 
     async def run_advanced_selection(self,
                                    min_score: float = 60.0,
                                    max_results: int = 20,
                                    require_uptrend: bool = True,
-                                   require_hot_sector: bool = True) -> List[Dict[str, Any]]:
-        """
-        运行高级选股
-
-        Args:
-            min_score: 最低综合评分
-            max_results: 最大结果数
-            require_uptrend: 是否要求上升趋势
-            require_hot_sector: 是否要求热门板块
-
-        Returns:
-            选股结果列表
-        """
+                                   require_hot_sector: bool = True,
+                                   require_breakout: bool = False,
+                                   strategy_id: Optional[int] = None,
+                                   progress_callback: Optional[Callable[[int, int, int], None]] = None) -> List[Dict[str, Any]]:
         try:
-            logger.info(f"开始高级选股，最低评分: {min_score}, 最大结果: {max_results}")
+            logger.info(f"开始高级选股，最低评分: {min_score}, 最大结果: {max_results}, 突破要求: {require_breakout}, 策略ID: {strategy_id}")
 
-            # 获取股票列表（随机取样2000只以提高性能）
             stocks = await self._get_stock_list()
             if not stocks:
                 logger.warning("未找到符合条件的股票")
                 return []
 
-            # 随机取样500只股票（提高性能，减少API超时）
-            import random
-            original_count = len(stocks)
-            sample_size = 500
-            if original_count > sample_size:
-                stocks = random.sample(stocks, sample_size)
-                logger.info(f"随机取样{sample_size}只股票进行分析（原{original_count}只）")
+            logger.info(f"将对 {len(stocks)} 只股票进行全量分析")
 
-            # 分市场存储结果
-            all_shanghai = []  # 上证股票（60开头）
-            all_shenzhen = []  # 深证股票（00/30开头）
-            all_other = []     # 其他市场股票
+            all_shanghai = []
+            all_shenzhen = []
+            all_other = []
 
-            # 分析每只股票
-            for i, stock in enumerate(stocks):
+            concurrency_env = os.getenv("ADVANCED_SELECTION_CONCURRENCY")
+            batch_size_env = os.getenv("ADVANCED_SELECTION_BATCH_SIZE")
+
+            cpu_count = os.cpu_count() or 4
+            default_concurrency = min(32, max(4, cpu_count * 2))
+
+            try:
+                concurrency = int(concurrency_env) if concurrency_env is not None else default_concurrency
+            except ValueError:
+                concurrency = default_concurrency
+            if concurrency < 1:
+                concurrency = 1
+
+            try:
+                batch_size = int(batch_size_env) if batch_size_env is not None else 256
+            except ValueError:
+                batch_size = 256
+            if batch_size < 1:
+                batch_size = 1
+
+            logger.info(f"高级选股并发配置: concurrency={concurrency}, batch_size={batch_size}, cpu_count={cpu_count}")
+            sem = asyncio.Semaphore(concurrency)
+
+            async def process_stock(stock: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                 if not stock.get('stock_code'):
-                    continue
+                    return None
+                async with sem:
+                    result = await self.analyze_stock(stock)
+                if not result:
+                    return None
+                if strategy_id is not None:
+                    self._apply_strategy_weights(result, strategy_id)
 
-                result = await self.analyze_stock(stock)
+                    if strategy_id == 1:
+                        momentum_score = float(result.get('momentum_score') or 0)
+                        if momentum_score < 40.0:
+                            return None
+                        rsi = float(result.get('rsi') or 50)
+                        if rsi > 75.0:
+                            return None
+                        volatility = float(result.get('volatility') or 0)
+                        if volatility > 45.0:
+                            return None
+                        price_change_20d = float(result.get('price_change_20d') or 0)
+                        if price_change_20d < 15.0:
+                            return None
+                    elif strategy_id == 2:
+                        trend_slope = float(result.get('trend_slope') or 0)
+                        if trend_slope < 0.5:
+                            return None
+                        trend_r2 = float(result.get('trend_r2') or 0)
+                        if trend_r2 < 0.6:
+                            return None
+                        max_drawdown = float(result.get('max_drawdown') or 0)
+                        if max_drawdown < -15.0:
+                            return None
+                    elif strategy_id == 3:
+                        roe = float(result.get('roe') or 0)
+                        if roe < 15.0:
+                            return None
+                        pe_ttm = float(result.get('pe_ttm') or 0)
+                        if pe_ttm > 0 and pe_ttm > 30.0:
+                            return None
+                        revenue_growth = float(result.get('revenue_growth') or 0)
+                        if revenue_growth < 10.0:
+                            return None
+                    elif strategy_id == 4:
+                        momentum_score = float(result.get('momentum_score') or 0)
+                        if momentum_score < 35.0:
+                            return None
+                        price_change_20d = float(result.get('price_change_20d') or 0)
+                        price_change_60d = float(result.get('price_change_60d') or 0)
+                        if price_change_20d < 20.0 and price_change_60d < 50.0:
+                            return None
+                        volume_ratio = float(result.get('volume_ratio') or 1.0)
+                        if volume_ratio < 1.5:
+                            return None
+                        rsi = float(result.get('rsi') or 50)
+                        if rsi < 50.0:
+                            return None
+                        volatility = float(result.get('volatility') or 0)
+                        if volatility > 80.0:
+                            return None
+                    elif strategy_id == 5:
+                        rsi = float(result.get('rsi') or 50)
+                        if rsi > 45.0:
+                            return None
+                        if rsi < 18.0:
+                            return None
+                        rsi_prev = float(result.get('rsi_prev') or rsi)
+                        if rsi <= rsi_prev:
+                            return None
 
-                if result:
-                    # 应用筛选条件
-                    if result['composite_score'] >= min_score:
-                        # 调试日志
-                        logger.debug(f"股票 {result['stock_code']}: 综合评分={result['composite_score']:.1f}, "
-                                   f"趋势斜率={result['trend_slope']:.4f}%, 板块热度={result['sector_heat']:.1f}")
+                        price_position = float(result.get('price_position') or 0.5)
+                        if price_position > 0.45:
+                            return None
 
-                        if require_uptrend and result['trend_slope'] < -0.05:  # 放宽条件，允许小幅负斜率
-                            logger.debug(f"  跳过: 不满足上升趋势条件 (斜率={result['trend_slope']:.4f}% < -0.05%)")
-                            continue  # 跳过明显下降趋势
-                        if require_hot_sector and result['sector_heat'] < 30:  # 降低门槛，从50降到30
-                            logger.debug(f"  跳过: 不满足热门板块条件 (热度={result['sector_heat']:.1f} < 30)")
-                            continue  # 跳过冷门板块
+                        momentum_20d = float(result.get('price_change_20d') or 0)
+                        if momentum_20d > 10.0:
+                            return None
+                        if momentum_20d < -30.0:
+                            return None
 
-                        logger.debug(f"  通过筛选条件")
+                        macd_hist = float(result.get('macd_histogram') or 0)
+                        macd_hist_prev = float(result.get('macd_histogram_prev') or macd_hist)
+                        if macd_hist <= macd_hist_prev and macd_hist <= 0.0:
+                            return None
 
-                        # 根据股票代码分市场存储
-                        stock_code = result['stock_code']
-                        if stock_code.startswith('60'):
-                            all_shanghai.append(result)
-                        elif stock_code.startswith('00') or stock_code.startswith('30'):
-                            all_shenzhen.append(result)
-                        else:
-                            all_other.append(result)
+                        volume_ratio = float(result.get('volume_ratio') or 1.0)
+                        if volume_ratio < 1.05:
+                            return None
 
-                # 进度提示
-                if (i + 1) % 50 == 0:
-                    logger.info(f"已分析 {i+1}/{len(stocks)} 只股票，上证: {len(all_shanghai)}, 深证: {len(all_shenzhen)}, 其他: {len(all_other)}")
+                        pe_ttm = float(result.get('pe_ttm') or 0)
+                        if pe_ttm > 0 and pe_ttm > 35.0:
+                            return None
+                        volatility = float(result.get('volatility') or 0)
+                        if volatility > 85.0:
+                            return None
 
-                # 避免过度消耗资源
-                await asyncio.sleep(0.005)
+                if result['composite_score'] < min_score:
+                    return None
+                if require_uptrend and result['trend_slope'] < 0.2:
+                    return None
+                if require_hot_sector and result['sector_heat'] < 30:
+                    return None
+                if require_breakout:
+                    is_price_bk = result.get('is_price_breakout', 0) > 0
+                    is_volume_bk = result.get('is_volume_breakout', 0) > 0
+                    if strategy_id == 1:
+                        if not (is_price_bk and is_volume_bk):
+                            return None
+                    else:
+                        if not (is_price_bk or is_volume_bk):
+                            return None
+                return result
 
-            # 按综合评分排序
+            total = len(stocks)
+            processed = 0
+
+            for i in range(0, total, batch_size):
+                batch = stocks[i:i + batch_size]
+                tasks = [process_stock(stock) for stock in batch]
+                batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                for idx, res in enumerate(batch_results):
+                    if isinstance(res, Exception):
+                        stock = batch[idx]
+                        logger.error(f"分析股票 {stock.get('stock_code')} 异常: {res}")
+                        continue
+                    if not res:
+                        continue
+
+                    stock_code = res['stock_code']
+                    if stock_code.startswith('60'):
+                        all_shanghai.append(res)
+                    elif stock_code.startswith('00') or stock_code.startswith('30'):
+                        all_shenzhen.append(res)
+                    else:
+                        all_other.append(res)
+
+                processed += len(batch)
+                if progress_callback is not None:
+                    try:
+                        progress_callback(
+                            processed,
+                            total,
+                            len(all_shanghai) + len(all_shenzhen) + len(all_other),
+                        )
+                    except Exception as callback_error:
+                        logger.error(f"更新高级选股进度失败: {callback_error}")
+                if processed % 200 == 0 or processed == total:
+                    logger.info(f"已分析 {processed}/{total} 只股票，上证: {len(all_shanghai)}, 深证: {len(all_shenzhen)}, 其他: {len(all_other)}")
+
             all_shanghai.sort(key=lambda x: x['composite_score'], reverse=True)
             all_shenzhen.sort(key=lambda x: x['composite_score'], reverse=True)
             all_other.sort(key=lambda x: x['composite_score'], reverse=True)
 
-            # 分市场选股逻辑：确保每个市场都有代表
             results = []
 
-            # 计算每个市场应该选多少只股票
-            market_quota = max_results // 3  # 每个市场至少1/3
+            market_quota = max_results // 3
 
-            # 从上证市场选股
             shanghai_selected = all_shanghai[:market_quota]
             results.extend(shanghai_selected)
 
-            # 从深证市场选股
             shenzhen_selected = all_shenzhen[:market_quota]
             results.extend(shenzhen_selected)
 
-            # 从其他市场选股
             other_selected = all_other[:market_quota]
             results.extend(other_selected)
 
-            # 如果还有剩余名额，从所有市场中按评分补充
             remaining_slots = max_results - len(results)
             if remaining_slots > 0:
-                # 合并所有未入选的股票
                 remaining_candidates = []
                 if len(all_shanghai) > market_quota:
                     remaining_candidates.extend(all_shanghai[market_quota:])
@@ -966,16 +1513,15 @@ class AdvancedSelectionAnalyzer:
                 if len(all_other) > market_quota:
                     remaining_candidates.extend(all_other[market_quota:])
 
-                # 按评分排序并补充
                 remaining_candidates.sort(key=lambda x: x['composite_score'], reverse=True)
                 results.extend(remaining_candidates[:remaining_slots])
 
-            # 如果某个市场没有股票，强制从其他市场补充
             if len(results) < max_results:
-                # 合并所有股票
                 all_candidates = all_shanghai + all_shenzhen + all_other
                 all_candidates.sort(key=lambda x: x['composite_score'], reverse=True)
                 results = all_candidates[:max_results]
+
+            results.sort(key=lambda x: x['composite_score'], reverse=True)
 
             logger.info(f"高级选股完成，找到 {len(results)} 只符合条件的股票（上证: {len(shanghai_selected)}, 深证: {len(shenzhen_selected)}, 其他: {len(other_selected)}）")
 
@@ -986,28 +1532,23 @@ class AdvancedSelectionAnalyzer:
             return []
 
     async def get_selection_strategies(self) -> List[Dict[str, Any]]:
-        """
-        获取选股策略列表
-
-        Returns:
-            策略列表
-        """
         strategies = [
             {
                 'id': 1,
                 'strategy_name': '动量突破',
                 'description': '侧重技术动量，捕捉强势突破股票',
-                'min_score': 50.0,  # 从70降低到50，适应当前市场
+                'min_score': 30.0,
                 'require_uptrend': True,
                 'require_hot_sector': True,
-                'max_results': 15,
+                'require_breakout': True,
+                'max_results': 20,
                 'is_active': True,
             },
             {
                 'id': 2,
                 'strategy_name': '趋势跟随',
                 'description': '侧重趋势质量，跟随稳定上升趋势',
-                'min_score': 65.0,
+                'min_score': 30.0,
                 'require_uptrend': True,
                 'require_hot_sector': False,
                 'max_results': 20,
@@ -1015,21 +1556,33 @@ class AdvancedSelectionAnalyzer:
             },
             {
                 'id': 3,
-                'strategy_name': '板块轮动',
-                'description': '侧重板块热度，捕捉热门板块机会',
-                'min_score': 60.0,
+                'strategy_name': '价值成长',
+                'description': '侧重基本面，寻找优质成长股',
+                'min_score': 30.0,
                 'require_uptrend': False,
-                'require_hot_sector': True,
-                'max_results': 15,
+                'require_hot_sector': False,
+                'max_results': 20,
                 'is_active': True,
             },
             {
                 'id': 4,
-                'strategy_name': '价值成长',
-                'description': '侧重基本面，寻找优质成长股',
-                'min_score': 60.0,
+                'strategy_name': '超级龙头',
+                'description': '侧重极强动量和放量，捕捉阶段龙头妖股',
+                'min_score': 40.0,
+                'require_uptrend': True,
+                'require_hot_sector': False,
+                'require_breakout': False,
+                'max_results': 20,
+                'is_active': True,
+            },
+            {
+                'id': 5,
+                'strategy_name': '底部掘金',
+                'description': '侧重低估值与底部反转信号，捕捉即将转强的股票',
+                'min_score': 25.0,
                 'require_uptrend': False,
                 'require_hot_sector': False,
+                'require_breakout': False,
                 'max_results': 20,
                 'is_active': True,
             },
@@ -1132,3 +1685,73 @@ class AdvancedSelectionAnalyzer:
             return round(stop_loss_price, 2)
         except:
             return round(current_price * 0.90, 2)  # 默认10%
+
+    def calculate_factor_ic(
+        self,
+        factor_data: pd.DataFrame,
+        factor_columns: List[str],
+        return_column: str = "future_return",
+        date_column: str = "date",
+    ) -> Dict[str, Dict[str, float]]:
+        """
+        计算因子IC和IR（简单版本）
+
+        Args:
+            factor_data: 包含日期、因子值和未来收益率的DataFrame
+            factor_columns: 需要评估的因子列名列表
+            return_column: 未来收益率列名
+            date_column: 日期列名
+
+        Returns:
+            {factor: {"ic": ic, "ir": ir, "obs": n}} 的字典
+        """
+        results: Dict[str, Dict[str, float]] = {}
+
+        if factor_data is None or factor_data.empty:
+            return results
+
+        df = factor_data.copy()
+
+        if date_column not in df.columns or return_column not in df.columns:
+            return results
+
+        df = df.dropna(subset=[date_column, return_column])
+
+        if df.empty:
+            return results
+
+        grouped = df.groupby(date_column)
+
+        for factor in factor_columns:
+            if factor not in df.columns:
+                continue
+
+            ics: List[float] = []
+
+            for _, group in grouped:
+                g = group[[factor, return_column]].dropna()
+                if len(g) < 5:
+                    continue
+                try:
+                    ic = g[factor].rank().corr(g[return_column].rank())
+                except Exception:
+                    ic = None
+                if ic is None or np.isnan(ic):
+                    continue
+                ics.append(ic)
+
+            if not ics:
+                continue
+
+            ic_array = np.array(ics, dtype=float)
+            mean_ic = float(np.nanmean(ic_array))
+            std_ic = float(np.nanstd(ic_array, ddof=1)) if len(ic_array) > 1 else 0.0
+            ir = float(mean_ic / std_ic) if std_ic > 0 else 0.0
+
+            results[factor] = {
+                "ic": mean_ic,
+                "ir": ir,
+                "obs": float(len(ic_array)),
+            }
+
+        return results

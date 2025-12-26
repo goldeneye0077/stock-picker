@@ -183,16 +183,16 @@ async function stopService(service) {
     logInfo(`端口 ${service.port} 未被占用`);
   }
 
-  // 方法 2: 通过进程名称停止（作为备份）
-  if (!stopped && process.platform === 'win32') {
-    for (const processName of service.processNames) {
-      const killed = await killProcessByNameWindows(processName);
-      if (killed) {
-        logSuccess(`已停止相关进程: ${processName}`);
-        stopped = true;
-      }
-    }
-  }
+  // 方法 2: 通过进程名称停止（作为备份）- 已禁用，防止误杀当前CLI代理或其他重要Node进程
+  // if (!stopped && process.platform === 'win32') {
+  //   for (const processName of service.processNames) {
+  //     const killed = await killProcessByNameWindows(processName);
+  //     if (killed) {
+  //       logSuccess(`已停止相关进程: ${processName}`);
+  //       stopped = true;
+  //     }
+  //   }
+  // }
 
   if (!stopped) {
     logWarning(`${service.name} 可能未运行或已停止`);

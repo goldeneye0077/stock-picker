@@ -322,34 +322,15 @@ async def run_backtest(
 
         # 运行回测
         logger.info("调用 backtest_engine.run_backtest()...")
-
-        # 测试：直接创建新的回测引擎实例并运行
-        logger.info("测试：直接创建新的回测引擎实例并运行")
-        from analyzers.smart_selection.backtest_engine import BacktestEngine
-
-        # 测试1：简单异步操作
-        logger.info("测试1：简单异步操作")
-        import asyncio
-        await asyncio.sleep(0.1)
-        logger.info("异步操作完成")
-
-        # 测试2：创建回测引擎
-        logger.info("测试2：创建回测引擎")
-        test_engine = BacktestEngine()
-        logger.info(f"测试引擎数据库路径: {test_engine.db_path}")
-
-        # 测试3：直接运行回测
-        logger.info("测试3：直接运行回测")
-        test_result = await test_engine.run_backtest(
+        result = await backtest_engine.run_backtest(
             strategy_config, start_date, end_date, algorithm_type
         )
-        logger.info(f"直接测试结果 - 总收益率: {test_result['total_return']:.2f}%, 交易次数: {test_result['total_trades']}")
-
-        # 直接返回测试结果
-        logger.info("直接返回测试结果")
+        logger.info(
+            f"回测完成 - 总收益率: {result['total_return']:.2f}%, 交易次数: {result['total_trades']}"
+        )
         logger.info("=== 回测请求处理完成 ===")
 
-        return test_result
+        return result
 
     except HTTPException:
         raise

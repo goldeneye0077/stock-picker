@@ -7,27 +7,62 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-from .data_sources.tushare_client import TushareClient
-from .analyzers.volume.volume_analyzer import VolumeAnalyzer
-from .analyzers.funds.fund_flow_analyzer import FundFlowAnalyzer
-from .analyzers.technical import IndicatorCalculator, TrendAnalyzer, PatternRecognizer
-from .models.predictor import BuySignalPredictor
-from .utils.database import init_database
-# 导入路由模块
 try:
-    from .routes import stocks, analysis, signals, data_collection, quotes, technical, fundamental, smart_selection
-    logger.info("所有路由模块导入成功")
-except ImportError as e:
-    logger.error(f"路由模块导入失败: {e}")
-    import traceback
-    traceback.print_exc()
-    # 重新抛出异常，让应用启动失败
-    raise
-from .scheduler import start_scheduler, stop_scheduler, get_scheduler_status
+    from .data_sources.tushare_client import TushareClient
+    from .data_sources.akshare_client import AKShareClient
+    from .analyzers.volume.volume_analyzer import VolumeAnalyzer
+    from .analyzers.funds.fund_flow_analyzer import FundFlowAnalyzer
+    from .analyzers.technical import IndicatorCalculator, TrendAnalyzer, PatternRecognizer
+    from .models.predictor import BuySignalPredictor
+    from .utils.database import init_database
+    from .routes import (
+        stocks,
+        analysis,
+        signals,
+        data_collection,
+        quotes,
+        technical,
+        fundamental,
+        smart_selection,
+        advanced_selection,
+        simple_selection,
+    )
+    from .scheduler import start_scheduler, stop_scheduler, get_scheduler_status
+except ImportError:
+    from data_sources.tushare_client import TushareClient
+    from data_sources.akshare_client import AKShareClient
+    from analyzers.volume.volume_analyzer import VolumeAnalyzer
+    from analyzers.funds.fund_flow_analyzer import FundFlowAnalyzer
+    from analyzers.technical import IndicatorCalculator, TrendAnalyzer, PatternRecognizer
+    from models.predictor import BuySignalPredictor
+    from utils.database import init_database
+    from routes import (
+        stocks,
+        analysis,
+        signals,
+        data_collection,
+        quotes,
+        technical,
+        fundamental,
+        smart_selection,
+        advanced_selection,
+        simple_selection,
+    )
+    from scheduler import start_scheduler, stop_scheduler, get_scheduler_status
 
 # Load .env file from data-service directory
 env_path = Path(__file__).parent.parent / '.env'
 load_dotenv(dotenv_path=env_path)
+
+def parse_cors_origins(value: str | None) -> list[str]:
+    if not value:
+        return []
+    origins = []
+    for part in value.split(","):
+        origin = part.strip()
+        if origin:
+            origins.append(origin)
+    return origins
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -40,7 +75,9 @@ async def lifespan(app: FastAPI):
 
     # Initialize data sources
     tushare_client = TushareClient()
+    akshare_client = AKShareClient()
     app.state.tushare_client = tushare_client
+    app.state.akshare_client = akshare_client
 
     # Initialize analyzers
     app.state.volume_analyzer = VolumeAnalyzer()
@@ -70,26 +107,12 @@ app = FastAPI(
 )
 
 # 配置 CORS - 允许所有 localhost 端口
+cors_allow_origins = parse_cors_origins(os.getenv("CORS_ALLOW_ORIGINS")) or []
+cors_origin_regex = os.getenv("CORS_ALLOW_ORIGIN_REGEX") or r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "http://localhost:3002",
-        "http://localhost:3004",
-        "http://localhost:3005",
-        "http://localhost:3006",
-        "http://localhost:3101",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:3001",
-        "http://127.0.0.1:3002",
-        "http://127.0.0.1:3004",
-        "http://127.0.0.1:3005",
-        "http://127.0.0.1:3006",
-        "http://127.0.0.1:3101",
-        "http://localhost:8002",  # 数据服务自身
-        "http://127.0.0.1:8002"   # 数据服务自身
-    ],
+    allow_origins=cors_allow_origins,
+    allow_origin_regex=cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -106,6 +129,8 @@ app.include_router(quotes.router, prefix="/api/quotes", tags=["quotes"])
 app.include_router(technical.router, prefix="/api/technical", tags=["technical"])
 app.include_router(fundamental.router, prefix="/api/fundamental", tags=["fundamental"])
 app.include_router(smart_selection.router, prefix="/api/smart-selection", tags=["smart-selection"])
+app.include_router(advanced_selection.router, prefix="/api/advanced-selection", tags=["advanced-selection"])
+app.include_router(simple_selection.router, prefix="/api/simple-selection", tags=["simple-selection"])
 
 @app.get("/")
 async def root():
@@ -123,10 +148,11 @@ async def health_check():
     }
 
 if __name__ == "__main__":
+    port = int(os.getenv("PORT", "8002"))
     uvicorn.run(
         "src.main:app",
         host="0.0.0.0",
-        port=8002,
+        port=port,
         reload=True,
         log_level="info"
     )

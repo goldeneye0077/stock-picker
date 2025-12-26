@@ -4,6 +4,7 @@
  */
 
 import type { paths, components } from '../types/api.generated';
+import { API_BASE_URL } from '../config/api';
 
 type ApiResponse<T> = {
   success: boolean;
@@ -21,7 +22,7 @@ class ApiClient {
   private baseUrl: string;
   private apiKey?: string;
 
-  constructor(baseUrl: string = 'http://localhost:3000', apiKey?: string) {
+  constructor(baseUrl: string = API_BASE_URL, apiKey?: string) {
     this.baseUrl = baseUrl;
     this.apiKey = apiKey;
   }
@@ -278,7 +279,7 @@ class ApiClient {
 
 // 创建默认实例
 const apiClient = new ApiClient(
-  import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000',
+  import.meta.env.VITE_API_BASE_URL || API_BASE_URL,
   import.meta.env.VITE_API_KEY
 );
 

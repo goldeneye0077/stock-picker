@@ -195,7 +195,7 @@ def download_daily_data_batch(tushare_client, conn, trading_days: list):
             time.sleep(0.5)
 
         except Exception as e:
-            print(f"  ✗ 下载 {trade_date} 数据失败: {e}")
+            print(f"  x 下载 {trade_date} 数据失败: {e}")
             time.sleep(1)
 
     print(f"\nOK 日线数据下载完成，共 {total_klines} 条K线，API调用 {api_calls} 次")
@@ -284,19 +284,153 @@ def download_moneyflow_batch(tushare_client, conn, trading_days: list):
             time.sleep(0.5)  # API 限流
 
         except Exception as e:
-            print(f"  ✗ 下载 {trade_date} 资金流向失败: {e}")
+            print(f"  x 下载 {trade_date} 资金流向失败: {e}")
             time.sleep(1)
 
     print(f"\nOK 资金流向数据下载完成，共 {total_records} 条记录，API调用 {api_calls} 次")
     return total_records, api_calls
 
 
+def ensure_hot_sector_stocks(tushare_client, conn, trading_days: list):
+    """
+    确保热门板块股票的数据被采集
+
+    即使批量接口没有返回这些股票的数据，也要单独为热门板块股票获取数据
+    """
+    import asyncio
+
+    print("\n" + "=" * 60)
+    print("第 4 步: 确保热门板块股票数据采集")
+    print("=" * 60)
+
+    # 定义热门板块股票列表（根据用户提到的板块）
+    hot_sector_stocks = [
+        # AI算力硬件板块
+        "300474.SZ",  # 景嘉微
+        "002371.SZ",  # 北方华创
+        "002049.SZ",  # 紫光国微
+        "300750.SZ",  # 宁德时代（新能源，也是热门）
+        "600519.SH",  # 贵州茅台（白酒龙头）
+
+        # 商业航天板块（示例）
+        "600118.SH",  # 中国卫星
+        "600879.SH",  # 航天电子
+        "000901.SZ",  # 航天科技
+
+        # CPO板块（光模块）
+        "300502.SZ",  # 新易盛
+        "300394.SZ",  # 天孚通信
+        "300308.SZ",  # 中际旭创
+
+        # 其他热门股票
+        "000858.SZ",  # 五粮液
+        "002415.SZ",  # 海康威视
+        "000001.SZ",  # 平安银行
+    ]
+
+    print(f"确保 {len(hot_sector_stocks)} 只热门板块股票的数据被采集...")
+
+    cursor = conn.cursor()
+    kline_count = 0
+    flow_count = 0
+
+    for i, ts_code in enumerate(hot_sector_stocks, 1):
+        print(f"\n[{i}/{len(hot_sector_stocks)}] 处理 {ts_code}...")
+
+        # 检查是否已有数据
+        stock_code = ts_code.split('.')[0]
+
+        # 检查是否有最近的K线数据
+        cursor.execute("""
+            SELECT COUNT(*) FROM klines
+            WHERE stock_code = ? AND date >= date('now', '-10 days')
+        """, (stock_code,))
+        has_recent_klines = cursor.fetchone()[0] > 0
+
+        # 检查是否有最近的资金流向数据
+        cursor.execute("""
+            SELECT COUNT(*) FROM fund_flow
+            WHERE stock_code = ? AND date >= date('now', '-10 days')
+        """, (stock_code,))
+        has_recent_flow = cursor.fetchone()[0] > 0
+
+        if has_recent_klines and has_recent_flow:
+            print(f"  已有最近数据，跳过")
+            continue
+
+        # 如果没有最近数据，为每个交易日单独获取
+        for trade_date in trading_days:
+            try:
+                # 获取日线数据
+                if not has_recent_klines:
+                    df = asyncio.run(tushare_client.get_daily_data(ts_code, trade_date, trade_date))
+                    if df is not None and not df.empty:
+                        for _, row in df.iterrows():
+                            cursor.execute("""
+                                INSERT OR REPLACE INTO klines
+                                (stock_code, date, open, high, low, close, volume, amount, created_at)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                            """, (
+                                stock_code,
+                                row['trade_date'].strftime('%Y-%m-%d'),
+                                float(row['open']),
+                                float(row['high']),
+                                float(row['low']),
+                                float(row['close']),
+                                int(row['vol'] * 100),
+                                float(row['amount'] * 1000)
+                            ))
+                            kline_count += 1
+
+                # 获取资金流向数据
+                if not has_recent_flow:
+                    df = asyncio.run(tushare_client.get_money_flow(ts_code, trade_date, trade_date))
+                    if df is not None and not df.empty:
+                        for _, row in df.iterrows():
+                            # 计算大单占比
+                            total_amount = abs(row['buy_lg_amount']) + abs(row['sell_lg_amount']) + \
+                                         abs(row['buy_elg_amount']) + abs(row['sell_elg_amount'])
+                            small_amount = abs(row['buy_sm_amount']) + abs(row['sell_sm_amount']) + \
+                                         abs(row['buy_md_amount']) + abs(row['sell_md_amount'])
+
+                            large_order_ratio = total_amount / (total_amount + small_amount) if (total_amount + small_amount) > 0 else 0
+
+                            cursor.execute("""
+                                INSERT OR REPLACE INTO fund_flow
+                                (stock_code, date, main_fund_flow, retail_fund_flow, institutional_flow, large_order_ratio, created_at)
+                                VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+                            """, (
+                                stock_code,
+                                row['trade_date'].strftime('%Y-%m-%d'),
+                                float(row.get('main_fund_flow', 0)),
+                                float(row.get('retail_fund_flow', 0)),
+                                float(row.get('extra_large_net_flow', 0)),  # 使用特大单作为机构资金
+                                round(large_order_ratio, 4)
+                            ))
+                            flow_count += 1
+
+                # API限流
+                time.sleep(0.5)
+
+            except Exception as e:
+                print(f"  获取 {ts_code} {trade_date} 数据失败: {e}")
+                time.sleep(1)
+
+        conn.commit()
+        print(f"  完成 {ts_code} 数据采集")
+
+    print(f"\nOK 热门板块股票数据采集完成")
+    print(f"  新增K线数据: {kline_count} 条")
+    print(f"  新增资金流向: {flow_count} 条")
+
+    return kline_count + flow_count
+
 def generate_volume_analysis(conn):
     """
     基于已下载的 K 线数据生成成交量分析
     """
     print("\n" + "=" * 60)
-    print("第 4 步: 生成成交量分析数据")
+    print("第 5 步: 生成成交量分析数据")
     print("=" * 60)
 
     cursor = conn.cursor()
@@ -399,7 +533,10 @@ def main():
         flow_count, api_calls = download_moneyflow_batch(tushare_client, conn, trading_days)
         total_api_calls += api_calls
 
-        # 第 4 步: 生成成交量分析
+        # 第 4 步: 确保热门板块股票数据被采集
+        hot_sector_count = ensure_hot_sector_stocks(tushare_client, conn, trading_days)
+
+        # 第 5 步: 生成成交量分析
         analysis_count = generate_volume_analysis(conn)
 
         # 统计信息
@@ -411,6 +548,7 @@ def main():
         print(f"OK 股票数量: {stock_count} 只")
         print(f"OK K线数据: {klines_count} 条")
         print(f"OK 资金流向: {flow_count} 条")
+        print(f"OK 热门板块股票数据: {hot_sector_count} 条")
         print(f"OK 成交量分析: {analysis_count} 条")
         print(f"OK API 调用次数: {total_api_calls} 次（远低于 200 次限额）")
         print(f"OK 总耗时: {elapsed_time:.1f} 秒")

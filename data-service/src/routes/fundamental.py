@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 import logging
+import math
 
 try:
     # 首先尝试相对导入
@@ -24,6 +25,36 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="", tags=["fundamental"])
+
+
+def _sanitize_floats(value: Any) -> Any:
+    try:
+        import pandas as pd  # type: ignore
+        if isinstance(value, pd.DataFrame):
+            records = value.to_dict(orient="records")
+            return [_sanitize_floats(r) for r in records]
+        if isinstance(value, pd.Series):
+            return _sanitize_floats(value.to_dict())
+    except Exception:
+        pass
+
+    try:
+        import numbers
+        if isinstance(value, numbers.Real):
+            v = float(value)
+            if math.isnan(v) or math.isinf(v):
+                return None
+            return value
+    except Exception:
+        pass
+
+    if isinstance(value, dict):
+        return {k: _sanitize_floats(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_floats(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_sanitize_floats(v) for v in value)
+    return value
 
 
 # 依赖注入
@@ -100,6 +131,7 @@ async def get_financial_indicators(
     """
     try:
         indicators = await fundamental_client.fetch_financial_indicators(stock_code, period)
+        indicators = _sanitize_floats(indicators)
         if not indicators:
             raise HTTPException(status_code=404, detail=f"未找到股票 {stock_code} 的财务指标数据")
 
@@ -250,6 +282,7 @@ async def get_valuation_data(
     """
     try:
         valuation_data = await fundamental_client.fetch_valuation_data(stock_code)
+        valuation_data = _sanitize_floats(valuation_data)
         if not valuation_data:
             raise HTTPException(status_code=404, detail=f"未找到股票 {stock_code} 的估值数据")
 

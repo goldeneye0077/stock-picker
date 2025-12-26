@@ -184,45 +184,44 @@ const Settings: React.FC = () => {
     setCollecting(true);
     setProgressModalVisible(true);
     setProgress(0);
-    setCurrentStep('正在启动今日数据更新...');
+    setCurrentStep('正在启动快速数据更新...');
     setStartTime(new Date());
 
     try {
-      // 使用今日K线数据更新脚本（更快更稳定）
-      setCurrentStep('正在更新今日K线数据...');
-      setProgress(30);
-
-      const response = await axios.post(`${DATA_SERVICE_URL}/api/data/run-script`, {
-        script_name: 'update_today_kline.py'
-      });
+      const response = await axios.post(`${DATA_SERVICE_URL}/api/data/quick-refresh-all`);
 
       if (!response.data.success) {
-        message.error('今日数据更新失败');
+        message.error('数据更新任务启动失败');
         setProgressModalVisible(false);
         setCollecting(false);
         return;
       }
 
-      // 等待3秒让脚本执行
+      const strategy = response.data.strategy || 'incremental';
+
+      if (strategy === 'incremental') {
+        setCurrentStep('已启动增量更新任务，正在更新最近数据...');
+      } else {
+        setCurrentStep('已启动全量更新任务，正在更新最近7天数据...');
+      }
+      setProgress(40);
+
       await new Promise(resolve => setTimeout(resolve, 3000));
 
-      // 检查数据状态
       setCurrentStep('正在检查数据更新结果...');
-      setProgress(70);
+      setProgress(80);
 
-      // 刷新数据状态
       await fetchDataStatus();
+      await fetchIncrementalStatus();
 
-      // 完成
-      setCurrentStep('今日数据更新完成！');
+      setCurrentStep('数据更新完成！');
       setProgress(100);
 
       setTimeout(() => {
         setProgressModalVisible(false);
         setCollecting(false);
-        message.success('今日数据更新完成！');
+        message.success('数据更新完成！');
       }, 1000);
-
     } catch (error: any) {
       message.error(`数据更新失败: ${error.message}`);
       setProgressModalVisible(false);
@@ -527,6 +526,14 @@ const Settings: React.FC = () => {
         <Spin spinning={loadingQuality}>
           {qualityMetrics && (
             <div>
+              {qualityMetrics.total_metrics === 0 && (
+                <Alert
+                  message="数据质量监控 API 不可用或未配置"
+                  type="error"
+                  showIcon
+                  style={{ marginBottom: '16px' }}
+                />
+              )}
               <Row gutter={16} style={{ marginBottom: '16px' }}>
                 <Col span={6}>
                   <Statistic
