@@ -3,6 +3,7 @@ from ..utils.database import get_database
 from ..data_sources.tushare_client import TushareClient
 from loguru import logger
 from datetime import datetime, timedelta
+import math
 
 router = APIRouter()
 
@@ -882,7 +883,8 @@ async def get_sector_analysis():
 async def get_auction_super_main_force(
     limit: int = Query(50, ge=1, le=200),
     trade_date: str | None = Query(None),
-    exclude_auction_limit_up: bool = Query(True)
+    exclude_auction_limit_up: bool = Query(True),
+    min_room_to_limit_pct: float = Query(2.0, ge=0.0, le=30.0),
 ):
     try:
         async with get_database() as db:
@@ -1031,12 +1033,6 @@ async def get_auction_super_main_force(
             if pre_close > 0:
                 gap_percent = (price - pre_close) / pre_close * 100.0
 
-            heat_score = 0.0
-            heat_score += max(volume_ratio, 0.0) * 40.0
-            heat_score += max(turnover_rate, 0.0) * 2.0
-            heat_score += max(gap_percent, -20.0) * 3.0
-            heat_score += max(amount, 0.0) / 1e7
-
             name = str(info.get("name") or "")
             upper_name = name.upper()
 
@@ -1048,13 +1044,34 @@ async def get_auction_super_main_force(
             elif stock_code.startswith(("8", "4")):
                 limit_pct = 30.0
 
+            vr = max(volume_ratio, 0.0)
+            tr = max(turnover_rate, 0.0)
+            gp = gap_percent
+            amt = max(amount, 0.0)
+
+            vr_n = min(math.log1p(vr) / math.log1p(10.0), 1.0) if vr > 0 else 0.0
+            tr_n = min(math.log1p(tr) / math.log1p(15.0), 1.0) if tr > 0 else 0.0
+            gp_n = max(min(gp / limit_pct, 1.0), 0.0) if limit_pct > 0 else 0.0
+            amt_n = min(math.log1p(amt) / math.log1p(3e8), 1.0) if amt > 0 else 0.0
+
+            heat_score = (vr_n * 0.4 + tr_n * 0.2 + gp_n * 0.3 + amt_n * 0.1) * 100.0
+
             limit_price = round(pre_close * (1.0 + limit_pct / 100.0) + 1e-9, 2) if pre_close > 0 else 0.0
             auction_limit_up = pre_close > 0 and price > 0 and price >= (limit_price - 0.0001)
 
             if exclude_auction_limit_up and auction_limit_up:
                 continue
 
-            likely_limit_up = (not auction_limit_up) and gap_percent >= 7.0 and volume_ratio >= 1.5
+            room_to_limit_pct = 0.0
+            if pre_close > 0 and limit_price > 0 and price > 0:
+                room_to_limit_pct = (limit_price - price) / pre_close * 100.0
+
+            likely_limit_up = (
+                (not auction_limit_up)
+                and gap_percent >= 7.0
+                and volume_ratio >= 1.5
+                and room_to_limit_pct >= min_room_to_limit_pct
+            )
 
             exchange = info.get("exchange") or ""
             ts_code = stock_code

@@ -4,7 +4,12 @@
       "Bash(git -C \"E:/stock_an/stock-picker\" status)",
       "Bash(git -C \"E:/stock_an/stock-picker\" log --oneline -5)",
       "Bash(git -C \"E:/stock_an/stock-picker\" diff --stat)",
-      "Bash(git -C \"E:/stock_an/stock-picker\" add -A)"
+      "Bash(git -C \"E:/stock_an/stock-picker\" add -A)",
+      "Bash(git -C \"E:/stock_an/stock-picker\" commit -m \"$\\(cat <<''EOF''\nfeat: 新增回测分析、多数据源管理与高级选股功能\n\n- 新增回测引擎 \\(backtest_engine.py\\) 支持策略回测分析\n- 新增 akshare 数据源客户端作为 Tushare 备选\n- 新增多数据源管理器 \\(multi_source_manager.py\\) 实现数据源切换\n- 新增简易选股路由 \\(simple_selection.py\\)\n- 新增前端页面：回测分析、数据源一致性监控、超级主力\n- 优化高级选股分析器 \\(advanced_selection_analyzer.py\\)\n- 优化智能选股服务 \\(smartSelectionService.ts\\)\n- 优化数据分析路由 \\(analysis.py\\) 新增更多技术指标\n- 优化行情数据采集与实时行情路由\n- 优化启动脚本 start-services.js 支持更多配置\n- 修复多个数据采集和分析的已知问题\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git -C \"E:/stock_an/stock-picker\" push origin master)",
+      "Bash(git -C \"E:/stock_an/stock-picker\" status --short)",
+      "Bash(git -C \"E:/stock_an/stock-picker\" log --oneline -3)",
+      "Bash(git -C \"E:/stock_an/stock-picker\" commit -m \"$\\(cat <<''EOF''\nfix: 修复超级主力页面及分析路由已知问题\n\n- 优化 analysis.py 数据分析路由\n- 修复 SuperMainForce.tsx 页面问题\n- 更新前端本地配置\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n\\)\")"
     ]
   }
 }

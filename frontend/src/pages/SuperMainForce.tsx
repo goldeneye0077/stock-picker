@@ -251,7 +251,7 @@ const SuperMainForce: React.FC = () => {
               ，评分越高代表主力资金关注度越高。
             </Typography.Paragraph>
             <Typography.Paragraph style={{ marginBottom: 0, fontSize: 13, color: '#aaa' }}>
-              算法公式：热度评分 = 量比×40 + 换手率×2 + 涨幅×3 + 竞价金额/1e7
+              算法公式：热度评分 = (量比得分×40% + 换手得分×20% + 涨幅得分×30% + 金额得分×10%)×100（各项得分做归一化/对数缩放并裁剪到 0~1）
             </Typography.Paragraph>
           </Col>
           <Col xs={24} md={8}>
