@@ -21,7 +21,9 @@
       "Bash(pip install:*)",
       "Bash(xargs:*)",
       "Bash(ls:*)",
-      "mcp__minimax-coding-plan-mcp__web_search"
+      "mcp__minimax-coding-plan-mcp__web_search",
+      "Bash(python:*)",
+      "Bash(git add:*)"
     ],
     "deny": [],
     "ask": []

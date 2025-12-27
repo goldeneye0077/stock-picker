@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Card, Table, Space, Statistic, Row, Col, Tag, Button, Typography, DatePicker, Switch, message } from 'antd';
+import { Card, Table, Space, Statistic, Row, Col, Tag, Button, Typography, DatePicker, Switch, message, InputNumber } from 'antd';
 import { ThunderboltOutlined, SyncOutlined } from '@ant-design/icons';
 import {
   collectAuctionSnapshot,
@@ -15,11 +15,12 @@ const SuperMainForce: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string | null>(dayjs().format('YYYY-MM-DD'));
   const [includeAuctionLimitUp, setIncludeAuctionLimitUp] = useState(false);
+  const [themeAlpha, setThemeAlpha] = useState<number>(0.25);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const first = await fetchAuctionSuperMainForce(20, selectedDate ?? undefined, !includeAuctionLimitUp);
+      const first = await fetchAuctionSuperMainForce(20, selectedDate ?? undefined, !includeAuctionLimitUp, themeAlpha);
       const effectiveTradeDate = selectedDate ?? first.tradeDate ?? null;
 
       let result = first;
@@ -41,7 +42,7 @@ const SuperMainForce: React.FC = () => {
           key: 'super_mainforce_collect'
         });
 
-        result = await fetchAuctionSuperMainForce(20, effectiveTradeDate, !includeAuctionLimitUp);
+        result = await fetchAuctionSuperMainForce(20, effectiveTradeDate, !includeAuctionLimitUp, themeAlpha);
       }
 
       setData(result);
@@ -61,7 +62,7 @@ const SuperMainForce: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedDate, includeAuctionLimitUp]);
+  }, [selectedDate, includeAuctionLimitUp, themeAlpha]);
 
   const forceRefresh = useCallback(async () => {
     const effectiveTradeDate = selectedDate ?? dayjs().format('YYYY-MM-DD');
@@ -80,7 +81,7 @@ const SuperMainForce: React.FC = () => {
         key: 'super_mainforce_force_collect'
       });
 
-      const result = await fetchAuctionSuperMainForce(20, effectiveTradeDate, !includeAuctionLimitUp);
+      const result = await fetchAuctionSuperMainForce(20, effectiveTradeDate, !includeAuctionLimitUp, themeAlpha);
       setData(result);
       setSelectedDate(effectiveTradeDate);
 
@@ -95,7 +96,7 @@ const SuperMainForce: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedDate, includeAuctionLimitUp]);
+  }, [selectedDate, includeAuctionLimitUp, themeAlpha]);
 
   const handleDateChange = (date: Dayjs | null, dateString: string) => {
     if (date) {
@@ -125,6 +126,7 @@ const SuperMainForce: React.FC = () => {
         <Space direction="vertical" size={0}>
           <span style={{ fontWeight: 'bold' }}>{text}</span>
           <span style={{ fontSize: 12, color: '#888' }}>{record.name}</span>
+          {record.themeName && <span style={{ fontSize: 12, color: '#aaa' }}>{record.themeName}</span>}
         </Space>
       )
     },
@@ -139,6 +141,9 @@ const SuperMainForce: React.FC = () => {
           <span>{val.toFixed(1)}</span>
           {record.auctionLimitUp && <Tag color="gold">竞价涨停</Tag>}
           {record.likelyLimitUp && <Tag color="red">冲板优选</Tag>}
+          {!!record.themeEnhanceFactor && record.themeEnhanceFactor > 1.0001 && (
+            <Tag color="blue">题材×{record.themeEnhanceFactor.toFixed(2)}</Tag>
+          )}
         </Space>
       )
     },
@@ -234,6 +239,19 @@ const SuperMainForce: React.FC = () => {
                 disabled={loading}
               />
             </Space>
+            <Space size={4}>
+              <span style={{ fontSize: 12, color: '#aaa' }}>α</span>
+              <InputNumber
+                size="small"
+                min={0}
+                max={0.5}
+                step={0.05}
+                value={themeAlpha}
+                onChange={(v) => setThemeAlpha(Number(v ?? 0))}
+                disabled={loading}
+                style={{ width: 86 }}
+              />
+            </Space>
             <Button icon={<SyncOutlined spin={loading} />} onClick={loadData} loading={loading} size="small">
               刷新
             </Button>
@@ -246,12 +264,15 @@ const SuperMainForce: React.FC = () => {
         <Row gutter={24}>
           <Col xs={24} md={16}>
             <Typography.Paragraph style={{ marginBottom: 8 }}>
-              竞价热度算法说明：综合集合竞价期间数据计算热度评分，权重分配为：
-              <span style={{ color: '#fadb14' }}>量比(40%)、换手率(20%)、涨幅(30%)、竞价金额(10%)</span>
-              ，评分越高代表主力资金关注度越高。
+              竞价热度算法说明：基础评分由集合竞价数据五维度加权得到，
+              <span style={{ color: '#fadb14' }}>量比(35%)、涨幅(25%)、资金强度(20%)、成交量密度(15%)、换手活跃度(5%)</span>
+              ，并叠加题材热度乘数增强最终评分。
             </Typography.Paragraph>
             <Typography.Paragraph style={{ marginBottom: 0, fontSize: 13, color: '#aaa' }}>
-              算法公式：热度评分 = (量比得分×40% + 换手得分×20% + 涨幅得分×30% + 金额得分×10%)×100（各项得分做归一化/对数缩放并裁剪到 0~1）
+              算法公式：最终评分 = 个股基础评分 × (1 + α × 题材热度得分)，题材热度得分∈[0,1]
+            </Typography.Paragraph>
+            <Typography.Paragraph style={{ marginBottom: 0, fontSize: 13, color: '#aaa' }}>
+              冲板优选说明：基于 09:26 集合竞价快照的规则信号，满足「非竞价涨停」且「竞价涨幅≥7%」「量比≥1.5」「距涨停空间≥2%」时标记为冲板优选，用于提示更可能触及涨停的候选标的。
             </Typography.Paragraph>
           </Col>
           <Col xs={24} md={8}>

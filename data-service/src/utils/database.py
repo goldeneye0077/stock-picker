@@ -193,6 +193,33 @@ async def init_database():
             )
         """)
 
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS kpl_concepts (
+                trade_date TEXT NOT NULL,
+                ts_code TEXT NOT NULL,
+                name TEXT,
+                z_t_num INTEGER,
+                up_num TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (trade_date, ts_code)
+            )
+        """)
+
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS kpl_concept_cons (
+                trade_date TEXT NOT NULL,
+                ts_code TEXT NOT NULL,
+                name TEXT,
+                stock_code TEXT NOT NULL,
+                con_code TEXT,
+                con_name TEXT,
+                desc TEXT,
+                hot_num REAL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (trade_date, ts_code, stock_code)
+            )
+        """)
+
         # 技术指标表
         await db.execute("""
             CREATE TABLE IF NOT EXISTS technical_indicators (

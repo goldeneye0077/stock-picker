@@ -628,6 +628,78 @@ class TushareClient(DataSource):
             logger.error(f"Error fetching daily_basic for date {trade_date}: {e}")
             return None
 
+    async def get_kpl_concept(self, trade_date: str) -> Optional[pd.DataFrame]:
+        if not self.pro:
+            return None
+
+        try:
+            s = str(trade_date).strip()
+            if len(s) >= 10 and "-" in s:
+                dt = datetime.strptime(s[:10], "%Y-%m-%d")
+                td = dt.strftime("%Y%m%d")
+            elif len(s) == 8 and s.isdigit():
+                td = s
+            else:
+                td = datetime.now().strftime("%Y%m%d")
+
+            df = self.pro.kpl_concept(
+                trade_date=td,
+                fields="trade_date,ts_code,name,z_t_num,up_num",
+            )
+
+            if df is None or df.empty:
+                logger.warning(f"No kpl_concept data for date {td}")
+                return None
+
+            if "trade_date" in df.columns:
+                df["trade_date"] = pd.to_datetime(df["trade_date"], errors="coerce")
+            if "z_t_num" in df.columns:
+                df["z_t_num"] = pd.to_numeric(df["z_t_num"], errors="coerce")
+
+            logger.info(f"Retrieved {len(df)} kpl_concept records for date {td}")
+            return df
+        except Exception as e:
+            logger.error(f"Error fetching kpl_concept for date {trade_date}: {e}")
+            return None
+
+    async def get_kpl_concept_cons(self, trade_date: str, ts_code: Optional[str] = None) -> Optional[pd.DataFrame]:
+        if not self.pro:
+            return None
+
+        try:
+            s = str(trade_date).strip()
+            if len(s) >= 10 and "-" in s:
+                dt = datetime.strptime(s[:10], "%Y-%m-%d")
+                td = dt.strftime("%Y%m%d")
+            elif len(s) == 8 and s.isdigit():
+                td = s
+            else:
+                td = datetime.now().strftime("%Y%m%d")
+
+            params: Dict[str, str] = {"trade_date": td}
+            if ts_code:
+                params["ts_code"] = ts_code
+
+            df = self.pro.kpl_concept_cons(
+                **params,
+                fields="trade_date,ts_code,name,con_code,con_name,desc,hot_num",
+            )
+
+            if df is None or df.empty:
+                logger.warning(f"No kpl_concept_cons data for date {td}")
+                return None
+
+            if "trade_date" in df.columns:
+                df["trade_date"] = pd.to_datetime(df["trade_date"], errors="coerce")
+            if "hot_num" in df.columns:
+                df["hot_num"] = pd.to_numeric(df["hot_num"], errors="coerce")
+
+            logger.info(f"Retrieved {len(df)} kpl_concept_cons records for date {td}")
+            return df
+        except Exception as e:
+            logger.error(f"Error fetching kpl_concept_cons for date {trade_date}: {e}")
+            return None
+
     def is_available(self) -> bool:
         """
         检查数据源是否可用

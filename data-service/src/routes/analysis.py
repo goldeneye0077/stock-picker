@@ -4,6 +4,7 @@ from ..data_sources.tushare_client import TushareClient
 from loguru import logger
 from datetime import datetime, timedelta
 import math
+import pandas as pd
 
 router = APIRouter()
 
@@ -885,8 +886,49 @@ async def get_auction_super_main_force(
     trade_date: str | None = Query(None),
     exclude_auction_limit_up: bool = Query(True),
     min_room_to_limit_pct: float = Query(2.0, ge=0.0, le=30.0),
+    theme_alpha: float = Query(0.25, ge=0.0, le=0.5),
 ):
     try:
+        def compute_rank_scores(values: list[float]) -> list[float]:
+            n = len(values)
+            if n <= 0:
+                return []
+            if n == 1:
+                return [1.0 if values[0] > 0 else 0.0]
+
+            pairs = [(float(v), idx) for idx, v in enumerate(values)]
+            pairs.sort(key=lambda x: x[0])
+
+            scores = [0.0] * n
+            i = 0
+            while i < n:
+                v = pairs[i][0]
+                j = i + 1
+                while j < n and pairs[j][0] == v:
+                    j += 1
+
+                avg_rank = ((i + 1) + j) / 2.0
+                pct = (avg_rank - 1.0) / (n - 1.0)
+                score = (pct ** 0.7) if v > 0 else 0.0
+                for k in range(i, j):
+                    scores[pairs[k][1]] = score
+                i = j
+
+            return scores
+
+        def parse_up_num(v) -> float:
+            if v is None:
+                return 0.0
+            s = str(v).strip()
+            if not s:
+                return 0.0
+            if s in ("持平", "平"):
+                return 0.0
+            try:
+                return float(s.replace("+", ""))
+            except Exception:
+                return 0.0
+
         async with get_database() as db:
             target_date = None
 
@@ -971,6 +1013,8 @@ async def get_auction_super_main_force(
 
             stock_info_map: dict[str, dict] = {}
             daily_basic_map: dict[str, dict] = {}
+            theme_score_map: dict[str, dict] = {}
+            stock_theme_codes_map: dict[str, list[str]] = {}
 
             trade_date_ret = target_date
 
@@ -992,7 +1036,7 @@ async def get_auction_super_main_force(
 
                 cursor = await db.execute(
                     f"""
-                    SELECT stock_code, turnover_rate, volume_ratio
+                    SELECT stock_code, turnover_rate, volume_ratio, float_share
                     FROM daily_basic
                     WHERE trade_date = ? AND stock_code IN ({placeholders})
                     """,
@@ -1004,14 +1048,125 @@ async def get_auction_super_main_force(
                     daily_basic_map[code] = {
                         "turnover_rate": float(row["turnover_rate"] or 0.0),
                         "volume_ratio": float(row["volume_ratio"] or 0.0),
+                        "float_share": float(row["float_share"] or 0.0),
                     }
 
-        items = []
-        total_amount = 0.0
+            if theme_alpha > 0:
+                cursor = await db.execute(
+                    "SELECT COUNT(1) as c FROM kpl_concepts WHERE trade_date = ?",
+                    (trade_date_ret,),
+                )
+                row = await cursor.fetchone()
+                concept_cnt = int(row["c"] or 0) if row else 0
+
+                cursor = await db.execute(
+                    "SELECT COUNT(1) as c FROM kpl_concept_cons WHERE trade_date = ?",
+                    (trade_date_ret,),
+                )
+                row = await cursor.fetchone()
+                cons_cnt = int(row["c"] or 0) if row else 0
+
+                if concept_cnt <= 0 or cons_cnt <= 0:
+                    client = TushareClient()
+                    if client.is_available():
+                        df_concept = await client.get_kpl_concept(trade_date_ret)
+                        if df_concept is not None and not df_concept.empty:
+                            for _, r in df_concept.iterrows():
+                                ts_code = str(r.get("ts_code") or "").strip()
+                                if not ts_code:
+                                    continue
+                                name = str(r.get("name") or "").strip()
+                                z_t_num = int(r.get("z_t_num") or 0) if pd.notna(r.get("z_t_num")) else 0
+                                up_num = str(r.get("up_num") or "")
+                                await db.execute(
+                                    """
+                                    INSERT OR REPLACE INTO kpl_concepts
+                                    (trade_date, ts_code, name, z_t_num, up_num, created_at)
+                                    VALUES (?, ?, ?, ?, ?, datetime('now'))
+                                    """,
+                                    (trade_date_ret, ts_code, name, z_t_num, up_num),
+                                )
+
+                        df_cons = await client.get_kpl_concept_cons(trade_date_ret)
+                        if df_cons is not None and not df_cons.empty:
+                            for _, r in df_cons.iterrows():
+                                theme_code = str(r.get("ts_code") or "").strip()
+                                if not theme_code:
+                                    continue
+                                theme_name = str(r.get("name") or "").strip()
+                                con_code = str(r.get("con_code") or r.get("stock_code") or "").strip()
+                                if not con_code:
+                                    continue
+                                stock_code = con_code.split(".")[0] if "." in con_code else con_code
+                                con_name = str(r.get("con_name") or "").strip()
+                                desc = str(r.get("desc") or "").strip()
+                                hot_num = float(r.get("hot_num") or 0.0) if pd.notna(r.get("hot_num")) else 0.0
+                                await db.execute(
+                                    """
+                                    INSERT OR REPLACE INTO kpl_concept_cons
+                                    (trade_date, ts_code, name, stock_code, con_code, con_name, desc, hot_num, created_at)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                                    """,
+                                    (
+                                        trade_date_ret,
+                                        theme_code,
+                                        theme_name,
+                                        stock_code,
+                                        con_code,
+                                        con_name,
+                                        desc,
+                                        hot_num,
+                                    ),
+                                )
+
+                        await db.commit()
+
+                cursor = await db.execute(
+                    "SELECT ts_code, name, COALESCE(z_t_num, 0) as z_t_num, COALESCE(up_num, '') as up_num FROM kpl_concepts WHERE trade_date = ?",
+                    (trade_date_ret,),
+                )
+                theme_rows = await cursor.fetchall()
+                theme_list = [dict(r) for r in theme_rows] if theme_rows else []
+
+                if theme_list:
+                    z_processed = [math.log1p(max(int(t.get("z_t_num") or 0), 0)) for t in theme_list]
+                    up_processed = [max(0.0, parse_up_num(t.get("up_num"))) for t in theme_list]
+                    z_scores = compute_rank_scores([float(v or 0.0) for v in z_processed])
+                    up_scores = compute_rank_scores([float(v or 0.0) for v in up_processed])
+                    for idx, t in enumerate(theme_list):
+                        code = str(t.get("ts_code") or "")
+                        if not code:
+                            continue
+                        theme_score_map[code] = {
+                            "score": float(z_scores[idx]) * 0.6 + float(up_scores[idx]) * 0.4,
+                            "name": str(t.get("name") or ""),
+                        }
+
+                if stock_codes:
+                    placeholders = ",".join(["?"] * len(stock_codes))
+                    cursor = await db.execute(
+                        f"SELECT stock_code, ts_code FROM kpl_concept_cons WHERE trade_date = ? AND stock_code IN ({placeholders})",
+                        (trade_date_ret, *stock_codes),
+                    )
+                    map_rows = await cursor.fetchall()
+                    for r in map_rows:
+                        sc = str(r["stock_code"] or "")
+                        tc = str(r["ts_code"] or "")
+                        if not sc or not tc:
+                            continue
+                        lst = stock_theme_codes_map.get(sc)
+                        if not lst:
+                            lst = []
+                            stock_theme_codes_map[sc] = lst
+                        lst.append(tc)
+
+        pool: list[dict] = []
 
         for r in records:
             stock_code = str(r.get("stock_code") or "")
             if not stock_code:
+                continue
+            if stock_code.startswith("920"):
                 continue
 
             info = stock_info_map.get(stock_code, {})
@@ -1027,40 +1182,51 @@ async def get_auction_super_main_force(
             daily_basic = daily_basic_map.get(stock_code, {})
             turnover_rate = float(daily_basic.get("turnover_rate") or 0.0)
             volume_ratio = float(daily_basic.get("volume_ratio") or 0.0)
-            float_share = 0.0
+            float_share = float(daily_basic.get("float_share") or 0.0)
 
             gap_percent = 0.0
+            gap_ratio = 0.0
             if pre_close > 0:
+                gap_ratio = (price - pre_close) / pre_close
                 gap_percent = (price - pre_close) / pre_close * 100.0
 
             name = str(info.get("name") or "")
             upper_name = name.upper()
 
-            limit_pct = 10.0
             if "ST" in upper_name:
-                limit_pct = 5.0
-            elif stock_code.startswith(("300", "301", "688", "689")):
+                continue
+
+            limit_pct = 10.0
+            if stock_code.startswith(("300", "301", "688", "689")):
                 limit_pct = 20.0
             elif stock_code.startswith(("8", "4")):
                 limit_pct = 30.0
 
-            vr = max(volume_ratio, 0.0)
-            tr = max(turnover_rate, 0.0)
-            gp = gap_percent
-            amt = max(amount, 0.0)
+            gap_ratio_processed = 0.0
+            if gap_ratio > 0:
+                if gap_ratio > 0.05:
+                    gap_ratio_processed = 0.05 + (gap_ratio - 0.05) * 0.3
+                else:
+                    gap_ratio_processed = gap_ratio
 
-            vr_n = min(math.log1p(vr) / math.log1p(10.0), 1.0) if vr > 0 else 0.0
-            tr_n = min(math.log1p(tr) / math.log1p(15.0), 1.0) if tr > 0 else 0.0
-            gp_n = max(min(gp / limit_pct, 1.0), 0.0) if limit_pct > 0 else 0.0
-            amt_n = min(math.log1p(amt) / math.log1p(3e8), 1.0) if amt > 0 else 0.0
+            volume_ratio_processed = 0.0
+            if volume_ratio > 0:
+                volume_ratio_processed = math.log2(1.0 + min(volume_ratio, 20.0))
 
-            heat_score = (vr_n * 0.4 + tr_n * 0.2 + gp_n * 0.3 + amt_n * 0.1) * 100.0
+            fund_strength = 0.0
+            denom_mv = float_share * price * 10000.0
+            if denom_mv > 0 and amount > 0:
+                fund_strength = amount / denom_mv
+                if fund_strength > 0.1:
+                    fund_strength = 0.1 + (fund_strength - 0.1) * 0.2
+
+            volume_density = 0.0
+            denom_vol = float_share * 10000.0
+            if denom_vol > 0 and vol > 0:
+                volume_density = vol / denom_vol
 
             limit_price = round(pre_close * (1.0 + limit_pct / 100.0) + 1e-9, 2) if pre_close > 0 else 0.0
             auction_limit_up = pre_close > 0 and price > 0 and price >= (limit_price - 0.0001)
-
-            if exclude_auction_limit_up and auction_limit_up:
-                continue
 
             room_to_limit_pct = 0.0
             if pre_close > 0 and limit_price > 0 and price > 0:
@@ -1078,7 +1244,21 @@ async def get_auction_super_main_force(
             if exchange:
                 ts_code = f"{stock_code}.{exchange}"
 
-            items.append({
+            theme_heat_score = 0.0
+            theme_code = ""
+            theme_name = ""
+            theme_codes = stock_theme_codes_map.get(stock_code) or []
+            for c in theme_codes:
+                meta = theme_score_map.get(c)
+                if not meta:
+                    continue
+                s = float(meta.get("score") or 0.0)
+                if s > theme_heat_score:
+                    theme_heat_score = s
+                    theme_code = c
+                    theme_name = str(meta.get("name") or "")
+
+            pool.append({
                 "stock": stock_code,
                 "tsCode": ts_code,
                 "name": info.get("name") or "",
@@ -1091,10 +1271,65 @@ async def get_auction_super_main_force(
                 "turnoverRate": round(turnover_rate, 3),
                 "volumeRatio": round(volume_ratio, 3),
                 "floatShare": float_share,
-                "heatScore": round(heat_score, 2),
                 "likelyLimitUp": likely_limit_up,
                 "auctionLimitUp": auction_limit_up,
+                "themeHeatScore": round(theme_heat_score, 6),
+                "themeCode": theme_code,
+                "themeName": theme_name,
+                "_volumeRatioProcessed": volume_ratio_processed,
+                "_gapProcessed": gap_ratio_processed,
+                "_fundStrengthProcessed": fund_strength,
+                "_volumeDensityProcessed": volume_density,
             })
+
+        if not pool:
+            return {
+                "success": True,
+                "data": {
+                    "tradeDate": trade_date_ret,
+                    "dataSource": data_source,
+                    "items": [],
+                    "summary": {
+                        "count": 0,
+                        "avgHeat": 0.0,
+                        "totalAmount": 0.0,
+                        "limitUpCandidates": 0
+                    }
+                }
+            }
+
+        volume_ratio_scores = compute_rank_scores([float(i.get("_volumeRatioProcessed") or 0.0) for i in pool])
+        gap_scores = compute_rank_scores([float(i.get("_gapProcessed") or 0.0) for i in pool])
+        fund_strength_scores = compute_rank_scores([float(i.get("_fundStrengthProcessed") or 0.0) for i in pool])
+        volume_density_scores = compute_rank_scores([float(i.get("_volumeDensityProcessed") or 0.0) for i in pool])
+        turnover_scores = compute_rank_scores([float(i.get("turnoverRate") or 0.0) for i in pool])
+
+        items: list[dict] = []
+        for idx, item in enumerate(pool):
+            base_heat_score = (
+                volume_ratio_scores[idx] * 0.35
+                + gap_scores[idx] * 0.25
+                + fund_strength_scores[idx] * 0.20
+                + volume_density_scores[idx] * 0.15
+                + turnover_scores[idx] * 0.05
+            ) * 100.0
+
+            theme_heat = float(item.get("themeHeatScore") or 0.0)
+            enhance_factor = 1.0 + theme_alpha * theme_heat
+            final_score = base_heat_score * enhance_factor
+
+            item["baseHeatScore"] = round(base_heat_score, 2)
+            item["themeAlpha"] = round(theme_alpha, 4)
+            item["themeEnhanceFactor"] = round(enhance_factor, 6)
+            item["heatScore"] = round(final_score, 2)
+            item.pop("_volumeRatioProcessed", None)
+            item.pop("_gapProcessed", None)
+            item.pop("_fundStrengthProcessed", None)
+            item.pop("_volumeDensityProcessed", None)
+
+            if exclude_auction_limit_up and bool(item.get("auctionLimitUp")):
+                continue
+            items.append(item)
 
         if not items:
             return {
