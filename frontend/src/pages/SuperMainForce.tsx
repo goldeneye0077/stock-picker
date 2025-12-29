@@ -16,11 +16,12 @@ const SuperMainForce: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState<string | null>(dayjs().format('YYYY-MM-DD'));
   const [includeAuctionLimitUp, setIncludeAuctionLimitUp] = useState(false);
   const [themeAlpha, setThemeAlpha] = useState<number>(0.25);
+  const limit = 40;
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const first = await fetchAuctionSuperMainForce(20, selectedDate ?? undefined, !includeAuctionLimitUp, themeAlpha);
+      const first = await fetchAuctionSuperMainForce(limit, selectedDate ?? undefined, !includeAuctionLimitUp, themeAlpha);
       const effectiveTradeDate = selectedDate ?? first.tradeDate ?? null;
 
       let result = first;
@@ -42,7 +43,7 @@ const SuperMainForce: React.FC = () => {
           key: 'super_mainforce_collect'
         });
 
-        result = await fetchAuctionSuperMainForce(20, effectiveTradeDate, !includeAuctionLimitUp, themeAlpha);
+        result = await fetchAuctionSuperMainForce(limit, effectiveTradeDate, !includeAuctionLimitUp, themeAlpha);
       }
 
       setData(result);
@@ -62,7 +63,7 @@ const SuperMainForce: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedDate, includeAuctionLimitUp, themeAlpha]);
+  }, [selectedDate, includeAuctionLimitUp, themeAlpha, limit]);
 
   const forceRefresh = useCallback(async () => {
     const effectiveTradeDate = selectedDate ?? dayjs().format('YYYY-MM-DD');
@@ -81,7 +82,7 @@ const SuperMainForce: React.FC = () => {
         key: 'super_mainforce_force_collect'
       });
 
-      const result = await fetchAuctionSuperMainForce(20, effectiveTradeDate, !includeAuctionLimitUp, themeAlpha);
+      const result = await fetchAuctionSuperMainForce(limit, effectiveTradeDate, !includeAuctionLimitUp, themeAlpha);
       setData(result);
       setSelectedDate(effectiveTradeDate);
 
@@ -96,7 +97,7 @@ const SuperMainForce: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedDate, includeAuctionLimitUp, themeAlpha]);
+  }, [selectedDate, includeAuctionLimitUp, themeAlpha, limit]);
 
   const handleDateChange = (date: Dayjs | null, dateString: string) => {
     if (date) {
@@ -134,7 +135,7 @@ const SuperMainForce: React.FC = () => {
       title: '竞价热度',
       dataIndex: 'heatScore',
       key: 'heatScore',
-      width: 120,
+      width: 170,
       sorter: (a, b) => a.heatScore - b.heatScore,
       render: (val: number, record: AuctionSuperMainForceItem) => (
         <Space>
@@ -272,7 +273,7 @@ const SuperMainForce: React.FC = () => {
               算法公式：最终评分 = 个股基础评分 × (1 + α × 题材热度得分)，题材热度得分∈[0,1]
             </Typography.Paragraph>
             <Typography.Paragraph style={{ marginBottom: 0, fontSize: 13, color: '#aaa' }}>
-              冲板优选说明：基于 09:26 集合竞价快照的规则信号，满足「非竞价涨停」且「竞价涨幅≥7%」「量比≥1.5」「距涨停空间≥2%」时标记为冲板优选，用于提示更可能触及涨停的候选标的。
+              冲板优选说明：基于 09:26 集合竞价快照的分层打分信号（按 10cm/20cm/小票/大票分层阈值），综合竞价涨幅、量比、距涨停空间、资金强度、竞价金额等因素评分，分数达标时标记为冲板优选，用于提示更可能触及涨停的候选标的。
             </Typography.Paragraph>
           </Col>
           <Col xs={24} md={8}>

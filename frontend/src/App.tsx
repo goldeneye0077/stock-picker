@@ -1,19 +1,14 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { ConfigProvider, theme } from 'antd';
 import { ProLayout } from '@ant-design/pro-layout';
 import {
-  DashboardOutlined,
   StockOutlined,
-  FundOutlined,
   SettingOutlined,
   CalculatorOutlined,
-  LineChartOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
-import Dashboard from './pages/Dashboard';
 import StockList from './pages/StockList';
-import Analysis from './pages/Analysis';
 import Settings from './pages/Settings';
 import SmartSelection from './pages/SmartSelection';
 import SuperMainForce from './pages/SuperMainForce';
@@ -23,19 +18,9 @@ const { darkAlgorithm } = theme;
 
 const menuItems = [
   {
-    path: '/',
-    name: '仪表盘',
-    icon: <DashboardOutlined />,
-  },
-  {
-    path: '/stocks',
-    name: '股票列表',
-    icon: <StockOutlined />,
-  },
-  {
-    path: '/analysis',
-    name: '资金分析',
-    icon: <FundOutlined />,
+    path: '/super-main-force',
+    name: '超强主力',
+    icon: <ThunderboltOutlined />,
   },
   {
     path: '/smart-selection',
@@ -43,9 +28,9 @@ const menuItems = [
     icon: <CalculatorOutlined />,
   },
   {
-    path: '/super-main-force',
-    name: '超强主力',
-    icon: <ThunderboltOutlined />,
+    path: '/stocks',
+    name: '股票列表',
+    icon: <StockOutlined />,
   },
   {
     path: '/settings',
@@ -63,7 +48,7 @@ function AppLayout() {
       <DateTimeBanner />
       <div style={{ flex: 1, overflow: 'auto' }}>
         <ProLayout
-          title="智能选股系统"
+          title="AI智能选股引擎"
           logo={<img src="/logo(1).png" alt="logo" style={{ height: '32px' }} />}
           route={{
             routes: menuItems,
@@ -90,9 +75,8 @@ function AppLayout() {
           )}
         >
           <Routes>
-            <Route path="/" element={<Dashboard />} />
+            <Route path="/" element={<Navigate to="/super-main-force" replace />} />
             <Route path="/stocks" element={<StockList />} />
-            <Route path="/analysis" element={<Analysis />} />
             <Route path="/smart-selection" element={<SmartSelection />} />
             <Route path="/super-main-force" element={<SuperMainForce />} />
             <Route path="/settings" element={<Settings />} />

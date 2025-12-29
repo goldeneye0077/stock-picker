@@ -8,9 +8,14 @@ from datetime import datetime
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from loguru import logger
+from pathlib import Path
+from dotenv import load_dotenv
 
 # 添加项目根目录到sys.path,以便导入模块
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+env_path = Path(__file__).parent.parent / ".env"
+load_dotenv(dotenv_path=env_path)
 
 local_tz = datetime.now().astimezone().tzinfo
 
@@ -119,6 +124,20 @@ def realtime_schedule_sync_wrapper():
         import traceback
         logger.error(traceback.format_exc())
 
+def auction_schedule_sync_wrapper():
+    import asyncio
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(collect_auction_data_task())
+        finally:
+            loop.close()
+    except Exception as e:
+        logger.error(f"任务执行异常: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+
 
 def start_scheduler():
     """
@@ -160,7 +179,7 @@ def start_scheduler():
             misfire_grace_time=10
         )
         scheduler.add_job(
-            func=lambda: __import__('asyncio').get_event_loop().run_until_complete(collect_auction_data_task()),
+            func=auction_schedule_sync_wrapper,
             trigger=CronTrigger(
                 hour=9,
                 minute='26-29',

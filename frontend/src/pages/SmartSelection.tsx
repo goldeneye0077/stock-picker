@@ -36,7 +36,6 @@ import {
 } from 'antd';
 import {
   CalculatorOutlined,
-  LineChartOutlined,
   BarChartOutlined,
   PieChartOutlined,
   RocketOutlined,
@@ -1086,14 +1085,6 @@ const SmartSelection: React.FC = () => {
           ? '基于多维度分析的智能选股系统'
           : '基于多因子动量模型的AI选股系统',
         extra: [
-          <Button
-            key="backtest"
-            icon={<LineChartOutlined />}
-            onClick={handleRunBacktest}
-            loading={backtestLoading}
-          >
-            策略回测
-          </Button>,
           <Button
             key="history"
             icon={<ClockCircleOutlined />}

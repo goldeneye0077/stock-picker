@@ -929,6 +929,33 @@ async def get_auction_super_main_force(
             except Exception:
                 return 0.0
 
+        def clamp01(x: float) -> float:
+            if x <= 0.0:
+                return 0.0
+            if x >= 1.0:
+                return 1.0
+            return x
+
+        def score_ramp(v: float, low: float, high: float) -> float:
+            if high <= low:
+                return 0.0
+            if v <= low:
+                return 0.0
+            if v >= high:
+                return 1.0
+            return (v - low) / (high - low)
+
+        def score_tri(v: float, low: float, mid: float, high: float) -> float:
+            if not (low < mid < high):
+                return 0.0
+            if v <= low or v >= high:
+                return 0.0
+            if v == mid:
+                return 1.0
+            if v < mid:
+                return (v - low) / (mid - low)
+            return (high - v) / (high - mid)
+
         async with get_database() as db:
             target_date = None
 
@@ -1017,6 +1044,7 @@ async def get_auction_super_main_force(
             stock_theme_codes_map: dict[str, list[str]] = {}
 
             trade_date_ret = target_date
+            theme_date = trade_date_ret
 
             if stock_codes:
                 placeholders = ",".join(["?"] * len(stock_codes))
@@ -1054,14 +1082,14 @@ async def get_auction_super_main_force(
             if theme_alpha > 0:
                 cursor = await db.execute(
                     "SELECT COUNT(1) as c FROM kpl_concepts WHERE trade_date = ?",
-                    (trade_date_ret,),
+                    (theme_date,),
                 )
                 row = await cursor.fetchone()
                 concept_cnt = int(row["c"] or 0) if row else 0
 
                 cursor = await db.execute(
                     "SELECT COUNT(1) as c FROM kpl_concept_cons WHERE trade_date = ?",
-                    (trade_date_ret,),
+                    (theme_date,),
                 )
                 row = await cursor.fetchone()
                 cons_cnt = int(row["c"] or 0) if row else 0
@@ -1122,8 +1150,43 @@ async def get_auction_super_main_force(
                         await db.commit()
 
                 cursor = await db.execute(
-                    "SELECT ts_code, name, COALESCE(z_t_num, 0) as z_t_num, COALESCE(up_num, '') as up_num FROM kpl_concepts WHERE trade_date = ?",
+                    "SELECT COUNT(1) as c FROM kpl_concepts WHERE trade_date = ?",
                     (trade_date_ret,),
+                )
+                row = await cursor.fetchone()
+                concept_cnt = int(row["c"] or 0) if row else 0
+
+                cursor = await db.execute(
+                    "SELECT COUNT(1) as c FROM kpl_concept_cons WHERE trade_date = ?",
+                    (trade_date_ret,),
+                )
+                row = await cursor.fetchone()
+                cons_cnt = int(row["c"] or 0) if row else 0
+
+                if concept_cnt <= 0 or cons_cnt <= 0:
+                    cursor = await db.execute(
+                        """
+                        SELECT MAX(k.trade_date) as d
+                        FROM kpl_concepts k
+                        WHERE k.trade_date <= ?
+                          AND EXISTS (
+                            SELECT 1 FROM kpl_concept_cons c
+                            WHERE c.trade_date = k.trade_date
+                            LIMIT 1
+                          )
+                        """,
+                        (trade_date_ret,),
+                    )
+                    row = await cursor.fetchone()
+                    fallback = str(row["d"] or "") if row and row["d"] else ""
+                    if fallback:
+                        theme_date = fallback
+                else:
+                    theme_date = trade_date_ret
+
+                cursor = await db.execute(
+                    "SELECT ts_code, name, COALESCE(z_t_num, 0) as z_t_num, COALESCE(up_num, '') as up_num FROM kpl_concepts WHERE trade_date = ?",
+                    (theme_date,),
                 )
                 theme_rows = await cursor.fetchall()
                 theme_list = [dict(r) for r in theme_rows] if theme_rows else []
@@ -1146,7 +1209,7 @@ async def get_auction_super_main_force(
                     placeholders = ",".join(["?"] * len(stock_codes))
                     cursor = await db.execute(
                         f"SELECT stock_code, ts_code FROM kpl_concept_cons WHERE trade_date = ? AND stock_code IN ({placeholders})",
-                        (trade_date_ret, *stock_codes),
+                        (theme_date, *stock_codes),
                     )
                     map_rows = await cursor.fetchall()
                     for r in map_rows:
@@ -1232,11 +1295,61 @@ async def get_auction_super_main_force(
             if pre_close > 0 and limit_price > 0 and price > 0:
                 room_to_limit_pct = (limit_price - price) / pre_close * 100.0
 
+            bucket = "10cm_small"
+            if limit_pct >= 19.9:
+                bucket = "20cm"
+            elif denom_mv >= 1e10:
+                bucket = "10cm_large"
+
+            if bucket == "20cm":
+                gap_low, gap_mid, gap_high = 7.5, 12.0, 18.5
+                vr_low, vr_mid, vr_high = 1.2, 3.0, 10.0
+                room_low, room_mid, room_high = max(min_room_to_limit_pct, 2.5), 5.0, 10.5
+                amount_min, amount_mid = 6e7, 2.5e8
+                fs_low, fs_mid, fs_high = 0.0015, 0.0055, 0.02
+                breakout_threshold = 0.63
+            elif bucket == "10cm_large":
+                gap_low, gap_mid, gap_high = 5.0, 7.2, 9.0
+                vr_low, vr_mid, vr_high = 1.0, 2.2, 7.0
+                room_low, room_mid, room_high = max(min_room_to_limit_pct, 1.8), 3.8, 6.5
+                amount_min, amount_mid = 8e7, 4e8
+                fs_low, fs_mid, fs_high = 0.001, 0.0035, 0.015
+                breakout_threshold = 0.60
+            else:
+                gap_low, gap_mid, gap_high = 6.2, 8.2, 9.8
+                vr_low, vr_mid, vr_high = 1.2, 3.0, 12.0
+                room_low, room_mid, room_high = max(min_room_to_limit_pct, 1.5), 3.5, 7.0
+                amount_min, amount_mid = 3e7, 1.5e8
+                fs_low, fs_mid, fs_high = 0.002, 0.008, 0.03
+                breakout_threshold = 0.62
+
+            gap_score_breakout = score_tri(gap_percent, gap_low, gap_mid, gap_high)
+            vr_score_breakout = score_tri(min(volume_ratio, 20.0), vr_low, vr_mid, vr_high)
+            room_score_breakout = score_tri(room_to_limit_pct, room_low, room_mid, room_high)
+            amount_score_breakout = score_ramp(amount, amount_min, amount_mid)
+            fs_score_breakout = score_tri(fund_strength, fs_low, fs_mid, fs_high)
+
+            breakout_score = (
+                gap_score_breakout * 0.34
+                + vr_score_breakout * 0.26
+                + room_score_breakout * 0.18
+                + amount_score_breakout * 0.12
+                + fs_score_breakout * 0.10
+            )
+
+            if volume_ratio >= 120:
+                breakout_score *= 0.55
+            elif volume_ratio >= 50:
+                breakout_score *= 0.70
+
+            breakout_score = clamp01(breakout_score)
+
             likely_limit_up = (
                 (not auction_limit_up)
-                and gap_percent >= 7.0
-                and volume_ratio >= 1.5
+                and gap_percent >= gap_low
+                and volume_ratio >= vr_low
                 and room_to_limit_pct >= min_room_to_limit_pct
+                and breakout_score >= breakout_threshold
             )
 
             exchange = info.get("exchange") or ""
