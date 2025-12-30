@@ -57,6 +57,9 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: http://backend:3000
+        VITE_DATA_SERVICE_URL: http://data-service:8001
     container_name: stock-picker-frontend
     ports:
       - "3101:80"

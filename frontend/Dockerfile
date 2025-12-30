@@ -9,6 +9,11 @@ COPY tsconfig*.json ./
 COPY vite.config.ts ./
 COPY index.html ./
 
+ARG VITE_API_BASE_URL
+ARG VITE_DATA_SERVICE_URL
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+ENV VITE_DATA_SERVICE_URL=${VITE_DATA_SERVICE_URL}
+
 # Install dependencies
 RUN npm install
 
