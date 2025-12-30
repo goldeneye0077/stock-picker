@@ -123,13 +123,28 @@ const SuperMainForce: React.FC = () => {
       dataIndex: 'stock',
       key: 'stock',
       width: 130,
-      render: (text: string, record: AuctionSuperMainForceItem) => (
-        <Space direction="vertical" size={0}>
-          <span style={{ fontWeight: 'bold' }}>{text}</span>
-          <span style={{ fontSize: 12, color: '#888' }}>{record.name}</span>
-          {record.themeName && <span style={{ fontSize: 12, color: '#aaa' }}>{record.themeName}</span>}
-        </Space>
-      )
+      render: (text: string, record: AuctionSuperMainForceItem) => {
+        const industryText = record.industry ?? '';
+        const industryToken = industryText ? industryText.replace(/(开发|制造|服务)$/g, '') : '';
+        const shouldFallbackToIndustry =
+          !!record.themeName && !!industryToken && !record.themeName.includes(industryToken);
+        const displayThemeOrIndustry = shouldFallbackToIndustry
+          ? industryText
+          : (record.themeName || industryText);
+
+        return (
+          <Space direction="vertical" size={0}>
+            <span style={{ fontWeight: 'bold' }}>{text}</span>
+            <span style={{ fontSize: 12, color: '#888' }}>{record.name}</span>
+            {displayThemeOrIndustry ? (
+              <span style={{ fontSize: 12, color: '#aaa' }}>{displayThemeOrIndustry}</span>
+            ) : null}
+            {industryText && industryText !== displayThemeOrIndustry ? (
+              <span style={{ fontSize: 12, color: '#888' }}>{industryText}</span>
+            ) : null}
+          </Space>
+        );
+      }
     },
     {
       title: '竞价热度',

@@ -105,7 +105,13 @@ const Home: React.FC = () => {
       setSampleLoading(true);
       setSampleError(null);
       try {
-        const data = await fetchAuctionSuperMainForce(10, undefined, true, 0.25);
+        const recentWeekdays = buildRecentWeekdays(10);
+        const today = dayjs();
+        const weekday = today.day();
+        const isWeekday = weekday !== 0 && weekday !== 6;
+        const tradeDate = isWeekday ? (recentWeekdays[1] || recentWeekdays[0]) : recentWeekdays[0];
+
+        const data = await fetchAuctionSuperMainForce(10, tradeDate, true, 0.25);
         if (cancelled) return;
         setSample(data);
       } catch (e) {

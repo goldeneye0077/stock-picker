@@ -8,18 +8,18 @@ const { Title, Text, Link } = Typography;
 const Login: React.FC = () => {
   const [form] = Form.useForm();
   const navigate = useNavigate();
-  const { doLogin, firstAllowedPath, user, loading } = useAuth();
+  const { doLogin, user, loading } = useAuth();
 
   useEffect(() => {
     if (!loading && user) {
-      navigate(firstAllowedPath(), { replace: true });
+      navigate('/', { replace: true });
     }
-  }, [loading, user, navigate, firstAllowedPath]);
+  }, [loading, user, navigate]);
 
   const onFinish = async (values: { username: string; password: string }) => {
     try {
       await doLogin(values.username, values.password);
-      navigate(firstAllowedPath(), { replace: true });
+      navigate('/', { replace: true });
     } catch (e: any) {
       message.error(e?.message || '登录失败');
     }

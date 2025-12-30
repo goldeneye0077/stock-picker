@@ -56,10 +56,19 @@ const TopBanner: React.FC = () => {
         fontSize: 13,
       }}
     >
-      <Space size={10} align="center">
-        <img src="/logo(1).png" alt="logo" style={{ height: 28 }} />
-        <Text style={{ color: '#e6f7ff', fontSize: 14, fontWeight: 600 }}>AI智能选股引擎</Text>
-      </Space>
+      <a
+        href="/"
+        onClick={(e) => {
+          e.preventDefault();
+          navigate('/', { replace: true });
+        }}
+        style={{ color: 'inherit', textDecoration: 'none', cursor: 'pointer' }}
+      >
+        <Space size={10} align="center">
+          <img src="/logo(1).png" alt="logo" style={{ height: 28 }} />
+          <Text style={{ color: '#e6f7ff', fontSize: 14, fontWeight: 600 }}>AI智能选股引擎</Text>
+        </Space>
+      </a>
 
       <Space size="large" align="center">
         <Space>

@@ -1041,7 +1041,8 @@ async def get_auction_super_main_force(
             stock_info_map: dict[str, dict] = {}
             daily_basic_map: dict[str, dict] = {}
             theme_score_map: dict[str, dict] = {}
-            stock_theme_codes_map: dict[str, list[str]] = {}
+            stock_theme_candidates_map: dict[str, list[dict]] = {}
+            theme_coverage = 0.0
 
             trade_date_ret = target_date
             theme_date = trade_date_ret
@@ -1192,6 +1193,7 @@ async def get_auction_super_main_force(
                 theme_list = [dict(r) for r in theme_rows] if theme_rows else []
 
                 if theme_list:
+                    theme_coverage = min(1.0, float(len(theme_list)) / 50.0)
                     z_processed = [math.log1p(max(int(t.get("z_t_num") or 0), 0)) for t in theme_list]
                     up_processed = [max(0.0, parse_up_num(t.get("up_num"))) for t in theme_list]
                     z_scores = compute_rank_scores([float(v or 0.0) for v in z_processed])
@@ -1208,7 +1210,11 @@ async def get_auction_super_main_force(
                 if stock_codes:
                     placeholders = ",".join(["?"] * len(stock_codes))
                     cursor = await db.execute(
-                        f"SELECT stock_code, ts_code FROM kpl_concept_cons WHERE trade_date = ? AND stock_code IN ({placeholders})",
+                        f"""
+                        SELECT stock_code, ts_code, name, COALESCE(hot_num, 0) as hot_num
+                        FROM kpl_concept_cons
+                        WHERE trade_date = ? AND stock_code IN ({placeholders})
+                        """,
                         (theme_date, *stock_codes),
                     )
                     map_rows = await cursor.fetchall()
@@ -1217,11 +1223,15 @@ async def get_auction_super_main_force(
                         tc = str(r["ts_code"] or "")
                         if not sc or not tc:
                             continue
-                        lst = stock_theme_codes_map.get(sc)
+                        lst = stock_theme_candidates_map.get(sc)
                         if not lst:
                             lst = []
-                            stock_theme_codes_map[sc] = lst
-                        lst.append(tc)
+                            stock_theme_candidates_map[sc] = lst
+                        lst.append({
+                            "ts_code": tc,
+                            "name": str(r["name"] or ""),
+                            "hot_num": float(r["hot_num"] or 0.0),
+                        })
 
         pool: list[dict] = []
 
@@ -1360,16 +1370,36 @@ async def get_auction_super_main_force(
             theme_heat_score = 0.0
             theme_code = ""
             theme_name = ""
-            theme_codes = stock_theme_codes_map.get(stock_code) or []
-            for c in theme_codes:
-                meta = theme_score_map.get(c)
-                if not meta:
+            theme_candidates = stock_theme_candidates_map.get(stock_code) or []
+            best_hot = -1.0
+            best_score = -1.0
+            for cand in theme_candidates:
+                c = str(cand.get("ts_code") or "")
+                if not c:
                     continue
+                hot_num = float(cand.get("hot_num") or 0.0)
+                meta = theme_score_map.get(c) or {}
                 s = float(meta.get("score") or 0.0)
-                if s > theme_heat_score:
-                    theme_heat_score = s
+
+                if hot_num > best_hot or (hot_num == best_hot and s > best_score):
+                    best_hot = hot_num
+                    best_score = s
                     theme_code = c
-                    theme_name = str(meta.get("name") or "")
+                    theme_heat_score = s
+                    theme_name = str(meta.get("name") or cand.get("name") or "")
+
+            if best_hot <= 0.0 and theme_heat_score <= 0.0:
+                theme_heat_score = 0.0
+                theme_code = ""
+                theme_name = ""
+
+            if theme_heat_score > 0.0 and theme_coverage > 0.0 and theme_coverage < 1.0:
+                theme_heat_score *= theme_coverage
+
+            if not theme_name:
+                theme_heat_score = 0.0
+                theme_code = ""
+                theme_name = str(info.get("industry") or "")
 
             pool.append({
                 "stock": stock_code,

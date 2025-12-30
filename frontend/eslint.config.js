@@ -25,4 +25,10 @@ export default defineConfig([
       '@typescript-eslint/no-explicit-any': 'off',
     },
   },
+  {
+    files: ['src/context/**/*.{ts,tsx}'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
+  },
 ])
