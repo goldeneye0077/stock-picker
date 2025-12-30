@@ -16,7 +16,7 @@ const SuperMainForce: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState<string | null>(dayjs().format('YYYY-MM-DD'));
   const [includeAuctionLimitUp, setIncludeAuctionLimitUp] = useState(false);
   const [themeAlpha, setThemeAlpha] = useState<number>(0.25);
-  const limit = 40;
+  const limit = 20;
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -213,7 +213,7 @@ const SuperMainForce: React.FC = () => {
         title={
           <Space>
             <ThunderboltOutlined />
-            <span style={{ fontSize: 16, fontWeight: 'bold' }}>超强主力 · 集合竞价龙虎榜</span>
+            <span style={{ fontSize: 16, fontWeight: 'bold' }}>超强主力·竞价打板</span>
           </Space>
         }
         extra={
@@ -265,15 +265,13 @@ const SuperMainForce: React.FC = () => {
         <Row gutter={24}>
           <Col xs={24} md={16}>
             <Typography.Paragraph style={{ marginBottom: 8 }}>
-              竞价热度算法说明：基础评分由集合竞价数据五维度加权得到，
-              <span style={{ color: '#fadb14' }}>量比(35%)、涨幅(25%)、资金强度(20%)、成交量密度(15%)、换手活跃度(5%)</span>
-              ，并叠加题材热度乘数增强最终评分。
+              本页功能说明：展示集合竞价阶段的强势标的排行，辅助筛选更可能“冲板”的候选股票。支持选择交易日、设置是否包含竞价涨停，并可调整题材增强系数 α 来放大/减弱题材热度对评分的影响。
             </Typography.Paragraph>
             <Typography.Paragraph style={{ marginBottom: 0, fontSize: 13, color: '#aaa' }}>
-              算法公式：最终评分 = 个股基础评分 × (1 + α × 题材热度得分)，题材热度得分∈[0,1]
+              操作说明：点击“刷新”获取数据；当数据缺失时会自动触发采集；点击“强制刷新”会重新采集并刷新当前日期数据。
             </Typography.Paragraph>
             <Typography.Paragraph style={{ marginBottom: 0, fontSize: 13, color: '#aaa' }}>
-              冲板优选说明：基于 09:26 集合竞价快照的分层打分信号（按 10cm/20cm/小票/大票分层阈值），综合竞价涨幅、量比、距涨停空间、资金强度、竞价金额等因素评分，分数达标时标记为冲板优选，用于提示更可能触及涨停的候选标的。
+              标记说明：“竞价涨停”表示集合竞价已触及涨停；“冲板优选”为更可能触及涨停的候选提示；“题材×系数”表示题材热度对评分的增强倍数。
             </Typography.Paragraph>
           </Col>
           <Col xs={24} md={8}>
@@ -319,7 +317,7 @@ const SuperMainForce: React.FC = () => {
         <Table
           loading={loading}
           columns={columns}
-          dataSource={data?.items || []}
+          dataSource={(data?.items || []).slice(0, 20)}
           rowKey={(record) => `${record.stock}-${record.rank}`}
           pagination={false}
         />

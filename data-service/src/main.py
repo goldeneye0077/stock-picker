@@ -26,6 +26,8 @@ try:
         smart_selection,
         advanced_selection,
         simple_selection,
+        auth,
+        user_management,
     )
     from .scheduler import start_scheduler, stop_scheduler, get_scheduler_status
 except ImportError:
@@ -47,6 +49,8 @@ except ImportError:
         smart_selection,
         advanced_selection,
         simple_selection,
+        auth,
+        user_management,
     )
     from scheduler import start_scheduler, stop_scheduler, get_scheduler_status
 
@@ -131,6 +135,8 @@ app.include_router(fundamental.router, prefix="/api/fundamental", tags=["fundame
 app.include_router(smart_selection.router, prefix="/api/smart-selection", tags=["smart-selection"])
 app.include_router(advanced_selection.router, prefix="/api/advanced-selection", tags=["advanced-selection"])
 app.include_router(simple_selection.router, prefix="/api/simple-selection", tags=["simple-selection"])
+app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+app.include_router(user_management.router, prefix="/api/admin", tags=["user-management"])
 
 @app.get("/")
 async def root():

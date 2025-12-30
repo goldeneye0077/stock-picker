@@ -352,6 +352,41 @@ async def init_database():
             )
         """)
 
+        # ==================== 用户与权限表 ====================
+
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                password_salt TEXT NOT NULL,
+                password_hash TEXT NOT NULL,
+                is_admin BOOLEAN DEFAULT FALSE,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS user_permissions (
+                user_id INTEGER NOT NULL,
+                path TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_id, path),
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+            )
+        """)
+
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS user_sessions (
+                token TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                expires_at DATETIME NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+            )
+        """)
+
         # 创建索引优化查询性能
         await db.execute("CREATE INDEX IF NOT EXISTS idx_realtime_stock_code ON realtime_quotes(stock_code)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_realtime_updated_at ON realtime_quotes(updated_at)")
@@ -370,6 +405,9 @@ async def init_database():
         await db.execute("CREATE INDEX IF NOT EXISTS idx_pattern_stock_code ON pattern_signals(stock_code)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_pattern_date ON pattern_signals(date)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_pattern_stock_date ON pattern_signals(stock_code, date)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id ON user_sessions(user_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_user_sessions_expires_at ON user_sessions(expires_at)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_user_permissions_user_id ON user_permissions(user_id)")
 
         # ==================== 基本面数据表 ====================
 
