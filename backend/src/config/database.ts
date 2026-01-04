@@ -2,6 +2,7 @@ import sqlite3 from 'sqlite3';
 import { promisify } from 'util';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 
 // 使用 __dirname 的上两级目录定位数据库路径
 const dbPath = path.resolve(__dirname, '../../..', 'data', 'stock_picker.db');
@@ -77,6 +78,18 @@ export async function initDatabase(): Promise<void> {
   const db = getDatabase();
 
   // Create tables
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      password_salt TEXT NOT NULL,
+      is_admin INTEGER DEFAULT 0,
+      is_active INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
   await db.run(`
     CREATE TABLE IF NOT EXISTS stocks (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -272,6 +285,25 @@ export async function initDatabase(): Promise<void> {
   `);
 
   // 创建索引优化查询性能
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      token TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      expires_at DATETIME NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `);
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS user_permissions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      path TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(user_id, path),
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `);
   await db.run('CREATE INDEX IF NOT EXISTS idx_realtime_stock_code ON realtime_quotes(stock_code)');
   await db.run('CREATE INDEX IF NOT EXISTS idx_realtime_updated_at ON realtime_quotes(updated_at)');
   await db.run('CREATE INDEX IF NOT EXISTS idx_history_stock_code ON quote_history(stock_code)');
@@ -284,6 +316,33 @@ export async function initDatabase(): Promise<void> {
   await db.run('CREATE INDEX IF NOT EXISTS idx_sector_moneyflow_date ON sector_moneyflow(trade_date)');
   await db.run('CREATE INDEX IF NOT EXISTS idx_sector_moneyflow_name ON sector_moneyflow(name)');
   await db.run('CREATE INDEX IF NOT EXISTS idx_sector_moneyflow_date_name ON sector_moneyflow(trade_date, name)');
+  await db.run('CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)');
+  await db.run('CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)');
+  await db.run('CREATE INDEX IF NOT EXISTS idx_user_permissions_user_id ON user_permissions(user_id)');
+
+  const adminCount = await db.get('SELECT COUNT(*) as cnt FROM users WHERE is_admin = 1');
+  if ((adminCount?.cnt || 0) === 0) {
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = crypto.pbkdf2Sync('admin123', salt, 120000, 32, 'sha256').toString('hex');
+    await db.run(
+      'INSERT INTO users (username, password_hash, password_salt, is_admin, is_active) VALUES (?, ?, ?, ?, ?)',
+      ['admin', hash, salt, 1, 1]
+    );
+    const pages = [
+      '/super-main-force',
+      '/smart-selection',
+      '/stocks',
+      '/settings',
+      '/user-management'
+    ];
+    const adminRow = await db.get('SELECT id FROM users WHERE username = ?', ['admin']);
+    if (adminRow?.id) {
+      for (const p of pages) {
+        await db.run('INSERT OR IGNORE INTO user_permissions (user_id, path) VALUES (?, ?)', [adminRow.id, p]);
+      }
+    }
+    console.log('Seeded default admin user: admin / admin123');
+  }
 
   console.log('Database tables created successfully');
 }

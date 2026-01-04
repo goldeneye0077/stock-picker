@@ -3,6 +3,8 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+RUN apk add --no-cache python3 make g++
+
 # Copy configuration files
 COPY package*.json ./
 COPY tsconfig.json ./

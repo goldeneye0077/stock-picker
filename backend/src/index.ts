@@ -10,6 +10,7 @@ import { initDatabase } from './config/database';
 import { swaggerSpec } from './config/swagger';
 import stockRoutes from './routes/stocks';
 import analysisRoutes from './routes/analysis';
+import { authRoutes, adminRoutes } from './routes/auth';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 
 dotenv.config();
@@ -61,6 +62,8 @@ if (enableSwagger) {
 // Routes
 app.use('/api/stocks', stockRoutes);
 app.use('/api/analysis', analysisRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
@@ -118,4 +121,3 @@ async function startServer() {
 }
 
 startServer();
-
