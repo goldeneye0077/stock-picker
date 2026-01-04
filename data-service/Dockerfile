@@ -13,7 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy source code
 COPY src ./src
-
+ENV NODE_OPTIONS=--max-old-space-size=4096
 # Expose port
 EXPOSE 8001
 
