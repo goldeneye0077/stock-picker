@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { BaseRepository } from './BaseRepository';
+import { AppError, ErrorCode } from '../utils/errors';
 
 type UserRow = {
   id: number;
@@ -90,7 +91,7 @@ export class UserRepository extends BaseRepository {
   async createUser(username: string, password: string, isAdmin: boolean = false, isActive: boolean = true): Promise<AuthUser> {
     const exists = await this.findByUsername(username);
     if (exists) {
-      throw new Error('用户名已存在');
+      throw new AppError('用户名已存在', 409, ErrorCode.CONFLICT);
     }
     const { hash, salt } = this.hashPassword(password);
     const sql = `

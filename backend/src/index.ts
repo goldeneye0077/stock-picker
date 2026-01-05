@@ -10,6 +10,8 @@ import { initDatabase } from './config/database';
 import { swaggerSpec } from './config/swagger';
 import stockRoutes from './routes/stocks';
 import analysisRoutes from './routes/analysis';
+import quotesRoutes from './routes/quotes';
+import smartSelectionRoutes from './routes/smartSelection';
 import { authRoutes, adminRoutes } from './routes/auth';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 
@@ -64,6 +66,8 @@ app.use('/api/stocks', stockRoutes);
 app.use('/api/analysis', analysisRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/quotes', quotesRoutes);
+app.use('/api/smart-selection', smartSelectionRoutes);
 
 // Health check
 app.get('/health', (req, res) => {

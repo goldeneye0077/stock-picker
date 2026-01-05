@@ -570,5 +570,66 @@ export class AnalysisRepository extends BaseRepository {
 
     return this.query(sql, [days, days, limit]);
   }
+
+  async getAuctionSnapshot(tradeDate?: string): Promise<{ tradeDate: string | null; snapshotTime: string | null; rows: any[] }> {
+    let targetDate: string | null = null;
+    let snapshotTime: string | null = null;
+
+    if (tradeDate) {
+      const row = await this.queryOne<{ snapshot_time: string }>(
+        `
+        SELECT MAX(snapshot_time) as snapshot_time
+        FROM quote_history
+        WHERE date(substr(snapshot_time, 1, 10)) = ?
+          AND time(substr(snapshot_time, 12)) BETWEEN '09:20:00' AND '09:30:00'
+        `,
+        [tradeDate]
+      );
+      snapshotTime = row?.snapshot_time || null;
+      targetDate = tradeDate;
+    } else {
+      const row = await this.queryOne<{ trade_date: string; snapshot_time: string }>(
+        `
+        SELECT date(substr(snapshot_time, 1, 10)) as trade_date, MAX(snapshot_time) as snapshot_time
+        FROM quote_history
+        WHERE time(substr(snapshot_time, 12)) BETWEEN '09:20:00' AND '09:30:00'
+        GROUP BY trade_date
+        ORDER BY trade_date DESC
+        LIMIT 1
+        `
+      );
+      targetDate = row?.trade_date || null;
+      snapshotTime = row?.snapshot_time || null;
+    }
+
+    if (!snapshotTime || !targetDate) {
+      return { tradeDate: targetDate, snapshotTime, rows: [] };
+    }
+
+    const rows = await this.query<any>(
+      `
+      SELECT
+        q.stock_code as stock,
+        s.name as name,
+        s.industry as industry,
+        q.open as price,
+        q.pre_close as preClose,
+        q.amount as amount,
+        q.vol as vol,
+        q.change_percent as gapPercent,
+        COALESCE(db.turnover_rate, 0) as turnoverRate,
+        COALESCE(db.volume_ratio, 0) as volumeRatio,
+        COALESCE(db.float_share, 0) as floatShare
+      FROM quote_history q
+      LEFT JOIN stocks s ON s.code = q.stock_code
+      LEFT JOIN daily_basic db ON db.stock_code = q.stock_code AND db.trade_date = ?
+      WHERE q.snapshot_time = ?
+      ORDER BY amount DESC
+      `,
+      [targetDate, snapshotTime]
+    );
+
+    return { tradeDate: targetDate, snapshotTime, rows };
+  }
 }
 

@@ -1,4 +1,4 @@
-FROM python:3.10-slim
+FROM alibaba-cloud-linux-3-registry.cn-hangzhou.cr.aliyuncs.com/alinux3/python:3.11.1
 
 WORKDIR /app
 
@@ -9,7 +9,7 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple && pip install --no-cache-dir -r requirements.txt
 
 # Copy source code
 COPY src ./src

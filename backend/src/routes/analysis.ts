@@ -444,4 +444,95 @@ router.get('/hot-sector-stocks', asyncHandler(async (req, res) => {
   });
 }));
 
+// Get auction super main force
+router.get('/auction/super-main-force', asyncHandler(async (req, res) => {
+  const { limit = 50, trade_date, exclude_auction_limit_up = 'true', theme_alpha } = req.query as any;
+  const limitNum = Number(limit);
+  const excludeLimitUp = String(exclude_auction_limit_up).toLowerCase() === 'true';
+  const alphaNum = theme_alpha !== undefined ? Number(theme_alpha) : 0;
+
+  if (isNaN(limitNum) || limitNum < 1 || limitNum > 200) {
+    throw new InvalidParameterError(
+      'Invalid limit parameter. Must be a number between 1 and 200.',
+      { limit, min: 1, max: 200 }
+    );
+  }
+  if (theme_alpha !== undefined && (isNaN(alphaNum) || alphaNum < 0 || alphaNum > 1)) {
+    throw new InvalidParameterError(
+      'Invalid theme_alpha parameter. Must be a number between 0 and 1.',
+      { theme_alpha, min: 0, max: 1 }
+    );
+  }
+  if (trade_date && typeof trade_date === 'string') {
+    const validDate = /^\d{4}-\d{2}-\d{2}$/.test(trade_date);
+    if (!validDate) {
+      throw new InvalidParameterError(
+        'Invalid trade_date format. Use YYYY-MM-DD',
+        { trade_date }
+      );
+    }
+  }
+
+  const { tradeDate, rows } = await analysisRepo.getAuctionSnapshot(trade_date as string | undefined);
+
+  let items = rows.map((r: any) => {
+    const preClose = Number(r.preClose || 0);
+    const price = Number(r.price || 0);
+    const gapPercent = preClose > 0 && price > 0 ? ((price - preClose) / preClose) * 100 : Number(r.gapPercent || 0);
+    const volumeRatio = Number(r.volumeRatio || 0);
+    const turnoverRate = Number(r.turnoverRate || 0);
+    const amount = Number(r.amount || 0);
+    const auctionLimitUp = preClose > 0 && price >= preClose * 1.1 - 1e-6;
+    const baseHeat = (amount / 10000000) + (volumeRatio * 5) + (turnoverRate * 3) + Math.max(gapPercent, 0);
+    const themeEnhanceFactor = 1 + Math.max(0, alphaNum || 0);
+    const heatScore = baseHeat * themeEnhanceFactor;
+    const likelyLimitUp = gapPercent >= 5 && volumeRatio >= 1.5 && amount >= 50000000;
+    return {
+      stock: r.stock,
+      tsCode: '',
+      name: r.name,
+      industry: r.industry,
+      price,
+      preClose,
+      gapPercent,
+      vol: Number(r.vol || 0),
+      amount,
+      turnoverRate,
+      volumeRatio,
+      floatShare: Number(r.floatShare || 0),
+      heatScore,
+      baseHeatScore: baseHeat,
+      themeHeatScore: heatScore,
+      themeCode: undefined,
+      themeName: r.industry || undefined,
+      themeAlpha: alphaNum || 0,
+      themeEnhanceFactor,
+      likelyLimitUp,
+      auctionLimitUp,
+      rank: 0
+    };
+  });
+
+  if (excludeLimitUp) {
+    items = items.filter((it) => !it.auctionLimitUp);
+  }
+
+  items.sort((a, b) => b.heatScore - a.heatScore);
+  items = items.slice(0, limitNum).map((it, idx) => ({ ...it, rank: idx + 1 }));
+
+  const summary = {
+    count: items.length,
+    avgHeat: items.length > 0 ? parseFloat((items.reduce((s, i) => s + (i.heatScore || 0), 0) / items.length).toFixed(1)) : 0,
+    totalAmount: items.reduce((s, i) => s + (i.amount || 0), 0),
+    limitUpCandidates: items.filter((i) => i.likelyLimitUp).length
+  };
+
+  sendSuccess(res, {
+    tradeDate: tradeDate || null,
+    dataSource: items.length > 0 ? 'quote_history' : 'none',
+    items,
+    summary
+  });
+}));
+
 export default router;
