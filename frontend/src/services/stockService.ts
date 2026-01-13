@@ -28,6 +28,10 @@ export interface StockItem {
   signal: string;
 }
 
+export interface StockAnalysisParams {
+  date?: string;
+}
+
 /**
  * 获取股票列表
  */
@@ -120,11 +124,18 @@ export async function fetchStockHistory(stockCode: string, params: {
   return result.data;
 }
 
-/**
- * 获取股票技术分析
- */
-export async function fetchStockAnalysis(stockCode: string) {
-  const response = await fetch(`${API_BASE_URL}${API_ENDPOINTS.STOCKS}/${stockCode}/analysis`);
+export async function fetchStockAnalysis(stockCode: string, params: StockAnalysisParams = {}) {
+  const searchParams = new URLSearchParams();
+  if (params.date) {
+    searchParams.append('date', params.date);
+  }
+
+  const query = searchParams.toString();
+  const url = query
+    ? `${API_BASE_URL}${API_ENDPOINTS.STOCKS}/${stockCode}/analysis?${query}`
+    : `${API_BASE_URL}${API_ENDPOINTS.STOCKS}/${stockCode}/analysis`;
+
+  const response = await fetch(url);
 
   if (!response.ok) {
     throw new Error('获取技术分析失败');

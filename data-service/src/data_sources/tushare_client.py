@@ -587,16 +587,9 @@ class TushareClient(DataSource):
 
     async def get_daily_basic_by_date(self, trade_date: str) -> Optional[pd.DataFrame]:
         """
-        批量获取指定日期所有股票的每日指标数据
+        批量获取指定日期所有股票的每日技术指标数据
 
-        每日指标包含：
-        - 换手率 (turnover_rate, turnover_rate_f)
-        - 量比 (volume_ratio)
-        - 市盈率 (pe, pe_ttm)
-        - 市净率 (pb)
-        - 市销率 (ps, ps_ttm)
-        - 市现率 (dv_ratio, dv_ttm)
-        - 总市值/流通市值 (total_mv, circ_mv)
+        数据来源：Tushare daily_basic 接口
 
         Args:
             trade_date: 交易日期，格式 YYYYMMDD
@@ -609,20 +602,48 @@ class TushareClient(DataSource):
             return None
 
         try:
-            # 调用 daily_basic 接口
             df = self.pro.daily_basic(
                 trade_date=trade_date,
-                fields='ts_code,trade_date,close,turnover_rate,turnover_rate_f,volume_ratio,'
-                       'pe,pe_ttm,pb,ps,ps_ttm,dv_ratio,dv_ttm,total_share,float_share,'
-                       'free_share,total_mv,circ_mv'
+                fields=(
+                    "ts_code,trade_date,close,"
+                    "turnover_rate,turnover_rate_f,volume_ratio,"
+                    "pe,pe_ttm,pb,ps,ps_ttm,dv_ratio,dv_ttm,"
+                    "total_share,float_share,free_share,total_mv,circ_mv"
+                ),
             )
 
-            if not df.empty:
-                df['trade_date'] = pd.to_datetime(df['trade_date'])
-                logger.info(f"Retrieved {len(df)} daily_basic records for date {trade_date}")
-            else:
+            if df is None or df.empty:
                 logger.warning(f"No daily_basic data for date {trade_date}")
+                return None
 
+            if "trade_date" in df.columns:
+                df["trade_date"] = pd.to_datetime(df["trade_date"])
+
+            if "close" not in df.columns:
+                df["close"] = None
+
+            numeric_cols = [
+                "close",
+                "turnover_rate",
+                "turnover_rate_f",
+                "volume_ratio",
+                "pe",
+                "pe_ttm",
+                "pb",
+                "ps",
+                "ps_ttm",
+                "dv_ratio",
+                "total_share",
+                "float_share",
+                "free_share",
+                "total_mv",
+                "circ_mv",
+            ]
+            for col in numeric_cols:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors="coerce")
+
+            logger.info(f"Retrieved {len(df)} daily_basic records for date {trade_date}")
             return df
         except Exception as e:
             logger.error(f"Error fetching daily_basic for date {trade_date}: {e}")

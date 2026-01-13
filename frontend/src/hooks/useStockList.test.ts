@@ -393,7 +393,7 @@ describe('useStockDetail', () => {
 
       expect(result.current.analysis).toEqual(mockStockAnalysis);
       expect(result.current.currentCode).toBe('000001');
-      expect(stockService.fetchStockAnalysis).toHaveBeenCalledWith('000001');
+      expect(stockService.fetchStockAnalysis).toHaveBeenCalledWith('000001', {});
     });
 
     it('应该处理获取分析错误', async () => {

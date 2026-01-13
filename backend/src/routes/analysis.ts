@@ -446,10 +446,11 @@ router.get('/hot-sector-stocks', asyncHandler(async (req, res) => {
 
 // Get auction super main force
 router.get('/auction/super-main-force', asyncHandler(async (req, res) => {
-  const { limit = 50, trade_date, exclude_auction_limit_up = 'true', theme_alpha } = req.query as any;
+  const { limit = 50, trade_date, exclude_auction_limit_up = 'true', theme_alpha, pe_filter = 'false' } = req.query as any;
   const limitNum = Number(limit);
   const excludeLimitUp = String(exclude_auction_limit_up).toLowerCase() === 'true';
   const alphaNum = theme_alpha !== undefined ? Number(theme_alpha) : 0;
+  const isPeFilterEnabled = String(pe_filter).toLowerCase() === 'true';
 
   if (isNaN(limitNum) || limitNum < 1 || limitNum > 200) {
     throw new InvalidParameterError(
@@ -474,6 +475,9 @@ router.get('/auction/super-main-force', asyncHandler(async (req, res) => {
   }
 
   const { tradeDate, rows } = await analysisRepo.getAuctionSnapshot(trade_date as string | undefined);
+  const avgVolMap = tradeDate
+    ? await analysisRepo.getAvgAuctionVolume(rows.map((r: any) => r.stock), tradeDate as string, 5)
+    : {};
 
   let items = rows.map((r: any) => {
     const preClose = Number(r.preClose || 0);
@@ -487,6 +491,8 @@ router.get('/auction/super-main-force', asyncHandler(async (req, res) => {
     const themeEnhanceFactor = 1 + Math.max(0, alphaNum || 0);
     const heatScore = baseHeat * themeEnhanceFactor;
     const likelyLimitUp = gapPercent >= 5 && volumeRatio >= 1.5 && amount >= 50000000;
+    const avgVol = Number(avgVolMap[r.stock] || 0);
+    const auctionVolumeRatio = avgVol > 0 ? (Number(r.vol || 0) / avgVol) : 0;
     return {
       stock: r.stock,
       tsCode: '',
@@ -495,10 +501,15 @@ router.get('/auction/super-main-force', asyncHandler(async (req, res) => {
       price,
       preClose,
       gapPercent,
+      close: Number(r.closePrice || 0),
+      changePercent: Number(r.changePercent || 0),
       vol: Number(r.vol || 0),
       amount,
       turnoverRate,
       volumeRatio,
+      auctionVolumeRatio,
+      pe: r.pe !== null && r.pe !== undefined ? Number(r.pe) : undefined,
+      peTtm: r.peTtm !== null && r.peTtm !== undefined ? Number(r.peTtm) : undefined,
       floatShare: Number(r.floatShare || 0),
       heatScore,
       baseHeatScore: baseHeat,
@@ -512,6 +523,31 @@ router.get('/auction/super-main-force', asyncHandler(async (req, res) => {
       rank: 0
     };
   });
+
+  const peValues = items.map((it: any) => (it.pe !== undefined ? Number(it.pe) : NaN));
+  const peTtmValues = items.map((it: any) => (it.peTtm !== undefined ? Number(it.peTtm) : NaN));
+  const peDiagnostics = {
+    negCount: peValues.filter((v) => !isNaN(v) && v < 0).length + peTtmValues.filter((v) => !isNaN(v) && v < 0).length,
+    zeroCount: peValues.filter((v) => v === 0).length + peTtmValues.filter((v) => v === 0).length,
+    above300Count: peValues.filter((v) => !isNaN(v) && v > 300).length + peTtmValues.filter((v) => !isNaN(v) && v > 300).length,
+    inRangeCount: peValues.filter((v) => !isNaN(v) && v > 0 && v <= 300).length + peTtmValues.filter((v) => !isNaN(v) && v > 0 && v <= 300).length,
+    missingCount: items.filter((it: any) => (it.pe === undefined || isNaN(Number(it.pe))) && (it.peTtm === undefined || isNaN(Number(it.peTtm)))).length,
+    enabled: isPeFilterEnabled
+  };
+
+  if (isPeFilterEnabled) {
+    const isMissing = (v: any) => v === undefined || v === null || isNaN(Number(v));
+    const isInRange = (v: any) => Number(v) > 0 && Number(v) <= 300;
+
+    items = items.filter((it: any) => {
+      const peMissing = isMissing(it.pe);
+      const peTtmMissing = isMissing(it.peTtm);
+      if (peMissing && peTtmMissing) return false;
+      if (!peMissing && !isInRange(it.pe)) return false;
+      if (!peTtmMissing && !isInRange(it.peTtm)) return false;
+      return true;
+    });
+  }
 
   if (excludeLimitUp) {
     items = items.filter((it) => !it.auctionLimitUp);
@@ -527,12 +563,31 @@ router.get('/auction/super-main-force', asyncHandler(async (req, res) => {
     limitUpCandidates: items.filter((i) => i.likelyLimitUp).length
   };
 
+  const ratioValues = items.map((i) => Number(i.volumeRatio || 0));
+  const auctionRatioValues = items.map((i) => Number(i.auctionVolumeRatio || 0));
+  const diagnostics = {
+    volumeRatio: {
+      min: ratioValues.length ? Math.min(...ratioValues) : 0,
+      max: ratioValues.length ? Math.max(...ratioValues) : 0,
+      avg: ratioValues.length ? parseFloat((ratioValues.reduce((s, v) => s + v, 0) / ratioValues.length).toFixed(2)) : 0,
+      below1Count: ratioValues.filter((v) => v < 1).length
+    },
+    auctionVolumeRatio: {
+      min: auctionRatioValues.length ? Math.min(...auctionRatioValues) : 0,
+      max: auctionRatioValues.length ? Math.max(...auctionRatioValues) : 0,
+      avg: auctionRatioValues.length ? parseFloat((auctionRatioValues.reduce((s, v) => s + v, 0) / auctionRatioValues.length).toFixed(2)) : 0,
+      above1Count: auctionRatioValues.filter((v) => v >= 1).length
+    }
+  };
+  (diagnostics as any).pe = peDiagnostics;
+
   sendSuccess(res, {
     tradeDate: tradeDate || null,
     dataSource: items.length > 0 ? 'quote_history' : 'none',
     items,
-    summary
+    summary,
+    diagnostics
   });
-}));
+})) ;
 
 export default router;

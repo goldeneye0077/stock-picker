@@ -13,14 +13,17 @@ type MonthlyLimitUpRecord = {
   stock: string;
   name: string;
   heatScore: number;
+  gapPercent: number;
+  changePercent: number;
+  profitPercent: number;
 };
 
 type MonthlySuperMainForceStats = {
   fromDate: string;
   toDate: string;
   totalSelected: number;
-  totalLimitUp: number;
-  limitUpRate: number;
+  totalCloseLimitUp: number;
+  closeLimitUpRate: number;
   records: MonthlyLimitUpRecord[];
 };
 
@@ -105,13 +108,9 @@ const Home: React.FC = () => {
       setSampleLoading(true);
       setSampleError(null);
       try {
-        const recentWeekdays = buildRecentWeekdays(10);
-        const today = dayjs();
-        const weekday = today.day();
-        const isWeekday = weekday !== 0 && weekday !== 6;
-        const tradeDate = isWeekday ? (recentWeekdays[1] || recentWeekdays[0]) : recentWeekdays[0];
-
-        const data = await fetchAuctionSuperMainForce(10, tradeDate, true, 0.25);
+        const recent = buildRecentWeekdays(3);
+        const tradeDate = recent.length > 1 ? recent[1] : recent[0];
+        const data = await fetchAuctionSuperMainForce(10, tradeDate, true, 0.25, false);
         if (cancelled) return;
         setSample(data);
       } catch (e) {
@@ -159,37 +158,61 @@ const Home: React.FC = () => {
         const toDate = valid.length ? valid[0].tradeDate! : dates[0];
 
         let totalSelected = 0;
-        let totalLimitUp = 0;
+        let totalCloseLimitUp = 0;
         const records: MonthlyLimitUpRecord[] = [];
 
         for (const day of valid) {
           const items = day.items || [];
           totalSelected += items.length;
           for (const item of items) {
-            if (!item.auctionLimitUp) continue;
-            totalLimitUp += 1;
+            const gap = Number(item.gapPercent || 0);
+            const dayChange = Number(item.changePercent || 0);
+            const profitPercent = dayChange - gap;
+
+            if (item.auctionLimitUp) continue;
+
+            let limitPct = 10;
+            if (
+              item.stock.startsWith('300') ||
+              item.stock.startsWith('301') ||
+              item.stock.startsWith('688') ||
+              item.stock.startsWith('689')
+            ) {
+              limitPct = 20;
+            } else if (item.stock.startsWith('8') || item.stock.startsWith('4')) {
+              limitPct = 30;
+            }
+
+            const isCloseLimitUp = dayChange >= limitPct - 0.2;
+            if (!isCloseLimitUp) continue;
+
+            totalCloseLimitUp += 1;
             records.push({
               tradeDate: day.tradeDate || '',
               stock: item.stock,
               name: item.name,
               heatScore: item.heatScore,
+              gapPercent: gap,
+              changePercent: dayChange,
+              profitPercent,
             });
           }
         }
 
         records.sort((a, b) => {
+          if (a.profitPercent !== b.profitPercent) return b.profitPercent - a.profitPercent;
           if (a.tradeDate !== b.tradeDate) return b.tradeDate.localeCompare(a.tradeDate);
           return b.heatScore - a.heatScore;
         });
 
-        const limitUpRate = totalSelected > 0 ? (totalLimitUp / totalSelected) * 100 : 0;
+        const closeLimitUpRate = totalSelected > 0 ? (totalCloseLimitUp / totalSelected) * 100 : 0;
 
         setMonthStats({
           fromDate,
           toDate,
           totalSelected,
-          totalLimitUp,
-          limitUpRate,
+          totalCloseLimitUp,
+          closeLimitUpRate,
           records,
         });
       } catch (e) {
@@ -331,6 +354,29 @@ const Home: React.FC = () => {
         },
       },
       {
+        title: '收盘涨幅',
+        dataIndex: 'changePercent',
+        key: 'closeChangePercent',
+        width: 110,
+        render: (val: number | undefined) => {
+          const v = Number(val || 0);
+          const color = v >= 0 ? '#cf1322' : '#3f8600';
+          return <span style={{ color }}>{v.toFixed(2)}%</span>;
+        },
+      },
+      {
+        title: '当日盈亏',
+        key: 'dailyProfit',
+        width: 110,
+        render: (_: any, record: AuctionSuperMainForceItem) => {
+          const day = Number(record.changePercent || 0);
+          const gap = Number(record.gapPercent || 0);
+          const v = day - gap;
+          const color = v >= 0 ? '#cf1322' : '#3f8600';
+          return <span style={{ color }}>{v.toFixed(2)}%</span>;
+        },
+      },
+      {
         title: '行业',
         dataIndex: 'industry',
         key: 'industry',
@@ -356,9 +402,34 @@ const Home: React.FC = () => {
         ),
       },
       {
-        title: '说明',
-        key: 'note',
-        render: () => <Tag color="gold">竞价涨停</Tag>,
+        title: '竞价涨幅',
+        dataIndex: 'gapPercent',
+        key: 'gapPercent',
+        width: 110,
+        render: (val: number) => {
+          const v = Number(val || 0);
+          return <span style={{ color: v >= 0 ? '#cf1322' : '#3f8600' }}>{v.toFixed(2)}%</span>;
+        },
+      },
+      {
+        title: '收盘涨幅',
+        dataIndex: 'changePercent',
+        key: 'changePercent',
+        width: 110,
+        render: (val: number) => {
+          const v = Number(val || 0);
+          return <span style={{ color: v >= 0 ? '#cf1322' : '#3f8600' }}>{v.toFixed(2)}%</span>;
+        },
+      },
+      {
+        title: '当日盈亏',
+        dataIndex: 'profitPercent',
+        key: 'profitPercent',
+        width: 110,
+        render: (val: number) => {
+          const v = Number(val || 0);
+          return <span style={{ color: v >= 0 ? '#cf1322' : '#3f8600' }}>{v.toFixed(2)}%</span>;
+        },
       },
     ];
     return cols;
@@ -439,16 +510,16 @@ const Home: React.FC = () => {
                   </Col>
                   <Col span={12}>
                     <Statistic
-                      title="当日竞价涨停"
-                      value={monthStats?.totalLimitUp || 0}
+                      title="收盘涨停（竞价未涨停）"
+                      value={monthStats?.totalCloseLimitUp || 0}
                       suffix="只"
                       valueStyle={{ color: '#faad14' }}
                     />
                   </Col>
                   <Col span={12}>
                     <Statistic
-                      title="当日涨停率"
-                      value={monthStats?.limitUpRate || 0}
+                      title="收盘涨停率"
+                      value={monthStats?.closeLimitUpRate || 0}
                       precision={1}
                       suffix="%"
                       valueStyle={{ color: '#52c41a' }}
@@ -463,84 +534,93 @@ const Home: React.FC = () => {
           </Card>
         </Col>
 
-        <Col xs={24} lg={14}>
-          <Card
-            title={
-              <Space>
-                <ThunderboltOutlined />
-                <span>超强主力样例</span>
-              </Space>
-            }
-            extra={
-              <Button size="small" onClick={() => navigate('/super-main-force')}>
-                查看全部
-              </Button>
-            }
-            styles={{ body: { padding: 0 } }}
-          >
-            {sampleError ? <Alert type="error" message={sampleError} /> : null}
-            <Table
-              loading={sampleLoading}
-              columns={sampleColumns}
-              dataSource={(sample?.items || []).slice(0, 8)}
-              rowKey={(r: AuctionSuperMainForceItem) => `${r.stock}-${r.rank}`}
-              pagination={false}
-              size="small"
-            />
-          </Card>
-        </Col>
-
-        <Col xs={24} lg={10}>
-          <Card
-            title={
-              <Space>
-                <BarChartOutlined />
-                <span>最近一个月：超强主力入选后涨停名单</span>
-              </Space>
-            }
-            extra={
-              <Button size="small" onClick={() => navigate('/super-main-force')}>
-                去验证
-              </Button>
-            }
-          >
-            {monthError ? <Alert type="error" message={monthError} /> : null}
-            {monthLoading ? (
-              <div>
-                <div style={{ marginBottom: 8, color: '#aaa', fontSize: 12 }}>
-                  正在汇总近月数据：{monthProgress.done}/{monthProgress.total}
-                </div>
-                <Progress percent={monthProgress.total ? (monthProgress.done / monthProgress.total) * 100 : 0} />
-              </div>
-            ) : null}
-
-            <Row gutter={[16, 16]} style={{ marginTop: 8 }}>
-              <Col span={12}>
-                <Statistic title="统计区间" value={monthStats ? `${monthStats.fromDate} ~ ${monthStats.toDate}` : '-'} />
-              </Col>
-              <Col span={12}>
-                <Statistic
-                  title="口径"
-                  value="入选股票中当日竞价涨停占比"
-                  valueStyle={{ fontSize: 12, color: '#aaa' }}
+        <Col span={24}>
+          <Row gutter={[16, 16]} align="stretch">
+            <Col xs={24} lg={14}>
+              <Card
+                style={{ height: '100%' }}
+                title={
+                  <Space>
+                    <ThunderboltOutlined />
+                    <span>超强主力样例</span>
+                    <span style={{ fontSize: 12, color: '#aaa' }}>
+                      {sample?.tradeDate ? `（${sample.tradeDate}）` : ''}
+                    </span>
+                  </Space>
+                }
+                extra={
+                  <Button size="small" onClick={() => navigate('/super-main-force')}>
+                    查看全部
+                  </Button>
+                }
+                styles={{ body: { padding: 0 } }}
+              >
+                {sampleError ? <Alert type="error" message={sampleError} /> : null}
+                <Table
+                  loading={sampleLoading}
+                  columns={sampleColumns}
+                  dataSource={(sample?.items || []).slice(0, 8)}
+                  rowKey={(r: AuctionSuperMainForceItem) => `${r.stock}-${r.rank}`}
+                  pagination={false}
+                  size="small"
                 />
-              </Col>
-            </Row>
+              </Card>
+            </Col>
 
-            <div style={{ marginTop: 12 }}>
-              {!monthLoading && !monthError && monthStats && monthStats.records.length === 0 ? (
-                <Alert type="info" message="近月暂无竞价涨停记录" showIcon style={{ marginBottom: 12 }} />
-              ) : null}
-              <Table
-                loading={monthLoading}
-                columns={monthColumns}
-                dataSource={(monthStats?.records || []).slice(0, 10)}
-                rowKey={(r: MonthlyLimitUpRecord) => `${r.tradeDate}-${r.stock}`}
-                pagination={false}
-                size="small"
-              />
-            </div>
-          </Card>
+            <Col xs={24} lg={10}>
+              <Card
+                style={{ height: '100%' }}
+                title={
+                  <Space>
+                    <BarChartOutlined />
+                    <span>最近一个月：超强主力入选后涨停名单</span>
+                  </Space>
+                }
+                extra={
+                  <Button size="small" onClick={() => navigate('/super-main-force')}>
+                    去验证
+                  </Button>
+                }
+              >
+                {monthError ? <Alert type="error" message={monthError} /> : null}
+                {monthLoading ? (
+                  <div>
+                    <div style={{ marginBottom: 8, color: '#aaa', fontSize: 12 }}>
+                      正在汇总近月数据：{monthProgress.done}/{monthProgress.total}
+                    </div>
+                    <Progress percent={monthProgress.total ? (monthProgress.done / monthProgress.total) * 100 : 0} />
+                  </div>
+                ) : null}
+
+                <Row gutter={[16, 16]} style={{ marginTop: 8 }}>
+                  <Col span={12}>
+                    <Statistic title="统计区间" value={monthStats ? `${monthStats.fromDate} ~ ${monthStats.toDate}` : '-'} />
+                  </Col>
+                  <Col span={12}>
+                    <Statistic
+                      title="口径"
+                      value="入选股票中收盘涨停（竞价未涨停）占比"
+                      valueStyle={{ fontSize: 12, color: '#aaa' }}
+                    />
+                  </Col>
+                </Row>
+
+                <div style={{ marginTop: 12 }}>
+                  {!monthLoading && !monthError && monthStats && monthStats.records.length === 0 ? (
+                    <Alert type="info" message="近月暂无竞价涨停记录" showIcon style={{ marginBottom: 12 }} />
+                  ) : null}
+                  <Table
+                    loading={monthLoading}
+                    columns={monthColumns}
+                    dataSource={(monthStats?.records || []).slice(0, 10)}
+                    rowKey={(r: MonthlyLimitUpRecord) => `${r.tradeDate}-${r.stock}`}
+                    pagination={false}
+                    size="small"
+                  />
+                </div>
+              </Card>
+            </Col>
+          </Row>
         </Col>
 
         <Col span={24}>

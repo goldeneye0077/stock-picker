@@ -141,22 +141,17 @@ router.get('/:code/history', asyncHandler(async (req, res) => {
   });
 }));
 
-// Get stock technical analysis (包括 daily_basic 指标和计算指标)
 router.get('/:code/analysis', asyncHandler(async (req, res) => {
   const { code } = req.params;
+  const queryDate = typeof req.query.date === 'string' ? req.query.date : undefined;
 
-  // 获取最新的 daily_basic 数据
-  const dailyBasicData = await stockRepo.getLatestDailyBasic(code);
+  const dailyBasicData = await stockRepo.getLatestDailyBasic(code, queryDate);
 
-  // 获取计算的技术指标（MA, MACD, RSI, KDJ等）
   const calculatedIndicators = await stockRepo.getCalculatedIndicators(code);
 
-  // 合并数据
   const analysisData = {
     indicators: {
-      // 从 daily_basic 表获取的指标
       ...(dailyBasicData || {}),
-      // 计算的技术指标
       ...(calculatedIndicators || {})
     }
   };

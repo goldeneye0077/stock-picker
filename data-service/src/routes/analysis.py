@@ -887,6 +887,7 @@ async def get_auction_super_main_force(
     exclude_auction_limit_up: bool = Query(True),
     min_room_to_limit_pct: float = Query(2.0, ge=0.0, le=30.0),
     theme_alpha: float = Query(0.25, ge=0.0, le=0.5),
+    pe_filter: bool = Query(False),
 ):
     try:
         def compute_rank_scores(values: list[float]) -> list[float]:
@@ -1043,6 +1044,7 @@ async def get_auction_super_main_force(
             theme_score_map: dict[str, dict] = {}
             stock_theme_candidates_map: dict[str, list[dict]] = {}
             theme_coverage = 0.0
+            closing_info_map: dict[str, dict] = {}
 
             trade_date_ret = target_date
             theme_date = trade_date_ret
@@ -1065,7 +1067,7 @@ async def get_auction_super_main_force(
 
                 cursor = await db.execute(
                     f"""
-                    SELECT stock_code, turnover_rate, volume_ratio, float_share
+                    SELECT stock_code, turnover_rate, volume_ratio, float_share, pe, pe_ttm
                     FROM daily_basic
                     WHERE trade_date = ? AND stock_code IN ({placeholders})
                     """,
@@ -1078,6 +1080,87 @@ async def get_auction_super_main_force(
                         "turnover_rate": float(row["turnover_rate"] or 0.0),
                         "volume_ratio": float(row["volume_ratio"] or 0.0),
                         "float_share": float(row["float_share"] or 0.0),
+                        "pe": float(row["pe"]) if row["pe"] is not None else None,
+                        "pe_ttm": float(row["pe_ttm"]) if row["pe_ttm"] is not None else None,
+                    }
+
+                if pe_filter:
+                    fallback_codes: list[str] = []
+                    for code in stock_codes:
+                        info = daily_basic_map.get(code)
+                        pe_val = info.get("pe") if info else None
+                        pe_ttm_val = info.get("pe_ttm") if info else None
+                        pe_missing = pe_val is None or (isinstance(pe_val, float) and math.isnan(pe_val))
+                        pe_ttm_missing = pe_ttm_val is None or (isinstance(pe_ttm_val, float) and math.isnan(pe_ttm_val))
+                        if pe_missing and pe_ttm_missing:
+                            fallback_codes.append(code)
+
+                    if fallback_codes:
+                        placeholders_fb = ",".join(["?"] * len(fallback_codes))
+                        cursor = await db.execute(
+                            f"""
+                            SELECT db.stock_code, db.pe, db.pe_ttm
+                            FROM daily_basic db
+                            JOIN (
+                                SELECT stock_code, MAX(trade_date) AS trade_date
+                                FROM daily_basic
+                                WHERE stock_code IN ({placeholders_fb})
+                                  AND trade_date < ?
+                                  AND (pe IS NOT NULL OR pe_ttm IS NOT NULL)
+                                GROUP BY stock_code
+                            ) latest
+                            ON db.stock_code = latest.stock_code AND db.trade_date = latest.trade_date
+                            """,
+                            (*fallback_codes, trade_date_ret),
+                        )
+                        fb_rows = await cursor.fetchall()
+                        for row in fb_rows:
+                            code = str(row["stock_code"] or "")
+                            if not code:
+                                continue
+                            info = daily_basic_map.get(code) or {
+                                "turnover_rate": 0.0,
+                                "volume_ratio": 0.0,
+                                "float_share": 0.0,
+                                "pe": None,
+                                "pe_ttm": None,
+                            }
+                            if info.get("pe") is None and row["pe"] is not None:
+                                info["pe"] = float(row["pe"])
+                            if info.get("pe_ttm") is None and row["pe_ttm"] is not None:
+                                info["pe_ttm"] = float(row["pe_ttm"])
+                            daily_basic_map[code] = info
+
+                placeholders_ci = ",".join(["?"] * len(stock_codes))
+                cursor = await db.execute(
+                    f"""
+                    SELECT
+                        q.stock_code as stock,
+                        COALESCE(db0.close, k.close, q.close) as close_price
+                    FROM quote_history q
+                    LEFT JOIN daily_basic db0
+                        ON db0.stock_code = q.stock_code
+                       AND REPLACE(db0.trade_date, '-', '') = REPLACE(?, '-', '')
+                    LEFT JOIN klines k
+                        ON k.stock_code = q.stock_code
+                       AND k.date = (
+                           SELECT MAX(date)
+                           FROM klines
+                           WHERE stock_code = q.stock_code
+                             AND date <= ?
+                       )
+                    WHERE q.snapshot_time = ?
+                      AND q.stock_code IN ({placeholders_ci})
+                    """,
+                    (trade_date_ret, trade_date_ret, snapshot_time, *stock_codes),
+                )
+                ci_rows = await cursor.fetchall()
+                for row in ci_rows:
+                    stock = str(row["stock"] or "")
+                    if not stock:
+                        continue
+                    closing_info_map[stock] = {
+                        "close_price": float(row["close_price"] or 0.0),
                     }
 
             if theme_alpha > 0:
@@ -1256,6 +1339,14 @@ async def get_auction_super_main_force(
             turnover_rate = float(daily_basic.get("turnover_rate") or 0.0)
             volume_ratio = float(daily_basic.get("volume_ratio") or 0.0)
             float_share = float(daily_basic.get("float_share") or 0.0)
+            pe_value = daily_basic.get("pe")
+            pe_ttm_value = daily_basic.get("pe_ttm")
+
+            closing_info = closing_info_map.get(stock_code, {})
+            close_price = float(closing_info.get("close_price") or 0.0)
+            change_percent_close = 0.0
+            if pre_close > 0 and close_price > 0:
+                change_percent_close = (close_price - pre_close) / pre_close * 100.0
 
             gap_percent = 0.0
             gap_ratio = 0.0
@@ -1409,11 +1500,15 @@ async def get_auction_super_main_force(
                 "price": round(price, 3),
                 "preClose": round(pre_close, 3),
                 "gapPercent": round(gap_percent, 2),
+                "close": round(close_price, 3),
+                "changePercent": round(change_percent_close, 2),
                 "vol": vol,
                 "amount": round(amount, 2),
                 "turnoverRate": round(turnover_rate, 3),
                 "volumeRatio": round(volume_ratio, 3),
                 "floatShare": float_share,
+                "pe": pe_value,
+                "peTtm": pe_ttm_value,
                 "likelyLimitUp": likely_limit_up,
                 "auctionLimitUp": auction_limit_up,
                 "themeHeatScore": round(theme_heat_score, 6),
@@ -1473,6 +1568,37 @@ async def get_auction_super_main_force(
             if exclude_auction_limit_up and bool(item.get("auctionLimitUp")):
                 continue
             items.append(item)
+
+        if pe_filter:
+            def _is_missing_pe(v) -> bool:
+                if v is None:
+                    return True
+                try:
+                    return math.isnan(float(v))
+                except Exception:
+                    return True
+
+            def _is_in_pe_range(v) -> bool:
+                try:
+                    x = float(v)
+                except Exception:
+                    return False
+                return x > 0.0 and x <= 300.0
+
+            filtered_items: list[dict] = []
+            for item in items:
+                pe_val = item.get("pe")
+                pe_ttm_val = item.get("peTtm")
+                pe_missing = _is_missing_pe(pe_val)
+                pe_ttm_missing = _is_missing_pe(pe_ttm_val)
+                if pe_missing and pe_ttm_missing:
+                    continue
+                if not pe_missing and not _is_in_pe_range(pe_val):
+                    continue
+                if not pe_ttm_missing and not _is_in_pe_range(pe_ttm_val):
+                    continue
+                filtered_items.append(item)
+            items = filtered_items
 
         if not items:
             return {

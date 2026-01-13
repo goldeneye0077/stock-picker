@@ -208,10 +208,14 @@ export interface AuctionSuperMainForceItem {
   price: number;
   preClose: number;
   gapPercent: number;
+  close?: number;
+  changePercent?: number;
   vol: number;
   amount: number;
   turnoverRate: number;
   volumeRatio: number;
+  auctionVolumeRatio?: number;
+  pe?: number;
   floatShare: number;
   heatScore: number;
   baseHeatScore?: number;
@@ -269,7 +273,8 @@ export async function fetchAuctionSuperMainForce(
   limit: number = 50,
   tradeDate?: string,
   excludeAuctionLimitUp: boolean = true,
-  themeAlpha?: number
+  themeAlpha?: number,
+  peFilter?: boolean
 ): Promise<AuctionSuperMainForceData> {
   const searchParams = new URLSearchParams({ limit: String(limit) });
 
@@ -281,9 +286,12 @@ export async function fetchAuctionSuperMainForce(
   if (themeAlpha !== undefined && themeAlpha !== null) {
     searchParams.append('theme_alpha', String(themeAlpha));
   }
+  if (peFilter) {
+    searchParams.append('pe_filter', 'true');
+  }
 
   const response = await fetch(
-    `${API_BASE_URL}${API_ENDPOINTS.ANALYSIS}/auction/super-main-force?${searchParams}`
+    `${DATA_SERVICE_URL}/api/analysis/auction/super-main-force?${searchParams}`
   );
 
   if (!response.ok) {

@@ -114,11 +114,11 @@ export function useStockDetail() {
     }
   }, []);
 
-  const fetchAnalysisData = useCallback(async (stockCode: string) => {
+  const fetchAnalysisData = useCallback(async (stockCode: string, options: { date?: string } = {}) => {
     setCurrentCode(stockCode);
     setLoading(true);
     try {
-      const analysisData = await fetchStockAnalysis(stockCode);
+      const analysisData = await fetchStockAnalysis(stockCode, options);
       setAnalysis(analysisData);
     } catch (error) {
       console.error('Error fetching stock analysis:', error);

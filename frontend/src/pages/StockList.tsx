@@ -71,10 +71,8 @@ const StockList: React.FC = () => {
     setIsAnalysisModalVisible(true);
 
     try {
-      // 获取技术分析和K线数据
-      await fetchAnalysisData(record.code);
+      await fetchAnalysisData(record.code, { date: params.date });
 
-      // 获取K线数据
       const historyData = await fetchStockHistory(record.code, {
         period: 'daily'
       });
@@ -85,7 +83,7 @@ const StockList: React.FC = () => {
     } catch (error) {
       console.error('Error fetching analysis data:', error);
     }
-  }, [fetchAnalysisData]);
+  }, [fetchAnalysisData, params.date]);
 
   // 显示基本面分析模态框 - 使用 useCallback 优化
   const showFundamentalModal = useCallback((record: StockItem) => {

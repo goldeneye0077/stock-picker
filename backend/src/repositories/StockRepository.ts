@@ -262,11 +262,8 @@ export class StockRepository extends BaseRepository {
     return this.query<Stock>(sql);
   }
 
-  /**
-   * 获取最新的 daily_basic 数据（每日技术指标）
-   */
-  async getLatestDailyBasic(code: string): Promise<any | null> {
-    const sql = `
+  async getLatestDailyBasic(code: string, date?: string): Promise<any | null> {
+    let sql = `
       SELECT
         turnover_rate,
         turnover_rate_f,
@@ -286,10 +283,22 @@ export class StockRepository extends BaseRepository {
         trade_date
       FROM daily_basic
       WHERE stock_code = ?
+    `;
+
+    const params: any[] = [code];
+
+    if (date) {
+      sql += ' AND trade_date <= ?';
+      params.push(date);
+    }
+
+    sql += `
+      AND pe IS NOT NULL
       ORDER BY trade_date DESC
       LIMIT 1
     `;
-    return this.queryOne(sql, [code]);
+
+    return this.queryOne(sql, params);
   }
 
   /**

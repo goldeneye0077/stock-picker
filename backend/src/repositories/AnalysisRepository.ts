@@ -576,17 +576,20 @@ export class AnalysisRepository extends BaseRepository {
     let snapshotTime: string | null = null;
 
     if (tradeDate) {
-      const row = await this.queryOne<{ snapshot_time: string }>(
+      const row = await this.queryOne<{ trade_date: string; snapshot_time: string }>(
         `
-        SELECT MAX(snapshot_time) as snapshot_time
+        SELECT date(substr(snapshot_time, 1, 10)) as trade_date, MAX(snapshot_time) as snapshot_time
         FROM quote_history
-        WHERE date(substr(snapshot_time, 1, 10)) = ?
+        WHERE date(substr(snapshot_time, 1, 10)) <= ?
           AND time(substr(snapshot_time, 12)) BETWEEN '09:20:00' AND '09:30:00'
+        GROUP BY trade_date
+        ORDER BY trade_date DESC
+        LIMIT 1
         `,
         [tradeDate]
       );
       snapshotTime = row?.snapshot_time || null;
-      targetDate = tradeDate;
+      targetDate = row?.trade_date || tradeDate;
     } else {
       const row = await this.queryOne<{ trade_date: string; snapshot_time: string }>(
         `
@@ -617,19 +620,84 @@ export class AnalysisRepository extends BaseRepository {
         q.amount as amount,
         q.vol as vol,
         q.change_percent as gapPercent,
-        COALESCE(db.turnover_rate, 0) as turnoverRate,
-        COALESCE(db.volume_ratio, 0) as volumeRatio,
-        COALESCE(db.float_share, 0) as floatShare
+        COALESCE(db0.close, k.close, q.close) as closePrice,
+        CASE
+          WHEN k.close IS NOT NULL AND k.open IS NOT NULL AND k.open > 0
+            THEN ROUND(((k.close - k.open) / k.open * 100), 2)
+          WHEN db0.close IS NOT NULL AND q.pre_close IS NOT NULL AND q.pre_close > 0
+            THEN ROUND(((db0.close - q.pre_close) / q.pre_close * 100), 2)
+          ELSE q.change_percent
+        END as changePercent,
+        COALESCE(db0.turnover_rate, 0) as turnoverRate,
+        COALESCE(db0.volume_ratio, 0) as volumeRatio,
+        COALESCE(db0.float_share, 0) as floatShare,
+        COALESCE(db0.pe, db0.pe_ttm, dbp.pe, dbp.pe_ttm) as pe,
+        COALESCE(db0.pe_ttm, db0.pe, dbp.pe_ttm, dbp.pe) as peTtm
       FROM quote_history q
       LEFT JOIN stocks s ON s.code = q.stock_code
-      LEFT JOIN daily_basic db ON db.stock_code = q.stock_code AND db.trade_date = ?
+      LEFT JOIN daily_basic db0
+        ON db0.stock_code = q.stock_code
+       AND REPLACE(db0.trade_date, '-', '') = REPLACE(?, '-', '')
+      LEFT JOIN daily_basic dbp
+        ON dbp.stock_code = q.stock_code
+       AND dbp.trade_date = (
+         SELECT MAX(trade_date)
+        FROM daily_basic
+        WHERE stock_code = q.stock_code
+          AND trade_date <= ?
+          AND (pe IS NOT NULL OR pe_ttm IS NOT NULL)
+       )
+      LEFT JOIN klines k
+        ON k.stock_code = q.stock_code
+       AND k.date = (
+         SELECT MAX(date)
+         FROM klines
+         WHERE stock_code = q.stock_code
+           AND date <= ?
+       )
       WHERE q.snapshot_time = ?
+        AND (s.name IS NULL OR UPPER(s.name) NOT LIKE '%ST%')
       ORDER BY amount DESC
       `,
-      [targetDate, snapshotTime]
+      [targetDate, targetDate, targetDate, snapshotTime]
     );
 
     return { tradeDate: targetDate, snapshotTime, rows };
+  }
+
+  async getAvgAuctionVolume(stockCodes: string[], tradeDate: string, days: number = 5): Promise<Record<string, number>> {
+    if (!stockCodes || stockCodes.length === 0) {
+      return {};
+    }
+
+    const placeholders = stockCodes.map(() => '?').join(',');
+    const params: any[] = [tradeDate, days, ...stockCodes];
+
+    const rows = await this.query<{ stock: string; avgVol: number }>(
+      `
+      WITH recent_days AS (
+        SELECT DISTINCT date(substr(snapshot_time, 1, 10)) AS d
+        FROM quote_history
+        WHERE date(substr(snapshot_time, 1, 10)) < ?
+          AND time(substr(snapshot_time, 12)) BETWEEN '09:20:00' AND '09:30:00'
+        ORDER BY d DESC
+        LIMIT ?
+      )
+      SELECT q.stock_code AS stock, AVG(q.vol) AS avgVol
+      FROM quote_history q
+      WHERE date(substr(q.snapshot_time, 1, 10)) IN (SELECT d FROM recent_days)
+        AND time(substr(q.snapshot_time, 12)) BETWEEN '09:20:00' AND '09:30:00'
+        AND q.stock_code IN (${placeholders})
+      GROUP BY q.stock_code
+      `,
+      params
+    );
+
+    const map: Record<string, number> = {};
+    for (const r of rows) {
+      map[r.stock] = Number(r.avgVol || 0);
+    }
+    return map;
   }
 }
 

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Card, Table, Space, Statistic, Row, Col, Tag, Button, Typography, DatePicker, Switch, message, InputNumber } from 'antd';
-import { ThunderboltOutlined, SyncOutlined } from '@ant-design/icons';
+import { Card, Table, Space, Statistic, Row, Col, Tag, Button, Typography, DatePicker, Switch, message, InputNumber, Tooltip } from 'antd';
+import { ThunderboltOutlined, SyncOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import {
   collectAuctionSnapshot,
   fetchAuctionSuperMainForce,
@@ -16,12 +16,20 @@ const SuperMainForce: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState<string | null>(dayjs().format('YYYY-MM-DD'));
   const [includeAuctionLimitUp, setIncludeAuctionLimitUp] = useState(false);
   const [themeAlpha, setThemeAlpha] = useState<number>(0.25);
+  const [peFilterEnabled, setPeFilterEnabled] = useState<boolean>(false);
+  const [showLowGapOnly, setShowLowGapOnly] = useState(false);
   const limit = 20;
+  const hasSelectedDate = !!selectedDate;
+  const hasSnapshot = (data?.dataSource && data.dataSource !== 'none') || false;
+  const hasItems = (data?.items?.length ?? 0) > 0;
+  const isSelectedDateDataComplete = hasSelectedDate && hasSnapshot && hasItems;
+  const isNotCollected = hasSelectedDate && !hasSnapshot;
+  const isCollectedNoItems = hasSelectedDate && hasSnapshot && !hasItems;
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const first = await fetchAuctionSuperMainForce(limit, selectedDate ?? undefined, !includeAuctionLimitUp, themeAlpha);
+      const first = await fetchAuctionSuperMainForce(limit, selectedDate ?? undefined, !includeAuctionLimitUp, themeAlpha, peFilterEnabled);
       const effectiveTradeDate = selectedDate ?? first.tradeDate ?? null;
 
       let result = first;
@@ -43,7 +51,7 @@ const SuperMainForce: React.FC = () => {
           key: 'super_mainforce_collect'
         });
 
-        result = await fetchAuctionSuperMainForce(limit, effectiveTradeDate, !includeAuctionLimitUp, themeAlpha);
+        result = await fetchAuctionSuperMainForce(limit, effectiveTradeDate, !includeAuctionLimitUp, themeAlpha, peFilterEnabled);
       }
 
       setData(result);
@@ -63,7 +71,7 @@ const SuperMainForce: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedDate, includeAuctionLimitUp, themeAlpha, limit]);
+  }, [selectedDate, includeAuctionLimitUp, themeAlpha, peFilterEnabled, limit]);
 
   const forceRefresh = useCallback(async () => {
     const effectiveTradeDate = selectedDate ?? dayjs().format('YYYY-MM-DD');
@@ -82,7 +90,7 @@ const SuperMainForce: React.FC = () => {
         key: 'super_mainforce_force_collect'
       });
 
-      const result = await fetchAuctionSuperMainForce(limit, effectiveTradeDate, !includeAuctionLimitUp, themeAlpha);
+      const result = await fetchAuctionSuperMainForce(limit, effectiveTradeDate, !includeAuctionLimitUp, themeAlpha, peFilterEnabled);
       setData(result);
       setSelectedDate(effectiveTradeDate);
 
@@ -97,7 +105,7 @@ const SuperMainForce: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedDate, includeAuctionLimitUp, themeAlpha, limit]);
+  }, [selectedDate, includeAuctionLimitUp, themeAlpha, peFilterEnabled, limit]);
 
   const handleDateChange = (date: Dayjs | null, dateString: string) => {
     if (date) {
@@ -221,6 +229,15 @@ const SuperMainForce: React.FC = () => {
     }
   ];
 
+  const rawItems = data?.items || [];
+  const items = rawItems.filter((item) => {
+    const name = (item.name || '').toUpperCase();
+    return !name.includes('ST');
+  });
+  const tableItems = showLowGapOnly
+    ? items.filter((item) => Number(item.gapPercent ?? 0) < 5)
+    : items;
+
   return (
     <div style={{ padding: 24 }}>
       <Card
@@ -246,12 +263,43 @@ const SuperMainForce: React.FC = () => {
               format="YYYY-MM-DD"
               disabled={loading}
             />
+            {isSelectedDateDataComplete ? (
+              <Space size={6}>
+                <Tag color="green">数据齐全：量比已就绪</Tag>
+                <Tooltip title="量比来源于 daily_basic.volume_ratio。该口径在集合竞价阶段通常已就绪，可直接参考。">
+                  <QuestionCircleOutlined style={{ color: '#1890ff' }} />
+                </Tooltip>
+              </Space>
+            ) : isNotCollected ? (
+              <Space size={6}>
+                <Tag color="red">未采集：量比可能偏低（daily_basic 未就绪）</Tag>
+                <Tooltip title="集合竞价阶段 daily_basic.volume_ratio 可能未就绪，建议点击“刷新”采集或使用“强制刷新”。如仍偏低，可参考“竞价量比”。">
+                  <QuestionCircleOutlined style={{ color: '#1890ff' }} />
+                </Tooltip>
+              </Space>
+            ) : isCollectedNoItems ? (
+              <Space size={6}>
+                <Tag color="orange">已采集且无候选：量比可能不稳定</Tag>
+                <Tooltip title="早盘集合竞价数据不完全会导致量比偏低。可尝试“强制刷新”或稍后再试，并结合竞价量比进行判断。">
+                  <QuestionCircleOutlined style={{ color: '#1890ff' }} />
+                </Tooltip>
+              </Space>
+            ) : null}
             <Space size={4}>
               <span style={{ fontSize: 12, color: '#aaa' }}>含竞价涨停</span>
               <Switch
                 size="small"
                 checked={includeAuctionLimitUp}
                 onChange={setIncludeAuctionLimitUp}
+                disabled={loading}
+              />
+            </Space>
+            <Space size={4}>
+              <span style={{ fontSize: 12, color: '#aaa' }}>PE筛选</span>
+              <Switch
+                size="small"
+                checked={peFilterEnabled}
+                onChange={setPeFilterEnabled}
                 disabled={loading}
               />
             </Space>
@@ -268,6 +316,14 @@ const SuperMainForce: React.FC = () => {
                 style={{ width: 86 }}
               />
             </Space>
+            <Button
+              size="small"
+              type={showLowGapOnly ? 'primary' : 'default'}
+              onClick={() => setShowLowGapOnly((v) => !v)}
+              disabled={loading || !hasItems}
+            >
+              {showLowGapOnly ? '显示全部' : '只看涨幅<5%'}
+            </Button>
             <Button icon={<SyncOutlined spin={loading} />} onClick={loadData} loading={loading} size="small">
               刷新
             </Button>
@@ -332,9 +388,10 @@ const SuperMainForce: React.FC = () => {
         <Table
           loading={loading}
           columns={columns}
-          dataSource={(data?.items || []).slice(0, 20)}
+          dataSource={tableItems.slice(0, 20)}
           rowKey={(record) => `${record.stock}-${record.rank}`}
           pagination={false}
+          scroll={{ x: 1200 }}
         />
       </Card>
     </div>
