@@ -424,18 +424,18 @@ jobs:
     runs-on: ubuntu-latest
     needs: [changes, validate-specs, test-backend, test-frontend, test-data-service, build]
     if: always()
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
     steps:
     - name: Send Slack notification
-      if: ${{ secrets.SLACK_WEBHOOK_URL != '' }}
+      if: ${{ env.SLACK_WEBHOOK_URL != '' }}
       uses: 8398a7/action-slack@v3
       with:
         status: ${{ job.status }}
         channel: '#ci-cd'
         username: 'CI/CD Bot'
         icon_emoji: ':robot_face:'
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
     - name: Update PR status
       if: github.event_name == 'pull_request'
