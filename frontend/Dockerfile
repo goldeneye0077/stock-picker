@@ -8,6 +8,7 @@ COPY package*.json ./
 COPY tsconfig*.json ./
 COPY vite.config.ts ./
 COPY index.html ./
+COPY eslint.config.js ./
 
 ARG VITE_API_BASE_URL
 ARG VITE_DATA_SERVICE_URL
@@ -20,6 +21,8 @@ RUN npm config set registry https://registry.npmmirror.com && npm install
 # Copy source code
 COPY public ./public
 COPY src ./src
+
+RUN npm run lint && npm run typecheck && CI=1 npm test
 
 # Build the application
 ENV NODE_OPTIONS=--max-old-space-size=4096

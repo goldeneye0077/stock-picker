@@ -8,6 +8,7 @@ import {
   CalculatorOutlined,
   ThunderboltOutlined,
   TeamOutlined,
+  HomeOutlined,
 } from '@ant-design/icons';
 import Home from './pages/Home';
 import StockList from './pages/StockList';
@@ -23,6 +24,11 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 const { darkAlgorithm } = theme;
 
 const menuItems = [
+  {
+    path: '/home',
+    name: '首页',
+    icon: <HomeOutlined />,
+  },
   {
     path: '/super-main-force',
     name: '超强主力',
@@ -94,7 +100,11 @@ function AppLayout() {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }
 
-  const visibleMenuItems = menuItems.filter((item) => (item.path ? canAccess(item.path) : false));
+  const visibleMenuItems = menuItems.filter((item) => {
+    if (!item.path) return false;
+    if (item.path === '/home') return true;
+    return canAccess(item.path);
+  });
   const menuItemsWithAdminGuard = visibleMenuItems.filter((item) => {
     if (!item.path) return false;
     if (item.path === '/user-management') return user.isAdmin;

@@ -67,7 +67,7 @@ describe('Stock Routes', () => {
     });
 
     it('空数据时应该返回空数组', async () => {
-      mockStockRepoInstance.findAll.mockResolvedValue([]);
+      mockStockRepoInstanceInstance.findAll.mockResolvedValue([]);
 
       const response = await request(app)
         .get('/api/stocks')
@@ -79,27 +79,39 @@ describe('Stock Routes', () => {
     });
 
     it('数据库错误时应该返回 500', async () => {
-      mockStockRepoInstance.findAll.mockRejectedValue(new Error('Database error'));
+      mockStockRepoInstanceInstance.findAll.mockRejectedValue(new Error('Database error'));
 
       const response = await request(app)
         .get('/api/stocks')
         .expect(500);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error).toBeDefined();
+      expect(response.body.message).toBeDefined();
     });
   });
 
   describe('GET /api/stocks/:code', () => {
     it('应该返回指定股票的详细信息', async () => {
       const mockStockDetails = {
-        code: '000001',
-        name: '平安银行',
-        exchange: 'SZ',
-        industry: '银行',
-        current_price: 12.5,
-        change_percent: 4.17,
-        volume: 120000000,
+        stock: {
+          code: '000001',
+          name: '平安银行',
+          exchange: 'SZ',
+          industry: '银行',
+        },
+        realtimeQuote: {
+          stock_code: '000001',
+          open: 12.0,
+          close: 12.5,
+          high: 12.6,
+          low: 11.9,
+          vol: 120000000,
+          amount: 0,
+          pre_close: 12.0,
+          change_percent: 4.17,
+          change_amount: 0.5,
+          updated_at: '2025-10-22T09:30:00Z',
+        },
         klines: [
           {
             date: '2025-10-22',
@@ -110,28 +122,36 @@ describe('Stock Routes', () => {
             volume: 120000000,
           },
         ],
+        volumeAnalysis: [],
+        buySignals: [],
+        intradayQuotes: [],
       };
 
-      mockStockRepoInstance.findDetailsByCode.mockResolvedValue(mockStockDetails as any);
+      mockStockRepoInstanceInstance.findDetailsByCode.mockResolvedValue(mockStockDetails as any);
 
       const response = await request(app)
         .get('/api/stocks/000001')
         .expect(200);
 
       expect(response.body.success).toBe(true);
-      expect(response.body.data).toEqual(mockStockDetails);
-      expect(mockStockRepoInstance.findDetailsByCode).toHaveBeenCalledWith('000001');
+      expect(response.body.data.code).toBe('000001');
+      expect(response.body.data.name).toBe('平安银行');
+      expect(response.body.data.exchange).toBe('SZ');
+      expect(response.body.data.industry).toBe('银行');
+      expect(response.body.data.current_price).toBe(12.5);
+      expect(response.body.data._raw).toEqual(mockStockDetails);
+      expect(mockStockRepoInstanceInstance.findDetailsByCode).toHaveBeenCalledWith('000001');
     });
 
     it('股票不存在时应该返回 404', async () => {
-      mockStockRepoInstance.findDetailsByCode.mockResolvedValue(null);
+      mockStockRepoInstanceInstance.findDetailsByCode.mockResolvedValue(null);
 
       const response = await request(app)
         .get('/api/stocks/999999')
         .expect(404);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error).toContain('Stock not found');
+      expect(String(response.body.message || '').toLowerCase()).toContain('not found');
     });
   });
 
@@ -146,7 +166,7 @@ describe('Stock Routes', () => {
         },
       ];
 
-      mockStockRepoInstance.search.mockResolvedValue(mockSearchResults as any);
+      mockStockRepoInstanceInstance.search.mockResolvedValue(mockSearchResults as any);
 
       const response = await request(app)
         .get('/api/stocks/search/000001')
@@ -154,7 +174,7 @@ describe('Stock Routes', () => {
 
       expect(response.body.success).toBe(true);
       expect(response.body.data).toEqual(mockSearchResults);
-      expect(mockStockRepoInstance.search).toHaveBeenCalledWith('000001', 20);
+      expect(mockStockRepoInstanceInstance.search).toHaveBeenCalledWith('000001', 20);
     });
 
     it('应该根据股票名称搜索', async () => {
@@ -167,7 +187,7 @@ describe('Stock Routes', () => {
         },
       ];
 
-      mockStockRepoInstance.search.mockResolvedValue(mockSearchResults as any);
+      mockStockRepoInstanceInstance.search.mockResolvedValue(mockSearchResults as any);
 
       const response = await request(app)
         .get('/api/stocks/search/平安')
@@ -184,8 +204,8 @@ describe('Stock Routes', () => {
         { code: '600000', name: '浦发银行', exchange: 'SH', industry: '银行' },
       ];
 
-      mockStockRepoInstance.search.mockResolvedValue(mockSearchResults);
-      mockStockRepoInstance.findAllBasic.mockResolvedValue(mockAllStocks as any);
+      mockStockRepoInstanceInstance.search.mockResolvedValue(mockSearchResults);
+      mockStockRepoInstanceInstance.findAllBasic.mockResolvedValue(mockAllStocks as any);
 
       const response = await request(app)
         .get('/api/stocks/search/payh')
@@ -194,11 +214,12 @@ describe('Stock Routes', () => {
       expect(response.body.success).toBe(true);
       expect(Array.isArray(response.body.data)).toBe(true);
       // 拼音匹配应该被调用
-      expect(mockStockRepoInstance.findAllBasic).toHaveBeenCalledWith(500);
+      expect(mockStockRepoInstanceInstance.findAllBasic).toHaveBeenCalledWith(500);
     });
 
     it('搜索无结果时应该返回空数组', async () => {
-      mockStockRepoInstance.search.mockResolvedValue([]);
+      mockStockRepoInstanceInstance.search.mockResolvedValue([]);
+      mockStockRepoInstanceInstance.findAllBasic.mockResolvedValue([]);
 
       const response = await request(app)
         .get('/api/stocks/search/nonexistent')
@@ -224,7 +245,7 @@ describe('Stock Routes', () => {
         },
       ];
 
-      mockStockRepoInstance.findByDate.mockResolvedValue(mockHistoryData as any);
+      mockStockRepoInstanceInstance.findByDate.mockResolvedValue(mockHistoryData as any);
 
       const response = await request(app)
         .get('/api/stocks/history/date/2025-10-22')
@@ -234,7 +255,7 @@ describe('Stock Routes', () => {
       expect(response.body.data).toEqual(mockHistoryData);
       expect(response.body.total).toBe(1);
       expect(response.body.date).toBe('2025-10-22');
-      expect(mockStockRepoInstance.findByDate).toHaveBeenCalledWith('2025-10-22');
+      expect(mockStockRepoInstanceInstance.findByDate).toHaveBeenCalledWith('2025-10-22');
     });
 
     it('日期格式无效时应该返回 400', async () => {
@@ -243,7 +264,7 @@ describe('Stock Routes', () => {
         .expect(400);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error).toContain('Invalid date format');
+      expect(response.body.message).toContain('Invalid date format');
     });
 
     it('日期格式无效（错误分隔符）时应该返回 400', async () => {
@@ -255,7 +276,7 @@ describe('Stock Routes', () => {
     });
 
     it('指定日期无数据时应该返回空数组', async () => {
-      mockStockRepoInstance.findByDate.mockResolvedValue([]);
+      mockStockRepoInstanceInstance.findByDate.mockResolvedValue([]);
 
       const response = await request(app)
         .get('/api/stocks/history/date/2020-01-01')
@@ -274,18 +295,18 @@ describe('Stock Routes', () => {
         .expect(404);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error).toContain('not found');
+      expect(String(response.body.message || '').toLowerCase()).toContain('not found');
     });
 
     it('Repository 抛出错误时应该正确处理', async () => {
-      mockStockRepoInstance.findAll.mockRejectedValue(new Error('Unexpected database error'));
+      mockStockRepoInstanceInstance.findAll.mockRejectedValue(new Error('Unexpected database error'));
 
       const response = await request(app)
         .get('/api/stocks')
         .expect(500);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error).toBeDefined();
+      expect(response.body.message).toBeDefined();
     });
   });
 });

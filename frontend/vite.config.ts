@@ -8,6 +8,17 @@ export default defineConfig({
   server: {
     host: '127.0.0.1', // Force IPv4 localhost
     port: 3001,
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:3100',
+        changeOrigin: true,
+      },
+      '/data-service': {
+        target: 'http://127.0.0.1:8001',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/data-service/, ''),
+      },
+    },
   },
   test: {
     globals: true,

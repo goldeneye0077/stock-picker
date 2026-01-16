@@ -24,13 +24,13 @@ logger = logging.getLogger(__name__)
 class FundamentalAnalyzer:
     """基本面分析器"""
 
-    def __init__(self, fundamental_client: FundamentalClient, db_path: str = "data/stock_picker.db"):
+    def __init__(self, fundamental_client: FundamentalClient, db_path: str | None = None):
         """
         初始化基本面分析器
 
         Args:
             fundamental_client: 基本面客户端
-            db_path: 数据库路径
+            db_path: 数据库路径，如果为None则使用默认路径
         """
         self.fundamental_client = fundamental_client
         self.fundamental_db = FundamentalDB(db_path)

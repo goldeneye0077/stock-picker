@@ -51,7 +51,6 @@ import {
   fetchSelectionStrategies,
   runSmartSelection,
   fetchAdvancedSelectionStrategies,
-  compareAlgorithms,
   getAdvancedStatistics,
   runBacktest,
   runAdvancedSelectionAsync,
@@ -114,7 +113,6 @@ const SmartSelection: React.FC = () => {
   const [requireUptrend, setRequireUptrend] = useState<boolean>(true); // 是否要求上升趋势（高级算法）
   const [requireHotSector, setRequireHotSector] = useState<boolean>(true); // 是否要求热门板块（高级算法）
   const [error, setError] = useState<string | null>(null);
-  const [algorithmComparison, setAlgorithmComparison] = useState<any>(null); // 算法对比数据
   const [advancedStatistics, setAdvancedStatistics] = useState<any>(null); // 高级算法统计
   const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null); // 当前选中策略的回测结果
   const [backtestCompareResults, setBacktestCompareResults] = useState<
@@ -616,11 +614,9 @@ const SmartSelection: React.FC = () => {
               setSelectionProgress(100);
               setLoading(false);
               Promise.all([
-                compareAlgorithms(60, 5),
                 getAdvancedStatistics(),
               ])
-                .then(([comparisonResponse, statsResponse]) => {
-                  setAlgorithmComparison(comparisonResponse);
+                .then(([statsResponse]) => {
                   setAdvancedStatistics(statsResponse);
                 })
                 .catch((extraError) => {
@@ -648,6 +644,8 @@ const SmartSelection: React.FC = () => {
     } catch (error) {
       console.error('运行选股失败:', error);
       setError(error instanceof Error ? error.message : '运行选股失败，请检查参数配置或稍后重试');
+      resetSelectionProgress();
+      setLoading(false);
     } finally {
       if (isBasicAlgorithm) {
         resetSelectionProgress();
@@ -1889,53 +1887,6 @@ const SmartSelection: React.FC = () => {
               ]}
             />
           </Modal>
-
-          {/* 算法对比（仅当有对比数据时显示） */}
-          {algorithmComparison && algorithmType === 'advanced' && (
-            <ProCard title="算法对比" style={{ marginTop: 16 }} headerBordered>
-              <Row gutter={[16, 16]}>
-                <Col span={12}>
-                  <Card title="旧算法（简单加权）" size="small">
-                    <div style={{ marginBottom: 8 }}>
-                      <Text strong>权重配置:</Text>
-                      <Paragraph style={{ fontSize: 13, marginBottom: 8 }}>
-                        {algorithmComparison.old_algorithm.weights}
-                      </Paragraph>
-                    </div>
-                    <div>
-                      <Text strong>算法描述:</Text>
-                      <Paragraph style={{ fontSize: 13 }}>
-                        {algorithmComparison.old_algorithm.description}
-                      </Paragraph>
-                    </div>
-                  </Card>
-                </Col>
-                <Col span={12}>
-                  <Card title="新算法（多因子动量）" size="small">
-                    <div style={{ marginBottom: 8 }}>
-                      <Text strong>权重配置:</Text>
-                      <Paragraph style={{ fontSize: 13, marginBottom: 8 }}>
-                        {algorithmComparison.new_algorithm.weights}
-                      </Paragraph>
-                    </div>
-                    <div>
-                      <Text strong>算法描述:</Text>
-                      <Paragraph style={{ fontSize: 13 }}>
-                        {algorithmComparison.new_algorithm.description}
-                      </Paragraph>
-                    </div>
-                  </Card>
-                </Col>
-              </Row>
-              <Divider />
-              <Title level={5}>改进点:</Title>
-              <ul style={{ paddingLeft: 20 }}>
-                {algorithmComparison.improvements.map((improvement: string, index: number) => (
-                  <li key={index} style={{ marginBottom: 8, fontSize: 13 }}>{improvement}</li>
-                ))}
-              </ul>
-            </ProCard>
-          )}
 
           {/* 高级算法统计信息（仅当有统计信息且使用高级算法时显示） */}
           {advancedStatistics && algorithmType === 'advanced' && (

@@ -1,11 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Alert, Button, Card, Col, Progress, Row, Space, Statistic, Table, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Col, Progress, Row, Space, Statistic, Table, Tag, Typography, message } from 'antd';
 import { BarChartOutlined, CalculatorOutlined, RightOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import dayjs from 'dayjs';
 import type { ColumnsType } from 'antd/es/table';
-import { fetchAuctionSuperMainForce, type AuctionSuperMainForceItem, type AuctionSuperMainForceData } from '../services/analysisService';
+import {
+  collectAuctionSnapshot,
+  fetchAuctionSuperMainForce,
+  type AuctionSuperMainForceItem,
+  type AuctionSuperMainForceData
+} from '../services/analysisService';
 import { fetchSelectionStrategies, type SelectionStrategy } from '../services/smartSelectionService';
 
 type MonthlyLimitUpRecord = {
@@ -21,6 +26,8 @@ type MonthlyLimitUpRecord = {
 type MonthlySuperMainForceStats = {
   fromDate: string;
   toDate: string;
+  requestedDays: number;
+  coveredDays: number;
   totalSelected: number;
   totalCloseLimitUp: number;
   closeLimitUpRate: number;
@@ -108,9 +115,31 @@ const Home: React.FC = () => {
       setSampleLoading(true);
       setSampleError(null);
       try {
-        const recent = buildRecentWeekdays(3);
-        const tradeDate = recent.length > 1 ? recent[1] : recent[0];
-        const data = await fetchAuctionSuperMainForce(10, tradeDate, true, 0.25, false);
+        const first = await fetchAuctionSuperMainForce(10, undefined, true, 0.25, false);
+        if (cancelled) return;
+        const effectiveTradeDate = first.tradeDate ?? dayjs().format('YYYY-MM-DD');
+        const needCollect =
+          !first.tradeDate || first.dataSource === 'none' || (first.items?.length ?? 0) === 0;
+
+        let data = first;
+        if (needCollect) {
+          message.loading({
+            content: `${effectiveTradeDate} 数据未准备好，开始从 Tushare 采集...`,
+            key: 'home_super_mainforce_collect',
+            duration: 0
+          });
+
+          const { inserted } = await collectAuctionSnapshot(effectiveTradeDate);
+          if (cancelled) return;
+
+          message.success({
+            content: `采集完成（插入 ${inserted} 条），正在刷新...`,
+            key: 'home_super_mainforce_collect'
+          });
+
+          data = await fetchAuctionSuperMainForce(10, effectiveTradeDate, true, 0.25, false);
+        }
+
         if (cancelled) return;
         setSample(data);
       } catch (e) {
@@ -210,6 +239,8 @@ const Home: React.FC = () => {
         setMonthStats({
           fromDate,
           toDate,
+          requestedDays: dates.length,
+          coveredDays: valid.length,
           totalSelected,
           totalCloseLimitUp,
           closeLimitUpRate,
@@ -606,8 +637,24 @@ const Home: React.FC = () => {
                 </Row>
 
                 <div style={{ marginTop: 12 }}>
-                  {!monthLoading && !monthError && monthStats && monthStats.records.length === 0 ? (
-                    <Alert type="info" message="近月暂无竞价涨停记录" showIcon style={{ marginBottom: 12 }} />
+                  {!monthLoading && !monthError && monthStats && monthStats.coveredDays < monthStats.requestedDays ? (
+                    <Alert
+                      type="warning"
+                      message={`近月仅覆盖 ${monthStats.coveredDays}/${monthStats.requestedDays} 个交易日，统计区间已按可用数据缩短`}
+                      showIcon
+                      style={{ marginBottom: 12 }}
+                    />
+                  ) : null}
+                  {!monthLoading && !monthError && monthStats && monthStats.totalSelected === 0 ? (
+                    <Alert type="info" message="近月暂无入选记录" showIcon style={{ marginBottom: 12 }} />
+                  ) : null}
+                  {!monthLoading && !monthError && monthStats && monthStats.totalSelected > 0 && monthStats.records.length === 0 ? (
+                    <Alert
+                      type="info"
+                      message="近月暂无“收盘涨停（竞价未涨停）”记录"
+                      showIcon
+                      style={{ marginBottom: 12 }}
+                    />
                   ) : null}
                   <Table
                     loading={monthLoading}

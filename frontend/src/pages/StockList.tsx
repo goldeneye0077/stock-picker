@@ -25,9 +25,7 @@ const StockList: React.FC = () => {
     params,
     fetchData,
     updateParams,
-    resetParams,
     handleSearch,
-    setSearchQuery
   } = useStockList();
 
   const { detail, analysis, loading: detailLoading, fetchDetail, fetchAnalysisData, reset: resetDetail } = useStockDetail();

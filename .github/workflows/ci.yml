@@ -7,15 +7,83 @@ on:
     branches: [ main, master, develop ]
 
 jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      data_service: ${{ steps.filter.outputs.data_service }}
+      specs: ${{ steps.filter.outputs.specs }}
+      ops: ${{ steps.filter.outputs.ops }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: Filter paths
+      id: filter
+      uses: dorny/paths-filter@v3
+      with:
+        filters: |
+          backend:
+            - 'backend/**'
+          frontend:
+            - 'frontend/**'
+          data_service:
+            - 'data-service/**'
+          specs:
+            - 'specs/**'
+            - '.github/workflows/validate-specs.yml'
+            - '.github/workflows/ci.yml'
+          ops:
+            - 'docker-compose.yml'
+            - 'backend/Dockerfile'
+            - 'frontend/Dockerfile'
+            - 'data-service/Dockerfile'
+            - '.github/workflows/**'
+
   validate-specs:
     name: Validate OpenAPI Specifications
     uses: ./.github/workflows/validate-specs.yml
+    needs: changes
+    if: needs.changes.outputs.specs == 'true'
+
+  gate-checks:
+    name: Gate Checks
+    runs-on: ubuntu-latest
+    needs: changes
+    if: always()
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: Verify Python baseline
+      run: |
+        python3 -V
+        if ! grep -qE '^FROM python:3\.12' data-service/Dockerfile; then
+          echo "data-service/Dockerfile must use python:3.12 base image"
+          exit 1
+        fi
+    - name: Verify compose healthchecks
+      run: |
+        if ! grep -q 'healthcheck:' docker-compose.yml; then
+          echo "docker-compose.yml must define healthchecks"
+          exit 1
+        fi
+        if ! grep -qE 'service:.*backend|backend:' docker-compose.yml; then
+          echo "docker-compose.yml missing backend service"
+          exit 1
+        fi
+        if ! grep -qE 'service:.*data-service|data-service:' docker-compose.yml; then
+          echo "docker-compose.yml missing data-service service"
+          exit 1
+        fi
 
   test-backend:
     name: Test Backend
     runs-on: ubuntu-latest
-    needs: validate-specs
-    if: needs.validate-specs.result == 'success'
+    needs: [changes, validate-specs]
+    if: |
+      needs.changes.outputs.backend == 'true' &&
+      (needs.validate-specs.result == 'success' || needs.validate-specs.result == 'skipped')
 
     steps:
     - name: Checkout code
@@ -49,8 +117,10 @@ jobs:
   test-frontend:
     name: Test Frontend
     runs-on: ubuntu-latest
-    needs: validate-specs
-    if: needs.validate-specs.result == 'success'
+    needs: [changes, validate-specs]
+    if: |
+      needs.changes.outputs.frontend == 'true' &&
+      (needs.validate-specs.result == 'success' || needs.validate-specs.result == 'skipped')
 
     steps:
     - name: Checkout code
@@ -60,13 +130,11 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '20'
-        cache: 'npm'
-        cache-dependency-path: 'frontend/package-lock.json'
 
     - name: Install frontend dependencies
       run: |
         cd frontend
-        npm ci
+        npm install
 
     - name: Run frontend tests
       run: |
@@ -84,8 +152,10 @@ jobs:
   test-data-service:
     name: Test Data Service
     runs-on: ubuntu-latest
-    needs: validate-specs
-    if: needs.validate-specs.result == 'success'
+    needs: [changes, validate-specs]
+    if: |
+      needs.changes.outputs.data_service == 'true' &&
+      (needs.validate-specs.result == 'success' || needs.validate-specs.result == 'skipped')
 
     steps:
     - name: Checkout code
@@ -94,7 +164,7 @@ jobs:
     - name: Setup Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.10'
+        python-version: '3.12'
 
     - name: Install data service dependencies
       run: |
@@ -113,9 +183,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: [test-backend, test-frontend, test-data-service]
     if: |
-      needs.test-backend.result == 'success' &&
-      needs.test-frontend.result == 'success' &&
-      needs.test-data-service.result == 'success'
+      (needs.test-backend.result == 'success' || needs.test-backend.result == 'skipped') &&
+      (needs.test-frontend.result == 'success' || needs.test-frontend.result == 'skipped') &&
+      (needs.test-data-service.result == 'success' || needs.test-data-service.result == 'skipped')
 
     steps:
     - name: Checkout code
@@ -129,11 +199,13 @@ jobs:
     - name: Build backend
       run: |
         cd backend
+        npm ci
         npm run build
 
     - name: Build frontend
       run: |
         cd frontend
+        npm install
         npm run build
 
     - name: Upload build artifacts
@@ -145,8 +217,48 @@ jobs:
           frontend/dist/
         retention-days: 7
 
-  deploy-preview:
-    name: Deploy Preview
+  smoke-docker-compose:
+    name: Smoke Test (Docker Compose)
+    runs-on: ubuntu-latest
+    needs: [changes, gate-checks, validate-specs]
+    if: |
+      (needs.changes.outputs.backend == 'true' ||
+       needs.changes.outputs.frontend == 'true' ||
+       needs.changes.outputs.data_service == 'true' ||
+       needs.changes.outputs.ops == 'true') &&
+      needs.gate-checks.result == 'success' &&
+      (needs.validate-specs.result == 'success' || needs.validate-specs.result == 'skipped')
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: Build and start services
+      run: |
+        docker compose up -d --build
+    - name: Wait for services
+      run: |
+        set -e
+        for i in {1..60}; do
+          backend_h=$(docker inspect -f '{{.State.Health.Status}}' stock-picker-backend 2>/dev/null || true)
+          data_h=$(docker inspect -f '{{.State.Health.Status}}' stock-picker-data-service 2>/dev/null || true)
+          frontend_h=$(docker inspect -f '{{.State.Health.Status}}' stock-picker-frontend 2>/dev/null || true)
+          if [ "$backend_h" = "healthy" ] && [ "$data_h" = "healthy" ] && [ "$frontend_h" = "healthy" ]; then exit 0; fi
+          sleep 2
+        done
+        docker compose ps
+        docker compose logs --no-color --tail=200
+        exit 1
+    - name: Smoke requests
+      run: |
+        curl -fsS http://localhost:3100/health >/dev/null
+        curl -fsS http://localhost:8001/health >/dev/null
+        curl -fsS http://localhost:3101/ >/dev/null
+    - name: Tear down
+      if: always()
+      run: |
+        docker compose down -v
+
+  build-docker-images:
+    name: Build Docker Images
     runs-on: ubuntu-latest
     needs: build
     if: github.event_name == 'pull_request' && needs.build.result == 'success'
@@ -155,11 +267,6 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Download build artifacts
-      uses: actions/download-artifact@v4
-      with:
-        name: build-artifacts
-
     - name: Setup Docker Buildx
       uses: docker/setup-buildx-action@v3
 
@@ -167,30 +274,128 @@ jobs:
       run: |
         docker build -t stock-picker-backend ./backend
         docker build -t stock-picker-frontend ./frontend
-        docker build -t stock-picker-data-service ./data-service
+        docker build -t stock-picker-data-service -f data-service/Dockerfile .
 
-    - name: Log in to Docker Hub
-      if: github.event_name == 'push'
+  publish-ghcr:
+    name: Publish Images (GHCR)
+    runs-on: ubuntu-latest
+    needs: [smoke-docker-compose, build]
+    if: |
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop') &&
+      needs.smoke-docker-compose.result == 'success' &&
+      needs.build.result == 'success'
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to GHCR
       uses: docker/login-action@v3
       with:
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Push Docker images
-      if: github.event_name == 'push'
-      run: |
-        docker tag stock-picker-backend ${{ secrets.DOCKER_USERNAME }}/stock-picker-backend:${{ github.sha }}
-        docker tag stock-picker-frontend ${{ secrets.DOCKER_USERNAME }}/stock-picker-frontend:${{ github.sha }}
-        docker tag stock-picker-data-service ${{ secrets.DOCKER_USERNAME }}/stock-picker-data-service:${{ github.sha }}
+    - name: Backend image metadata
+      id: meta_backend
+      uses: docker/metadata-action@v5
+      with:
+        images: ghcr.io/${{ github.repository_owner }}/stock-picker-backend
+        tags: |
+          type=sha,format=long
+          type=ref,event=branch
+          type=raw,value=latest,enable={{is_default_branch}}
 
-        docker push ${{ secrets.DOCKER_USERNAME }}/stock-picker-backend:${{ github.sha }}
-        docker push ${{ secrets.DOCKER_USERNAME }}/stock-picker-frontend:${{ github.sha }}
-        docker push ${{ secrets.DOCKER_USERNAME }}/stock-picker-data-service:${{ github.sha }}
+    - name: Frontend image metadata
+      id: meta_frontend
+      uses: docker/metadata-action@v5
+      with:
+        images: ghcr.io/${{ github.repository_owner }}/stock-picker-frontend
+        tags: |
+          type=sha,format=long
+          type=ref,event=branch
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Data service image metadata
+      id: meta_data_service
+      uses: docker/metadata-action@v5
+      with:
+        images: ghcr.io/${{ github.repository_owner }}/stock-picker-data-service
+        tags: |
+          type=sha,format=long
+          type=ref,event=branch
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push backend
+      uses: docker/build-push-action@v6
+      with:
+        context: ./backend
+        push: true
+        tags: ${{ steps.meta_backend.outputs.tags }}
+        labels: ${{ steps.meta_backend.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Build and push frontend
+      uses: docker/build-push-action@v6
+      with:
+        context: ./frontend
+        push: true
+        tags: ${{ steps.meta_frontend.outputs.tags }}
+        labels: ${{ steps.meta_frontend.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Build and push data service
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: data-service/Dockerfile
+        push: true
+        tags: ${{ steps.meta_data_service.outputs.tags }}
+        labels: ${{ steps.meta_data_service.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  deploy-ubuntu:
+    name: Deploy (Ubuntu via SSH)
+    runs-on: ubuntu-latest
+    needs: publish-ghcr
+    if: |
+      github.event_name == 'push' &&
+      needs.publish-ghcr.result == 'success' &&
+      (secrets.DEPLOY_SSH_HOST != '' && secrets.DEPLOY_SSH_USER != '' && secrets.DEPLOY_SSH_KEY != '')
+    steps:
+    - name: Deploy by SSH
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.DEPLOY_SSH_HOST }}
+        username: ${{ secrets.DEPLOY_SSH_USER }}
+        key: ${{ secrets.DEPLOY_SSH_KEY }}
+        port: ${{ secrets.DEPLOY_SSH_PORT || 22 }}
+        script: |
+          set -euo pipefail
+          cd /opt/stock-picker
+          export OWNER="${{ github.repository_owner }}"
+          export TAG="sha-${{ github.sha }}"
+          export BACKEND_IMAGE="ghcr.io/${OWNER}/stock-picker-backend:${TAG}"
+          export FRONTEND_IMAGE="ghcr.io/${OWNER}/stock-picker-frontend:${TAG}"
+          export DATA_SERVICE_IMAGE="ghcr.io/${OWNER}/stock-picker-data-service:${TAG}"
+          docker compose pull
+          docker compose up -d --remove-orphans
+          docker compose ps
 
   notify:
     name: Notify Status
     runs-on: ubuntu-latest
-    needs: [validate-specs, test-backend, test-frontend, test-data-service, build]
+    needs: [changes, validate-specs, test-backend, test-frontend, test-data-service, build]
     if: always()
 
     steps:

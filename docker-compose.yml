@@ -1,10 +1,9 @@
-version: '3.8'
-
 services:
   # Redis Cache
   redis:
     image: registry.openanolis.cn/openanolis/redis:5.0.3-8.6
     container_name: stock-picker-redis
+    restart: unless-stopped
     ports:
       - "6379:6379"
     networks:
@@ -12,21 +11,32 @@ services:
 
   # Backend API Service
   backend:
+    image: ${BACKEND_IMAGE:-stock-picker-backend}
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: stock-picker-backend
+    restart: unless-stopped
     ports:
       - "3100:3000"
     environment:
       - NODE_ENV=production
       - REDIS_URL=redis://redis:6379
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-111111}
+      - DATA_SERVICE_URL=http://data-service:8001
       # DATABASE_URL is ignored by the code but good to have for reference
       - DATABASE_URL=sqlite:/data/stock_picker.db
-    env_file:
-      - ./backend/.env
+      - FRONTEND_URL=${FRONTEND_URL:-}
+      - CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS:-}
     volumes:
-      - ./data:/data
+      - data:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
     depends_on:
       - redis
     networks:
@@ -34,19 +44,33 @@ services:
 
   # Python Data Service
   data-service:
+    image: ${DATA_SERVICE_IMAGE:-stock-picker-data-service}
     build:
-      context: ./data-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: data-service/Dockerfile
     container_name: stock-picker-data-service
+    restart: unless-stopped
     ports:
       - "8001:8001"
     environment:
       - REDIS_URL=redis://redis:6379
       - DATABASE_URL=sqlite:/data/stock_picker.db
-    env_file:
-      - ./data-service/.env
+      - TUSHARE_TOKEN=${TUSHARE_TOKEN:-}
+      - SESSION_EXPIRE_DAYS=${SESSION_EXPIRE_DAYS:-7}
     volumes:
-      - ./data:/data
+      - data:/data
+    command:
+      [
+        "sh",
+        "-lc",
+        "if [ -f /seed/stock_picker.db ]; then if [ ! -f /data/stock_picker.db ]; then cp /seed/stock_picker.db /data/stock_picker.db; else if ! python -c \"import sqlite3; con=sqlite3.connect('/data/stock_picker.db'); print(con.execute('PRAGMA integrity_check').fetchone()[0]); con.close()\" | grep -qx ok; then rm -f /data/stock_picker.db; cp /seed/stock_picker.db /data/stock_picker.db; fi; fi; fi; exec uvicorn src.main:app --host 0.0.0.0 --port 8001",
+      ]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=3).read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
     depends_on:
       - redis
     networks:
@@ -54,28 +78,31 @@ services:
 
   # Frontend Web App
   frontend:
+    image: ${FRONTEND_IMAGE:-stock-picker-frontend}
     build:
       context: ./frontend
       dockerfile: Dockerfile
       args:
         VITE_API_BASE_URL: ""
-        VITE_DATA_SERVICE_URL: http://data-service:8001
+        VITE_DATA_SERVICE_URL: /data-service
     container_name: stock-picker-frontend
+    restart: unless-stopped
     ports:
       - "3101:80"
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /usr/share/nginx/html/index.html"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 10s
     depends_on:
       - backend
     networks:
       - stock-picker-network
 
-volumes:
-  data:
-    driver: local
-    driver_opts:
-      o: bind
-      type: none
-      device: ./data
-
 networks:
   stock-picker-network:
     driver: bridge
+
+volumes:
+  data:

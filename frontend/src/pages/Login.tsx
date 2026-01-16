@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { Button, Card, Form, Input, Typography, message } from 'antd';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 const { Title, Text, Link } = Typography;
@@ -8,6 +8,7 @@ const { Title, Text, Link } = Typography;
 const Login: React.FC = () => {
   const [form] = Form.useForm();
   const navigate = useNavigate();
+  const location = useLocation();
   const { doLogin, user, loading } = useAuth();
 
   useEffect(() => {
@@ -15,6 +16,13 @@ const Login: React.FC = () => {
       navigate('/', { replace: true });
     }
   }, [loading, user, navigate]);
+
+  useEffect(() => {
+    const username = new URLSearchParams(location.search).get('username');
+    if (username) {
+      form.setFieldsValue({ username });
+    }
+  }, [location.search, form]);
 
   const onFinish = async (values: { username: string; password: string }) => {
     try {

@@ -11,12 +11,17 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+try:
+    from ..utils.database import DATABASE_PATH
+except ImportError:
+    from utils.database import DATABASE_PATH
+
 
 class FundamentalDB:
     """基本面数据库操作类"""
 
-    def __init__(self, db_path: str = "../data/stock_picker.db"):
-        self.db_path = db_path
+    def __init__(self, db_path: str | None = None):
+        self.db_path = db_path or str(DATABASE_PATH)
 
     def get_connection(self):
         """获取数据库连接上下文管理器"""

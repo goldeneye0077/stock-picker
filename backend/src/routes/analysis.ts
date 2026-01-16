@@ -150,14 +150,6 @@ router.get('/volume', asyncHandler(async (req, res) => {
   // 限制返回数量
   volumeSurges = volumeSurges.slice(0, 50);
 
-  // 转换字段名以匹配前端期望的格式
-  const formattedVolumeSurges = volumeSurges.map((item: any) => ({
-    ...item,
-    stock_code: item.stock,
-    stock_name: item.name,
-    volume_ratio: item.volumeRatio
-  }));
-
   // 获取特定股票的成交量分析（如果指定了 stock_code）
   let volumeData: any[] = [];
   if (stock_code) {
@@ -166,8 +158,8 @@ router.get('/volume', asyncHandler(async (req, res) => {
 
   sendSuccess(res, {
     volumeAnalysis: volumeData,
-    volumeSurges: formattedVolumeSurges,
-    total: formattedVolumeSurges.length
+    volumeSurges,
+    total: volumeSurges.length
   });
 }));
 
@@ -278,14 +270,15 @@ router.get('/main-force', asyncHandler(async (req, res) => {
     trend: item.trend,
     date: item.latestDate,  // 将 latestDate 映射为 date
     latestPrice: item.latestPrice,
-    latestChangePercent: item.latestChangePercent
+    latestChangePercent: item.latestChangePercent,
+    latestVolume: item.latestVolume
   }));
 
   // 计算统计摘要（根据 behavior 字段统计）
   const summary = {
-    strongCount: mainForceData.filter((item: any) => item.behavior === '强势介入').length,
-    moderateCount: mainForceData.filter((item: any) => item.behavior === '稳步建仓').length,
-    weakCount: mainForceData.filter((item: any) => item.behavior === '小幅流入').length,
+    strongCount: mainForceData.filter((item: any) => item.behavior === '强势介入' || item.trend === 'strong').length,
+    moderateCount: mainForceData.filter((item: any) => item.behavior === '稳步建仓' || item.trend === 'moderate').length,
+    weakCount: mainForceData.filter((item: any) => item.behavior === '小幅流入' || item.trend === 'weak').length,
     avgStrength: mainForceData.length > 0
       ? parseFloat((mainForceData.reduce((sum: number, item: any) => sum + (item.strength || 0), 0) / mainForceData.length).toFixed(2))
       : 0,

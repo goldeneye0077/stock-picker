@@ -8,6 +8,18 @@ import { StockNotFoundError, InvalidParameterError } from '../utils/errors';
 const router = express.Router();
 const stockRepo = new StockRepository();
 
+function firstString(value: unknown): string {
+  if (Array.isArray(value)) {
+    return typeof value[0] === 'string' ? value[0] : '';
+  }
+  return typeof value === 'string' ? value : '';
+}
+
+function firstOptionalString(value: unknown): string | undefined {
+  const v = firstString(value);
+  return v ? v : undefined;
+}
+
 // Get all stocks
 router.get('/', asyncHandler(async (req, res) => {
   const stocks = await stockRepo.findAll();
@@ -17,7 +29,7 @@ router.get('/', asyncHandler(async (req, res) => {
 
 // Get stock by code
 router.get('/:code', asyncHandler(async (req, res) => {
-  const { code } = req.params;
+  const code = firstString(req.params.code);
   const stockDetails = await stockRepo.findDetailsByCode(code);
 
   if (!stockDetails) {
@@ -58,7 +70,7 @@ router.get('/:code', asyncHandler(async (req, res) => {
 
 // Search stocks
 router.get('/search/:query', asyncHandler(async (req, res) => {
-  const { query } = req.params;
+  const query = firstString(req.params.query);
 
   // 先进行基本搜索
   let stocks = await stockRepo.search(query, 20);
@@ -89,8 +101,8 @@ router.get('/search/:query', asyncHandler(async (req, res) => {
 }));
 
 // Get stocks by date (历史行情查询)
-router.get('/history/date/:date', asyncHandler(async (req, res) => {
-  const { date } = req.params;
+router.get('/history/date/:date(*)', asyncHandler(async (req, res) => {
+  const date = firstString(req.params.date);
 
   // 验证日期格式
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -110,14 +122,16 @@ router.get('/history/date/:date', asyncHandler(async (req, res) => {
 
 // Get stock K-line history data
 router.get('/:code/history', asyncHandler(async (req, res) => {
-  const { code } = req.params;
-  const { start_date, end_date, period = 'daily' } = req.query;
+  const code = firstString(req.params.code);
+  const start_date = firstOptionalString(req.query.start_date);
+  const end_date = firstOptionalString(req.query.end_date);
+  const period = firstString(req.query.period) || 'daily';
 
   let klines;
 
   if (start_date && end_date) {
     // 按日期范围查询
-    klines = await stockRepo.findKLinesByDateRange(code, start_date as string, end_date as string);
+    klines = await stockRepo.findKLinesByDateRange(code, start_date, end_date);
   } else {
     // 默认获取最近100天
     klines = await stockRepo.findKLinesByCode(code, 100);
@@ -142,8 +156,8 @@ router.get('/:code/history', asyncHandler(async (req, res) => {
 }));
 
 router.get('/:code/analysis', asyncHandler(async (req, res) => {
-  const { code } = req.params;
-  const queryDate = typeof req.query.date === 'string' ? req.query.date : undefined;
+  const code = firstString(req.params.code);
+  const queryDate = firstOptionalString(req.query.date);
 
   const dailyBasicData = await stockRepo.getLatestDailyBasic(code, queryDate);
 

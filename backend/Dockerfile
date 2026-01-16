@@ -23,7 +23,10 @@ RUN \
     yum clean all && \
     rm -rf /var/cache/yum/* /root/.npm/_logs/*
 COPY src ./src
+COPY tests ./tests
+COPY jest.config.js ./
 ENV NODE_OPTIONS=--max-old-space-size=4096
+RUN npm run lint && npm run typecheck && npm test
 RUN npm run build
 RUN npm prune --omit=dev
 
@@ -32,5 +35,8 @@ WORKDIR /app
 COPY package*.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
+USER root
+RUN mkdir -p /data && chown -R node:node /data
+USER node
 EXPOSE 3000
 CMD ["npm", "start"]

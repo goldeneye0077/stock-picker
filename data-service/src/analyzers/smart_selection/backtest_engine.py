@@ -20,6 +20,11 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+try:
+    from ...utils.database import DATABASE_PATH
+except ImportError:
+    from utils.database import DATABASE_PATH
+
 
 class BacktestEngine:
     """策略回测引擎"""
@@ -32,17 +37,14 @@ class BacktestEngine:
             db_path: 数据库路径
         """
         if db_path is None:
-            # 使用绝对路径，从项目根目录开始
-            import os
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            project_root = os.path.abspath(os.path.join(current_dir, '../../../../'))
-            db_path = os.path.join(project_root, 'data/stock_picker.db')
-        self.db_path = db_path
+            self.db_path = str(DATABASE_PATH)
+        else:
+            self.db_path = db_path
         self.initial_capital = 100000  # 初始资金：10万元
         self.transaction_cost = 0.001  # 交易成本：0.1%
 
         # 初始化智能选股分析器
-        self.selection_analyzer = SmartSelectionAnalyzer(db_path)
+        self.selection_analyzer = SmartSelectionAnalyzer(self.db_path)
 
     async def run_backtest(
         self,

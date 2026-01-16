@@ -3,7 +3,7 @@
  * 提供类型安全的 API 调用
  */
 
-import type { paths, components } from '../types/api.generated';
+import type { components } from '../types/api.generated';
 import { API_BASE_URL } from '../config/api';
 
 type ApiResponse<T> = {

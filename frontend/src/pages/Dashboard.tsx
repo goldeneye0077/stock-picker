@@ -42,7 +42,7 @@ const MarketOverviewContent: React.FC<{ stats: any[], signals: any[] }> = ({ sta
               percent={Math.min((stats[1]?.value || 0) * 20, 100)}
               strokeColor={marketStatus.color}
               size="small"
-              format={(percent) => `${stats[1]?.value || 0}个`}
+              format={(_percent) => `${stats[1]?.value || 0}个`}
             />
           </Col>
           <Col span={12}>
@@ -51,7 +51,7 @@ const MarketOverviewContent: React.FC<{ stats: any[], signals: any[] }> = ({ sta
               percent={Math.min((stats[2]?.value || 0) * 15, 100)}
               strokeColor="#faad14"
               size="small"
-              format={(percent) => `${stats[2]?.value || 0}个`}
+              format={(_percent) => `${stats[2]?.value || 0}个`}
             />
           </Col>
         </Row>

@@ -14,7 +14,6 @@ import {
   setCache,
   getCache,
   clearCache,
-  clearExpiredCache
 } from './storage';
 
 // Mock localStorage

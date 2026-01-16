@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 class FundamentalClient:
     """基本面数据采集客户端"""
 
-    def __init__(self, tushare_client: TushareClient, db_path: str = "data/stock_picker.db"):
+    def __init__(self, tushare_client: TushareClient, db_path: str | None = None):
         """
         初始化基本面客户端
 

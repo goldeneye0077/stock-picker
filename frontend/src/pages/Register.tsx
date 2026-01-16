@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { Button, Card, Form, Input, Typography, message } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { ApiError } from '../services/authService';
 
 const { Title, Text, Link } = Typography;
 
@@ -21,6 +22,11 @@ const Register: React.FC = () => {
       await doRegister(values.username, values.password);
       navigate(firstAllowedPath(), { replace: true });
     } catch (e: any) {
+      if (e instanceof ApiError && e.status === 409) {
+        message.warning('用户名已存在，请直接登录');
+        navigate(`/login?username=${encodeURIComponent(values.username)}`, { replace: true });
+        return;
+      }
       message.error(e?.message || '注册失败');
     }
   };

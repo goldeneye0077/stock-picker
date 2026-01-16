@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Card,
   Row,
@@ -11,7 +11,6 @@ import {
   Alert,
   Divider,
   Typography,
-  Spin,
   Tabs,
   Tag,
   Progress,
@@ -21,15 +20,11 @@ import {
 } from 'antd';
 import {
   CheckCircleOutlined,
-  WarningOutlined,
   CloseCircleOutlined,
   SyncOutlined,
   DatabaseOutlined,
   BarChartOutlined,
-  LineChartOutlined,
   SafetyOutlined,
-  FileTextOutlined,
-  HistoryOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 import { DATA_SERVICE_URL } from '../config/api';
@@ -77,7 +72,7 @@ const DataSourceConsistency: React.FC = () => {
   const [runningValidation, setRunningValidation] = useState(false);
 
   // 获取一致性报告
-  const fetchConsistencyReport = async (daysParam: number = days) => {
+  const fetchConsistencyReport = useCallback(async (daysParam: number) => {
     setLoading(true);
     try {
       const response = await axios.get(`${DATA_SERVICE_URL}/api/data/multi-source/consistency?days=${daysParam}`);
@@ -89,10 +84,10 @@ const DataSourceConsistency: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   // 获取多数据源状态
-  const fetchMultiSourceStatus = async () => {
+  const fetchMultiSourceStatus = useCallback(async () => {
     try {
       const response = await axios.get(`${DATA_SERVICE_URL}/api/data/multi-source/status`);
       if (response.data.success) {
@@ -101,16 +96,16 @@ const DataSourceConsistency: React.FC = () => {
     } catch (error) {
       console.error('获取多数据源状态失败:', error);
     }
-  };
+  }, []);
 
   // 运行一致性验证
-  const runConsistencyValidation = async () => {
+  const runConsistencyValidation = useCallback(async () => {
     setRunningValidation(true);
     try {
       await axios.post(`${DATA_SERVICE_URL}/api/data/multi-source/run-health-check`);
       // 等待2秒后获取报告
       setTimeout(() => {
-        fetchConsistencyReport();
+        fetchConsistencyReport(days);
         fetchMultiSourceStatus();
         setRunningValidation(false);
       }, 2000);
@@ -118,13 +113,13 @@ const DataSourceConsistency: React.FC = () => {
       console.error('运行一致性验证失败:', error);
       setRunningValidation(false);
     }
-  };
+  }, [days, fetchConsistencyReport, fetchMultiSourceStatus]);
 
   // 页面加载时获取数据
   useEffect(() => {
-    fetchConsistencyReport();
+    fetchConsistencyReport(days);
     fetchMultiSourceStatus();
-  }, []);
+  }, [days, fetchConsistencyReport, fetchMultiSourceStatus]);
 
   // 处理天数变化
   const handleDaysChange = (value: number) => {

@@ -14,6 +14,11 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+try:
+    from ...utils.database import DATABASE_PATH
+except ImportError:
+    from utils.database import DATABASE_PATH
+
 
 class SmartSelectionAnalyzer:
     """智能选股分析器"""
@@ -26,10 +31,7 @@ class SmartSelectionAnalyzer:
             db_path: 数据库路径，如果为None则使用默认路径
         """
         if db_path is None:
-            # 使用项目根目录的data文件夹中的数据库
-            # 路径: E:\stock_an\stock-picker\data\stock_picker.db
-            project_root = Path(__file__).parent.parent.parent.parent.parent
-            self.db_path = project_root / "data" / "stock_picker.db"
+            self.db_path = DATABASE_PATH
         else:
             self.db_path = Path(db_path)
 

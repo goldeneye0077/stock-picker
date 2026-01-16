@@ -4,7 +4,17 @@ from pathlib import Path
 from loguru import logger
 from contextlib import asynccontextmanager
 
-DATABASE_PATH = Path(__file__).parent.parent.parent.parent / "data" / "stock_picker.db"
+def _resolve_database_path() -> Path:
+    url = os.getenv("DATABASE_URL")
+    if url and url.startswith("sqlite:"):
+        raw = url[len("sqlite:") :]
+        if raw.startswith("///"):
+            raw = raw[2:]
+        return Path(raw)
+    return Path(__file__).parent.parent.parent.parent / "data" / "stock_picker.db"
+
+
+DATABASE_PATH = _resolve_database_path()
 
 @asynccontextmanager
 async def get_database():
@@ -30,7 +40,11 @@ async def init_database():
 
     async with aiosqlite.connect(DATABASE_PATH) as db:
         # Enable WAL mode for better concurrency
-        await db.execute("PRAGMA journal_mode=WAL;")
+        try:
+            await db.execute("PRAGMA journal_mode=WAL;")
+        except Exception as e:
+            logger.warning(f"Failed to enable WAL mode: {e}")
+            await db.execute("PRAGMA journal_mode=DELETE;")
 
         # Create tables (same as backend)
         await db.execute("""

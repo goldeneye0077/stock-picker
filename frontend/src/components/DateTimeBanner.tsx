@@ -66,7 +66,7 @@ const TopBanner: React.FC = () => {
       >
         <Space size={10} align="center">
           <img src="/logo(1).png" alt="logo" style={{ height: 28 }} />
-          <Text style={{ color: '#e6f7ff', fontSize: 14, fontWeight: 600 }}>AI智能选股引擎</Text>
+          <Text style={{ color: '#e6f7ff', fontSize: 20, fontWeight: 600 }}>AI智能选股引擎</Text>
         </Space>
       </a>
 

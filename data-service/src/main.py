@@ -6,6 +6,7 @@ from loguru import logger
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+import asyncio
 
 try:
     from .data_sources.tushare_client import TushareClient
@@ -95,6 +96,30 @@ async def lifespan(app: FastAPI):
 
     # Start scheduler for automatic data collection
     start_scheduler()
+
+    auto_collect = os.getenv("AUTO_COLLECT_ON_STARTUP", "1").strip().lower() in {"1", "true", "yes", "y", "on"}
+    if auto_collect:
+        try:
+            from .utils.database import get_database
+        except ImportError:
+            from utils.database import get_database
+        try:
+            async with get_database() as db:
+                cursor = await db.execute("SELECT COUNT(*) AS cnt FROM klines")
+                row = await cursor.fetchone()
+                kline_count = int((row["cnt"] if row else 0) or 0)
+        except Exception as e:
+            logger.warning(f"Failed to check klines count: {e}")
+            kline_count = 0
+
+        if kline_count == 0 and getattr(tushare_client, "pro", None) is not None:
+            try:
+                from .routes.data_collection import batch_collect_7days_task, fetch_stocks_task
+            except ImportError:
+                from routes.data_collection import batch_collect_7days_task, fetch_stocks_task
+            app.state.bootstrap_task = asyncio.create_task(fetch_stocks_task())
+            app.state.bootstrap_kline_task = asyncio.create_task(batch_collect_7days_task(True))
+
     logger.info("Data service started successfully")
 
     yield
@@ -154,7 +179,7 @@ async def health_check():
     }
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", "8002"))
+    port = int(os.getenv("PORT", "8001"))
     uvicorn.run(
         "src.main:app",
         host="0.0.0.0",

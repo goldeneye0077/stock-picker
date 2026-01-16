@@ -4,8 +4,19 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 
-// 使用 __dirname 的上两级目录定位数据库路径
-const dbPath = path.resolve(__dirname, '../../..', 'data', 'stock_picker.db');
+function resolveSqlitePath(): string {
+  const url = process.env.DATABASE_URL;
+  if (url && url.startsWith('sqlite:')) {
+    const raw = url.slice('sqlite:'.length);
+    if (raw.startsWith('///')) {
+      return raw.slice(2);
+    }
+    return raw;
+  }
+  return path.resolve(__dirname, '../../..', 'data', 'stock_picker.db');
+}
+
+const dbPath = resolveSqlitePath();
 
 // 确保数据目录存在
 const dataDir = path.dirname(dbPath);
@@ -320,28 +331,44 @@ export async function initDatabase(): Promise<void> {
   await db.run('CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)');
   await db.run('CREATE INDEX IF NOT EXISTS idx_user_permissions_user_id ON user_permissions(user_id)');
 
+  const adminUsername = process.env.ADMIN_USERNAME || 'admin';
+  const adminPassword = process.env.ADMIN_PASSWORD;
+
   const adminCount = await db.get('SELECT COUNT(*) as cnt FROM users WHERE is_admin = 1');
   if ((adminCount?.cnt || 0) === 0) {
+    const initialPassword = adminPassword || 'admin123';
     const salt = crypto.randomBytes(16).toString('hex');
-    const hash = crypto.pbkdf2Sync('admin123', salt, 120000, 32, 'sha256').toString('hex');
+    const hash = crypto.pbkdf2Sync(initialPassword, salt, 120000, 32, 'sha256').toString('hex');
     await db.run(
       'INSERT INTO users (username, password_hash, password_salt, is_admin, is_active) VALUES (?, ?, ?, ?, ?)',
-      ['admin', hash, salt, 1, 1]
+      [adminUsername, hash, salt, 1, 1]
     );
-    const pages = [
-      '/super-main-force',
-      '/smart-selection',
-      '/stocks',
-      '/settings',
-      '/user-management'
-    ];
-    const adminRow = await db.get('SELECT id FROM users WHERE username = ?', ['admin']);
-    if (adminRow?.id) {
-      for (const p of pages) {
-        await db.run('INSERT OR IGNORE INTO user_permissions (user_id, path) VALUES (?, ?)', [adminRow.id, p]);
-      }
+  }
+
+  if (adminPassword) {
+    const row = await db.get('SELECT id FROM users WHERE username = ?', [adminUsername]);
+    if (row?.id) {
+      const salt = crypto.randomBytes(16).toString('hex');
+      const hash = crypto.pbkdf2Sync(adminPassword, salt, 120000, 32, 'sha256').toString('hex');
+      await db.run(
+        'UPDATE users SET password_hash = ?, password_salt = ?, is_admin = 1, is_active = 1 WHERE id = ?',
+        [hash, salt, row.id]
+      );
     }
-    console.log('Seeded default admin user: admin / admin123');
+  }
+
+  const pages = [
+    '/super-main-force',
+    '/smart-selection',
+    '/stocks',
+    '/settings',
+    '/user-management'
+  ];
+  const adminRow = await db.get('SELECT id FROM users WHERE username = ?', [adminUsername]);
+  if (adminRow?.id) {
+    for (const p of pages) {
+      await db.run('INSERT OR IGNORE INTO user_permissions (user_id, path) VALUES (?, ?)', [adminRow.id, p]);
+    }
   }
 
   console.log('Database tables created successfully');

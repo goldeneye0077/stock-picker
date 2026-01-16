@@ -1020,14 +1020,7 @@ async def get_quality_metrics(days: int = 7):
         days: 计算最近N天的指标，默认7天
     """
     try:
-        # 导入数据质量监控器
-        import sys
-        from pathlib import Path
-
-        project_root = Path(__file__).parent.parent.parent.parent
-        sys.path.append(str(project_root))
-
-        from data_quality_monitor import DataQualityMonitor
+        from ..utils.data_quality_monitor import DataQualityMonitor
 
         monitor = DataQualityMonitor()
         metrics = await monitor.calculate_all_metrics(days)
@@ -1070,14 +1063,7 @@ async def get_quality_report(days: int = 7):
         days: 报告覆盖的天数，默认7天
     """
     try:
-        # 导入数据质量监控器
-        import sys
-        from pathlib import Path
-
-        project_root = Path(__file__).parent.parent.parent.parent
-        sys.path.append(str(project_root))
-
-        from data_quality_monitor import DataQualityMonitor
+        from ..utils.data_quality_monitor import DataQualityMonitor
 
         monitor = DataQualityMonitor()
         report = await monitor.generate_quality_report(days)
@@ -1117,13 +1103,7 @@ async def run_quality_check(background_tasks: BackgroundTasks, days: int = 7):
 async def run_quality_check_task(days: int = 7):
     """运行数据质量检查的后台任务"""
     try:
-        import sys
-        from pathlib import Path
-
-        project_root = Path(__file__).parent.parent.parent.parent
-        sys.path.append(str(project_root))
-
-        from data_quality_monitor import DataQualityMonitor
+        from ..utils.data_quality_monitor import DataQualityMonitor
 
         logger.info(f"开始数据质量检查，天数: {days}")
 

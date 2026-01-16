@@ -254,7 +254,7 @@ describe('Analysis Routes', () => {
         .expect(400);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error).toContain('Invalid days parameter');
+      expect(response.body.message).toContain('Invalid days parameter');
     });
 
     it('days 参数超出范围时应该返回 400', async () => {
@@ -306,20 +306,30 @@ describe('Analysis Routes', () => {
     it('应该返回市场概览数据', async () => {
       const mockOverview = {
         totalStocks: 5000,
-        advancers: 3000,
-        decliners: 1500,
-        unchanged: 500,
+        upCount: 3000,
+        downCount: 1500,
+        flatCount: 500,
         volumeSurgeCount: 200,
+        buySignalsToday: 10,
       };
 
       mockAnalysisRepoInstance.getMarketOverview.mockResolvedValue(mockOverview as any);
+      mockAnalysisRepoInstance.getVolumeAnalysis.mockResolvedValue([] as any);
 
       const response = await request(app)
         .get('/api/analysis/market-overview')
         .expect(200);
 
       expect(response.body.success).toBe(true);
-      expect(response.body.data).toEqual(mockOverview);
+      expect(response.body.data).toEqual({
+        totalStocks: 5000,
+        upCount: 3000,
+        downCount: 1500,
+        flatCount: 500,
+        todaySignals: 10,
+        volumeSurges: 200,
+        topVolumeSurge: [],
+      });
     });
 
     it('数据库错误时应该返回 500', async () => {
@@ -339,9 +349,13 @@ describe('Analysis Routes', () => {
         {
           stock: '000001',
           name: '平安银行',
+          behavior: '强势介入',
           trend: 'strong',
           strength: 8.5,
           latestVolume: 120000000,
+          latestDate: '2025-10-22',
+          latestPrice: 12.5,
+          latestChangePercent: 1.2,
         },
       ];
 
@@ -352,7 +366,19 @@ describe('Analysis Routes', () => {
         .expect(200);
 
       expect(response.body.success).toBe(true);
-      expect(response.body.data.mainForce).toEqual(mockMainForceData);
+      expect(response.body.data.mainForce).toEqual([
+        {
+          stock: '000001',
+          name: '平安银行',
+          behavior: '强势介入',
+          trend: 'strong',
+          strength: 8.5,
+          date: '2025-10-22',
+          latestPrice: 12.5,
+          latestChangePercent: 1.2,
+          latestVolume: 120000000,
+        },
+      ]);
       expect(response.body.data.summary).toBeDefined();
     });
 
@@ -372,7 +398,7 @@ describe('Analysis Routes', () => {
         .expect(400);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error).toContain('Invalid days parameter');
+      expect(response.body.message).toContain('Invalid days parameter');
     });
 
     it('limit 参数无效时应该返回 400', async () => {
@@ -381,7 +407,7 @@ describe('Analysis Routes', () => {
         .expect(400);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error).toContain('Invalid limit parameter');
+      expect(response.body.message).toContain('Invalid limit parameter');
     });
 
     it('应该生成主力行为摘要统计', async () => {

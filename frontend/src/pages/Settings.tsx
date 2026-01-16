@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Form, Switch, Slider, Select, Button, Divider, Space, message, Spin, Statistic, Row, Col, Alert, Modal, Progress, Typography } from 'antd';
 import { SaveOutlined, ReloadOutlined, SyncOutlined, ClockCircleOutlined, DatabaseOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import axios from 'axios';
@@ -14,7 +14,6 @@ const Settings: React.FC = () => {
   const [multiSourceStatus, setMultiSourceStatus] = useState<any>(null);
   const [qualityMetrics, setQualityMetrics] = useState<any>(null);
   const [incrementalStatus, setIncrementalStatus] = useState<any>(null);
-  const [loadingData, setLoadingData] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [loadingMultiSource, setLoadingMultiSource] = useState(false);
   const [loadingQuality, setLoadingQuality] = useState(false);
@@ -63,7 +62,7 @@ const Settings: React.FC = () => {
   };
 
   // 获取数据采集状态
-  const fetchDataStatus = async () => {
+  const fetchDataStatus = useCallback(async () => {
     setLoadingStatus(true);
     try {
       const response = await axios.get(`${DATA_SERVICE_URL}/api/data/status`);
@@ -75,20 +74,20 @@ const Settings: React.FC = () => {
     } finally {
       setLoadingStatus(false);
     }
-  };
+  }, []);
 
   // 获取调度器状态
-  const fetchSchedulerStatus = async () => {
+  const fetchSchedulerStatus = useCallback(async () => {
     try {
       const response = await axios.get(`${DATA_SERVICE_URL}/api/data/scheduler-status`);
       setSchedulerStatus(response.data);
     } catch (error) {
       console.error('获取调度器状态失败:', error);
     }
-  };
+  }, []);
 
   // 获取多数据源状态
-  const fetchMultiSourceStatus = async () => {
+  const fetchMultiSourceStatus = useCallback(async () => {
     setLoadingMultiSource(true);
     try {
       const response = await axios.get(`${DATA_SERVICE_URL}/api/data/multi-source/status`);
@@ -100,10 +99,10 @@ const Settings: React.FC = () => {
     } finally {
       setLoadingMultiSource(false);
     }
-  };
+  }, []);
 
   // 获取数据质量指标
-  const fetchQualityMetrics = async () => {
+  const fetchQualityMetrics = useCallback(async () => {
     setLoadingQuality(true);
     try {
       const response = await axios.get(`${DATA_SERVICE_URL}/api/data/quality-metrics?days=7`);
@@ -121,10 +120,10 @@ const Settings: React.FC = () => {
     } finally {
       setLoadingQuality(false);
     }
-  };
+  }, []);
 
   // 获取增量更新状态
-  const fetchIncrementalStatus = async () => {
+  const fetchIncrementalStatus = useCallback(async () => {
     try {
       const response = await axios.get(`${DATA_SERVICE_URL}/api/data/incremental-status`);
       if (response.data.success) {
@@ -142,10 +141,10 @@ const Settings: React.FC = () => {
         }
       });
     }
-  };
+  }, []);
 
   // 获取配置
-  const fetchConfig = async () => {
+  const fetchConfig = useCallback(async () => {
     try {
       const response = await axios.get(`${DATA_SERVICE_URL}/api/data/collection-config`);
       if (response.data.success) {
@@ -177,7 +176,7 @@ const Settings: React.FC = () => {
     } catch (error) {
       console.error('获取配置失败:', error);
     }
-  };
+  }, [form]);
 
   // 手动触发数据采集 - 快速更新今日数据
   const handleCollectData = async () => {
@@ -229,51 +228,6 @@ const Settings: React.FC = () => {
     }
   };
 
-  // 模拟进度更新（保留备用）
-  const simulateProgress = () => {
-    const steps = [
-      { progress: 4, step: '正在获取交易日历...', duration: 2000 },
-      { progress: 8, step: '正在下载股票基本信息...', duration: 2500 },
-      { progress: 16, step: '正在下载K线数据 (1/7)...', duration: 2500 },
-      { progress: 24, step: '正在下载K线数据 (3/7)...', duration: 2500 },
-      { progress: 32, step: '正在下载K线数据 (5/7)...', duration: 2500 },
-      { progress: 36, step: '正在下载K线数据 (7/7)...', duration: 2000 },
-      { progress: 44, step: '正在下载DC资金流向数据 (1/7)...', duration: 2500 },
-      { progress: 52, step: '正在下载DC资金流向数据 (3/7)...', duration: 2500 },
-      { progress: 60, step: '正在下载DC资金流向数据 (5/7)...', duration: 2500 },
-      { progress: 64, step: '正在下载DC资金流向数据 (7/7)...', duration: 2000 },
-      { progress: 68, step: '正在下载大盘资金流向数据 (1/7)...', duration: 2000 },
-      { progress: 72, step: '正在下载大盘资金流向数据 (4/7)...', duration: 2000 },
-      { progress: 76, step: '正在下载大盘资金流向数据 (7/7)...', duration: 2000 },
-      { progress: 80, step: '正在下载每日技术指标 (1/7)...', duration: 2500 },
-      { progress: 86, step: '正在下载每日技术指标 (3/7)...', duration: 2500 },
-      { progress: 92, step: '正在下载每日技术指标 (5/7)...', duration: 2500 },
-      { progress: 96, step: '正在下载每日技术指标 (7/7)...', duration: 2000 },
-      { progress: 100, step: '数据采集完成！', duration: 1000 },
-    ];
-
-    let index = 0;
-    const updateProgress = () => {
-      if (index < steps.length) {
-        const { progress: prog, step, duration } = steps[index];
-        setProgress(prog);
-        setCurrentStep(step);
-        index++;
-        setTimeout(updateProgress, duration);
-      } else {
-        // 采集完成
-        setTimeout(() => {
-          setProgressModalVisible(false);
-          setCollecting(false);
-          message.success('数据采集完成！');
-          fetchDataStatus();
-        }, 1000);
-      }
-    };
-
-    updateProgress();
-  };
-
   // 页面加载时获取状态
   useEffect(() => {
     fetchDataStatus();
@@ -293,7 +247,7 @@ const Settings: React.FC = () => {
     }, 30000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchDataStatus, fetchSchedulerStatus, fetchMultiSourceStatus, fetchQualityMetrics, fetchIncrementalStatus, fetchConfig]);
 
   return (
     <div style={{ padding: '24px' }}>
@@ -323,7 +277,7 @@ const Settings: React.FC = () => {
                   await axios.post(`${DATA_SERVICE_URL}/api/data/multi-source/run-health-check`);
                   message.success('健康检查已启动');
                   setTimeout(() => fetchMultiSourceStatus(), 2000);
-                } catch (error) {
+                } catch {
                   message.error('启动健康检查失败');
                 }
               }}
@@ -337,7 +291,7 @@ const Settings: React.FC = () => {
                   await axios.post(`${DATA_SERVICE_URL}/api/data/multi-source/clear-cache`);
                   message.success('缓存已清空');
                   setTimeout(() => fetchMultiSourceStatus(), 1000);
-                } catch (error) {
+                } catch {
                   message.error('清空缓存失败');
                 }
               }}

@@ -1,19 +1,30 @@
-FROM alibaba-cloud-linux-3-registry.cn-hangzhou.cr.aliyuncs.com/alinux3/python:3.11.1
+FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install system dependencies if needed (e.g. for building some python packages)
-# RUN apt-get update && apt-get install -y build-essential
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
 # Copy requirements
-COPY requirements.txt .
+COPY data-service/requirements.txt ./requirements.txt
 
 # Install Python dependencies
-RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple && pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy seed database (from repo root build context)
+COPY data/stock_picker.db /seed/stock_picker.db
 
 # Copy source code
-COPY src ./src
+COPY data-service/src ./src
+COPY data-service/tests ./tests
 ENV NODE_OPTIONS=--max-old-space-size=4096
+RUN set -eux; \
+    if ! getent group 1000 >/dev/null; then groupadd -g 1000 app; fi; \
+    if ! id -u 1000 >/dev/null 2>&1; then useradd -m -u 1000 -g 1000 app; fi; \
+    mkdir -p /data /seed; \
+    chown -R 1000:1000 /app /data /seed
+USER 1000:1000
 # Expose port
 EXPOSE 8001
 

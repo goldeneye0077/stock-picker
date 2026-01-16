@@ -15,6 +15,40 @@ const toFetchError = (error: unknown) => {
   return new Error(String(error));
 };
 
+const normalizeAdvancedCompositeScores = (results: SmartSelectionResult[] | undefined) => {
+  if (!results || results.length === 0) {
+    return results;
+  }
+
+  const rawScores = results
+    .map((item) => {
+      const raw = typeof item.composite_score === 'number' ? item.composite_score : item.overall_score;
+      return Number.isFinite(raw) ? raw : 0;
+    })
+    .filter((value) => value > 0);
+
+  if (rawScores.length === 0) {
+    return results;
+  }
+
+  const maxScore = Math.max(...rawScores);
+  if (maxScore <= 0 || maxScore >= 99) {
+    return results;
+  }
+
+  return results.map((item) => {
+    const raw = typeof item.composite_score === 'number' ? item.composite_score : item.overall_score;
+    const safeRaw = Number.isFinite(raw) ? raw : 0;
+    const scaled = Math.max(0, Math.min(100, (safeRaw / maxScore) * 100));
+    const normalized = Number(scaled.toFixed(1));
+
+    return {
+      ...item,
+      composite_score: normalized,
+    };
+  });
+};
+
 export interface SmartSelectionResult {
   id: number;
   stock_code: string;
@@ -514,7 +548,11 @@ export const runAdvancedSelection = async (
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    return await response.json();
+    const data = await response.json();
+    return {
+      ...data,
+      results: normalizeAdvancedCompositeScores(data?.results) || [],
+    };
   } catch (error) {
     console.error('运行AI选股失败:', error);
     throw toFetchError(error);
@@ -547,7 +585,11 @@ export const runAdvancedStrategyById = async (
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    return await response.json();
+    const data = await response.json();
+    return {
+      ...data,
+      results: normalizeAdvancedCompositeScores(data?.results) || [],
+    };
   } catch (error) {
     console.error(`按策略ID运行高级选股失败 (ID: ${strategyId}):`, error);
     throw toFetchError(error);
@@ -621,7 +663,14 @@ export const getAdvancedSelectionJob = async (
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    return await response.json();
+    const job = await response.json();
+    if (job?.status === 'completed') {
+      return {
+        ...job,
+        results: normalizeAdvancedCompositeScores(job?.results),
+      };
+    }
+    return job;
   } catch (error) {
     console.error(`查询高级选股任务失败 (${jobId}):`, error);
     throw toFetchError(error);

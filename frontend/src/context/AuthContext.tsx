@@ -46,20 +46,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const doLogin = useCallback(async (username: string, password: string) => {
     setLoading(true);
-    const res = await login(username, password);
-    setStoredToken(res.data.token);
-    setToken(res.data.token);
-    setUser(res.data.user);
-    setLoading(false);
+    try {
+      const res = await login(username, password);
+      setStoredToken(res.data.token);
+      setToken(res.data.token);
+      setUser(res.data.user);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   const doRegister = useCallback(async (username: string, password: string) => {
     setLoading(true);
-    const res = await register(username, password);
-    setStoredToken(res.data.token);
-    setToken(res.data.token);
-    setUser(res.data.user);
-    setLoading(false);
+    try {
+      const res = await register(username, password);
+      setStoredToken(res.data.token);
+      setToken(res.data.token);
+      setUser(res.data.user);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   const doLogout = useCallback(async () => {

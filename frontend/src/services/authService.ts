@@ -8,6 +8,18 @@ export type AuthUser = {
   permissions: string[];
 };
 
+export class ApiError extends Error {
+  status: number;
+  body: unknown;
+
+  constructor(status: number, message: string, body: unknown) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.body = body;
+  }
+}
+
 export type AuthResponse = {
   success: boolean;
   data: {
@@ -67,7 +79,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}, token?: s
   const data = await response.json().catch(() => null);
   if (!response.ok) {
     const message = data?.detail || data?.message || `HTTP ${response.status}`;
-    throw new Error(message);
+    throw new ApiError(response.status, message, data);
   }
   return data as T;
 }
@@ -133,4 +145,3 @@ export async function adminCreateUser(
     body: JSON.stringify(payload),
   }, token);
 }
-

@@ -16,6 +16,11 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+try:
+    from ...utils.database import DATABASE_PATH
+except ImportError:
+    from utils.database import DATABASE_PATH
+
 
 class AdvancedSelectionAnalyzer:
     """高级智能选股分析器"""
@@ -28,9 +33,7 @@ class AdvancedSelectionAnalyzer:
             db_path: 数据库路径，如果为None则使用默认路径
         """
         if db_path is None:
-            # 使用项目根目录的data文件夹中的数据库
-            project_root = Path(__file__).parent.parent.parent.parent.parent
-            self.db_path = project_root / "data" / "stock_picker.db"
+            self.db_path = DATABASE_PATH
         else:
             self.db_path = Path(db_path)
 
@@ -43,6 +46,22 @@ class AdvancedSelectionAnalyzer:
         """
         try:
             async with aiosqlite.connect(self.db_path) as db:
+                cursor = await db.execute("SELECT MAX(date) FROM klines")
+                row = await cursor.fetchone()
+                max_date = row[0] if row else None
+                if not max_date:
+                    return []
+                cursor = await db.execute("SELECT COUNT(DISTINCT date) FROM klines")
+                row = await cursor.fetchone()
+                available_days = int(row[0] or 0) if row else 0
+                if available_days <= 0:
+                    return []
+                required_days = 20 if available_days >= 20 else max(5, int(round(available_days * 0.8)))
+                try:
+                    cutoff_date = (datetime.fromisoformat(str(max_date)) - timedelta(days=120)).strftime('%Y-%m-%d')
+                except Exception:
+                    cutoff_date = str(max_date)
+
                 # 获取有足够交易数据的股票
                 # 放宽行业数据限制：优先选择有行业数据的股票，但也允许没有行业数据的股票
                 cursor = await db.execute("""
@@ -51,9 +70,9 @@ class AdvancedSelectionAnalyzer:
                     WHERE EXISTS (
                         SELECT 1 FROM klines k
                         WHERE k.stock_code = s.code
-                        AND k.date >= '2025-11-01'
+                        AND k.date >= ?
                         GROUP BY k.stock_code
-                        HAVING COUNT(*) >= 20
+                        HAVING COUNT(*) >= ?
                     )
                     ORDER BY
                         CASE
@@ -62,7 +81,7 @@ class AdvancedSelectionAnalyzer:
                         END,
                         s.code
                     LIMIT 6000  -- 扩大限制，全量扫描
-                """)
+                """, (cutoff_date, required_days))
 
                 rows = await cursor.fetchall()
 
@@ -116,7 +135,7 @@ class AdvancedSelectionAnalyzer:
 
                 rows = await cursor.fetchall()
 
-                if not rows or len(rows) < 20:
+                if not rows or len(rows) < 6:
                     return None
 
                 # 转换为DataFrame
@@ -144,7 +163,7 @@ class AdvancedSelectionAnalyzer:
         factors = {}
 
         try:
-            if len(df) < 20:
+            if len(df) < 6:
                 return factors
 
             closes = df['close'].values
@@ -223,16 +242,17 @@ class AdvancedSelectionAnalyzer:
                 factors['volume_ratio'] = volume_ratio
 
             # 6. 趋势斜率（20日线性回归）
-            if len(closes) >= 20:
-                x = np.arange(20)
-                y = closes[-20:]
+            trend_window = min(20, len(closes))
+            if trend_window >= 6:
+                x = np.arange(trend_window)
+                y = closes[-trend_window:]
                 slope, _ = np.polyfit(x, y, 1)
-                factors['trend_slope'] = slope / closes[-20] * 100  # 百分比斜率
+                factors['trend_slope'] = slope / closes[-trend_window] * 100  # 百分比斜率
 
             # 7. 趋势R²（趋势稳定性）
-            if len(closes) >= 20:
-                x = np.arange(20)
-                y = closes[-20:]
+            if trend_window >= 6:
+                x = np.arange(trend_window)
+                y = closes[-trend_window:]
                 slope, intercept = np.polyfit(x, y, 1)
                 y_pred = slope * x + intercept
                 ss_res = np.sum((y - y_pred) ** 2)
@@ -258,22 +278,22 @@ class AdvancedSelectionAnalyzer:
                 factors['max_drawdown'] = max_drawdown * 100  # 百分比
 
             # 10. 价格位置（相对于20日高低点）
-            if len(closes) >= 20:
-                high_20d = np.max(closes[-20:])
-                low_20d = np.min(closes[-20:])
-                price_position = (closes[-1] - low_20d) / (high_20d - low_20d) if (high_20d - low_20d) > 0 else 0.5
+            if trend_window >= 6:
+                high_window = np.max(closes[-trend_window:])
+                low_window = np.min(closes[-trend_window:])
+                price_position = (closes[-1] - low_window) / (high_window - low_window) if (high_window - low_window) > 0 else 0.5
                 factors['price_position'] = price_position
                 
                 # 11. 突破信号 (硬性指标)
                 # 价格突破：当前价格 >= 过去20天最高价 * 0.98
-                factors['is_price_breakout'] = 1.0 if closes[-1] >= high_20d * 0.98 else 0.0
+                factors['is_price_breakout'] = 1.0 if closes[-1] >= high_window * 0.95 else 0.0
                 
             # 12. 成交量突破
             if len(volumes) >= 6:
                 # 过去5日均量 (不含今日)
                 vol_avg_5d = np.mean(volumes[-6:-1])
                 # 今日成交量 > 过去5日均量 * 1.5
-                factors['is_volume_breakout'] = 1.0 if (vol_avg_5d > 0 and volumes[-1] > vol_avg_5d * 1.5) else 0.0
+                factors['is_volume_breakout'] = 1.0 if (vol_avg_5d > 0 and volumes[-1] > vol_avg_5d * 1.2) else 0.0
                 factors['vol_avg_5d'] = vol_avg_5d  # 保存5日均量用于展示
             else:
                 factors['is_volume_breakout'] = 0.0
@@ -894,7 +914,7 @@ class AdvancedSelectionAnalyzer:
 
             # 1. 获取价格数据
             price_data = await self._get_price_data(raw_code, days=60)
-            if price_data is None or len(price_data) < 20:
+            if price_data is None or len(price_data) < 6:
                 logger.warning(f"股票 {stock_code} 数据不足，跳过分析")
                 return None
 
@@ -1113,9 +1133,16 @@ class AdvancedSelectionAnalyzer:
         result['selection_reason'] = '、'.join(combined)
 
     def _apply_strategy_weights(self, result: Dict[str, Any], strategy_id: int) -> None:
+        momentum_raw = float(result.get('momentum_score') or 0.0)
+        momentum_score = max(0.0, min(100.0, momentum_raw * 2.0))
+        trend_raw = float(result.get('trend_quality_score') or 0.0)
+        trend_score = max(0.0, min(100.0, (trend_raw / 15.0) * 100.0 if trend_raw > 0.0 else 0.0))
+        fundamental_score = float(result.get('fundamental_score') or 0.0)
+
         factor_scores = {
-            'momentum': float(result.get('momentum_score') or 0.0),
-            'trend': float(result.get('trend_quality_score') or 0.0),
+            'momentum': momentum_score,
+            'trend': trend_score,
+            'fundamental': fundamental_score,
             'valuation': float(result.get('valuation_score') or 0.0),
             'quality': float(result.get('quality_score') or 0.0),
             'growth': float(result.get('growth_score') or 0.0),
@@ -1148,11 +1175,10 @@ class AdvancedSelectionAnalyzer:
             }
         elif strategy_id == 3:
             weights = {
-                'quality': 0.35,
-                'growth': 0.30,
+                'fundamental': 0.80,
                 'valuation': 0.20,
-                'trend': 0.10,
-                'volume': 0.05,
+                'quality': 0.0,
+                'growth': 0.0,
                 'momentum': 0.0,
                 'sentiment': 0.0,
                 'risk': 0.0,
@@ -1300,7 +1326,11 @@ class AdvancedSelectionAnalyzer:
                                    strategy_id: Optional[int] = None,
                                    progress_callback: Optional[Callable[[int, int, int], None]] = None) -> List[Dict[str, Any]]:
         try:
-            logger.info(f"开始高级选股，最低评分: {min_score}, 最大结果: {max_results}, 突破要求: {require_breakout}, 策略ID: {strategy_id}")
+            effective_min_score = 0.0 if strategy_id == 1 else min_score
+            logger.info(
+                f"开始高级选股，最低评分: {min_score} (effective={effective_min_score}), 最大结果: {max_results}, "
+                f"突破要求: {require_breakout}, 策略ID: {strategy_id}"
+            )
 
             stocks = await self._get_stock_list()
             if not stocks:
@@ -1348,37 +1378,42 @@ class AdvancedSelectionAnalyzer:
 
                     if strategy_id == 1:
                         momentum_score = float(result.get('momentum_score') or 0)
-                        if momentum_score < 40.0:
+                        if momentum_score < 30.0:
                             return None
                         rsi = float(result.get('rsi') or 50)
-                        if rsi > 75.0:
+                        if rsi > 85.0:
                             return None
                         volatility = float(result.get('volatility') or 0)
-                        if volatility > 45.0:
-                            return None
-                        price_change_20d = float(result.get('price_change_20d') or 0)
-                        if price_change_20d < 15.0:
+                        if volatility > 80.0:
                             return None
                     elif strategy_id == 2:
                         trend_slope = float(result.get('trend_slope') or 0)
-                        if trend_slope < 0.5:
+                        if trend_slope < 0.25:
                             return None
                         trend_r2 = float(result.get('trend_r2') or 0)
-                        if trend_r2 < 0.6:
+                        if trend_r2 < 0.45:
                             return None
                         max_drawdown = float(result.get('max_drawdown') or 0)
                         if max_drawdown < -15.0:
                             return None
                     elif strategy_id == 3:
-                        roe = float(result.get('roe') or 0)
-                        if roe < 15.0:
-                            return None
-                        pe_ttm = float(result.get('pe_ttm') or 0)
-                        if pe_ttm > 0 and pe_ttm > 30.0:
-                            return None
-                        revenue_growth = float(result.get('revenue_growth') or 0)
-                        if revenue_growth < 10.0:
-                            return None
+                        roe_value = result.get('roe')
+                        pe_value = result.get('pe_ttm')
+                        revenue_growth_value = result.get('revenue_growth')
+                        has_fundamentals = any(
+                            v not in (None, 0, 0.0, '')
+                            for v in (roe_value, pe_value, revenue_growth_value)
+                        )
+                        if has_fundamentals:
+                            roe = float(roe_value or 0)
+                            if roe > 0 and roe < 10.0:
+                                return None
+                            pe_ttm = float(pe_value or 0)
+                            if pe_ttm > 0 and pe_ttm > 50.0:
+                                return None
+                            revenue_growth = float(revenue_growth_value or 0)
+                            if revenue_growth > 0 and revenue_growth < 5.0:
+                                return None
                     elif strategy_id == 4:
                         momentum_score = float(result.get('momentum_score') or 0)
                         if momentum_score < 35.0:
@@ -1432,7 +1467,7 @@ class AdvancedSelectionAnalyzer:
                         if volatility > 85.0:
                             return None
 
-                if result['composite_score'] < min_score:
+                if result['composite_score'] < effective_min_score:
                     return None
                 if require_uptrend and result['trend_slope'] < 0.2:
                     return None
@@ -1442,7 +1477,7 @@ class AdvancedSelectionAnalyzer:
                     is_price_bk = result.get('is_price_breakout', 0) > 0
                     is_volume_bk = result.get('is_volume_breakout', 0) > 0
                     if strategy_id == 1:
-                        if not (is_price_bk and is_volume_bk):
+                        if not is_price_bk:
                             return None
                     else:
                         if not (is_price_bk or is_volume_bk):
@@ -1537,7 +1572,7 @@ class AdvancedSelectionAnalyzer:
                 'id': 1,
                 'strategy_name': '动量突破',
                 'description': '侧重技术动量，捕捉强势突破股票',
-                'min_score': 30.0,
+                'min_score': 0.0,
                 'require_uptrend': True,
                 'require_hot_sector': True,
                 'require_breakout': True,

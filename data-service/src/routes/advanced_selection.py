@@ -31,8 +31,11 @@ advanced_selection_jobs: Dict[str, Dict[str, Any]] = {}
 
 
 async def _get_db_path() -> Path:
-    project_root = Path(__file__).parent.parent.parent.parent
-    return project_root / "data" / "stock_picker.db"
+    try:
+        from ..utils.database import DATABASE_PATH
+    except ImportError:
+        from utils.database import DATABASE_PATH
+    return DATABASE_PATH
 
 
 # 依赖注入
@@ -667,13 +670,34 @@ async def compare_algorithms(
     try:
         logger.info(f"开始对比新旧算法，参数: min_score={min_score}, max_results={max_results}")
 
-        # 运行高级选股（新算法）
-        advanced_results = await advanced_selection_analyzer.run_advanced_selection(
-            min_score=min_score,
-            max_results=max_results,
-            require_uptrend=False,
-            require_hot_sector=False
-        )
+        try:
+            from ..utils.database import get_database
+        except ImportError:
+            from utils.database import get_database
+
+        advanced_results: list[dict[str, Any]] = []
+        async with get_database() as db:
+            cursor = await db.execute(
+                """
+                SELECT stock_code, stock_name, composite_score, selection_reason, selection_date
+                FROM advanced_selection_history
+                WHERE composite_score >= ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (min_score, max_results),
+            )
+            rows = await cursor.fetchall()
+            for row in rows:
+                advanced_results.append(
+                    {
+                        "stock_code": row["stock_code"],
+                        "stock_name": row["stock_name"],
+                        "composite_score": float(row["composite_score"] or 0),
+                        "selection_reason": row["selection_reason"] or "",
+                        "analysis_date": row["selection_date"] or "",
+                    }
+                )
 
         # 这里应该运行旧算法进行对比
         # 暂时只返回新算法结果和对比说明
@@ -722,34 +746,38 @@ async def get_advanced_selection_statistics(
         # 获取策略列表
         strategies = await advanced_selection_analyzer.get_selection_strategies()
 
-        # 运行各策略获取统计信息
-        strategy_stats = []
-        for strategy in strategies[:2]:
-            try:
-                results = await advanced_selection_analyzer.run_advanced_selection(
-                    min_score=strategy['min_score'],
-                    max_results=5,  # 限制数量，提高性能
-                    require_uptrend=strategy['require_uptrend'],
-                    require_hot_sector=strategy['require_hot_sector'],
-                    require_breakout=strategy.get('require_breakout', False)
-                )
+        try:
+            from ..utils.database import get_database
+        except ImportError:
+            from utils.database import get_database
 
-                if results:
-                    avg_composite = sum(r['composite_score'] for r in results) / len(results)
-                    avg_momentum = sum(r['momentum_score'] for r in results) / len(results)
-                    avg_sector = sum(r['sector_score'] for r in results) / len(results)
+        strategy_stats_map: dict[tuple[int, str], dict[str, Any]] = {}
+        async with get_database() as db:
+            cursor = await db.execute(
+                """
+                SELECT strategy_id, COALESCE(strategy_name, '') AS strategy_name,
+                       COUNT(*) AS sample_count,
+                       AVG(composite_score) AS avg_composite_score
+                FROM advanced_selection_history
+                WHERE strategy_id IS NOT NULL
+                  AND created_at >= datetime('now', '-7 days')
+                GROUP BY strategy_id, strategy_name
+                ORDER BY sample_count DESC
+                """
+            )
+            rows = await cursor.fetchall()
+            for row in rows:
+                key = (int(row["strategy_id"]), str(row["strategy_name"] or ""))
+                strategy_stats_map[key] = {
+                    "strategy_id": key[0],
+                    "strategy_name": key[1] or str(key[0]),
+                    "sample_count": int(row["sample_count"] or 0),
+                    "avg_composite_score": round(float(row["avg_composite_score"] or 0), 1),
+                    "avg_momentum_score": 0.0,
+                    "avg_sector_score": 0.0,
+                }
 
-                    strategy_stats.append({
-                        "strategy_id": strategy['id'],
-                        "strategy_name": strategy['strategy_name'],
-                        "sample_count": len(results),
-                        "avg_composite_score": round(avg_composite, 1),
-                        "avg_momentum_score": round(avg_momentum, 1),
-                        "avg_sector_score": round(avg_sector, 1)
-                    })
-            except Exception as e:
-                logger.warning(f"获取策略{strategy['strategy_name']}统计信息失败: {e}")
-                continue
+        strategy_stats = list(strategy_stats_map.values())
 
         statistics = {
             "total_strategies": len(strategies),

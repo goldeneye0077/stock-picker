@@ -7,7 +7,7 @@ dotenv.config();
 const router = express.Router();
 
 function getDataServiceUrl(): string {
-  const url = process.env.DATA_SERVICE_URL || 'http://127.0.0.1:8002';
+  const url = process.env.DATA_SERVICE_URL || 'http://127.0.0.1:8001';
   return url.replace(/\/+$/, '');
 }
 
