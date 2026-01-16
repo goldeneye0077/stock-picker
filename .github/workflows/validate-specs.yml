@@ -61,6 +61,7 @@ jobs:
       if: always()
       run: |
         mkdir -p specs/dist
+        printf '' > specs/dist/.keep
 
     - name: Check generated types
       run: |
