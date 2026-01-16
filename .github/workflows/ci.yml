@@ -370,16 +370,25 @@ jobs:
     needs: publish-ghcr
     if: |
       github.event_name == 'push' &&
-      needs.publish-ghcr.result == 'success' &&
-      (secrets.DEPLOY_SSH_HOST != '' && secrets.DEPLOY_SSH_USER != '' && secrets.DEPLOY_SSH_KEY != '')
+      needs.publish-ghcr.result == 'success'
     steps:
+    - name: Check deploy secrets
+      id: check
+      run: |
+        if [ -n "${{ secrets.DEPLOY_SSH_HOST }}" ] && [ -n "${{ secrets.DEPLOY_SSH_USER }}" ] && [ -n "${{ secrets.DEPLOY_SSH_KEY }}" ]; then
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        echo "enabled=false" >> "$GITHUB_OUTPUT"
+        echo "DEPLOY_SSH_HOST/DEPLOY_SSH_USER/DEPLOY_SSH_KEY not set; skipping deploy."
     - name: Deploy by SSH
+      if: steps.check.outputs.enabled == 'true'
       uses: appleboy/ssh-action@v1.0.3
       with:
         host: ${{ secrets.DEPLOY_SSH_HOST }}
         username: ${{ secrets.DEPLOY_SSH_USER }}
         key: ${{ secrets.DEPLOY_SSH_KEY }}
-        port: ${{ secrets.DEPLOY_SSH_PORT || 22 }}
+        port: ${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}
         script: |
           set -euo pipefail
           cd /opt/stock-picker
