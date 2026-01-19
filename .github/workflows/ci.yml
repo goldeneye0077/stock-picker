@@ -340,11 +340,15 @@ jobs:
   publish-ghcr:
     name: Publish Images (GHCR)
     runs-on: ubuntu-latest
-    needs: [smoke-docker-compose, build]
+    needs: [changes, smoke-docker-compose, build]
     if: |
       always() &&
       github.event_name == 'push' &&
       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop') &&
+      (needs.changes.outputs.backend == 'true' ||
+       needs.changes.outputs.frontend == 'true' ||
+       needs.changes.outputs.data_service == 'true' ||
+       needs.changes.outputs.ops_runtime == 'true') &&
       (needs['smoke-docker-compose'].result == 'success' || needs['smoke-docker-compose'].result == 'skipped') &&
       (needs.build.result == 'success' || needs.build.result == 'skipped')
     permissions:
