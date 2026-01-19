@@ -336,7 +336,7 @@ jobs:
     if: |
       github.event_name == 'push' &&
       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop') &&
-      needs.smoke-docker-compose.result == 'success' &&
+      needs['smoke-docker-compose'].result == 'success' &&
       needs.build.result == 'success'
     permissions:
       contents: read
@@ -426,7 +426,7 @@ jobs:
     needs: publish-ghcr
     if: |
       github.event_name == 'push' &&
-      needs.publish-ghcr.result == 'success'
+      needs['publish-ghcr'].result == 'success'
     steps:
     - name: Check deploy secrets
       id: check
