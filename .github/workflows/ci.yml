@@ -207,7 +207,11 @@ jobs:
     - name: Run data service tests
       run: |
         cd data-service
-        python -m pytest
+        if find . -type f \( -name 'test_*.py' -o -name '*_test.py' \) -print -quit | grep -q .; then
+          python -m pytest
+        else
+          echo "No pytest tests found; skipping."
+        fi
       env:
         NODE_ENV: test
 

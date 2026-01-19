@@ -12,12 +12,8 @@ COPY data-service/requirements.txt ./requirements.txt
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy seed database (from repo root build context)
-COPY data/stock_picker.db /seed/stock_picker.db
-
 # Copy source code
 COPY data-service/src ./src
-COPY data-service/tests ./tests
 ENV NODE_OPTIONS=--max-old-space-size=4096
 RUN set -eux; \
     if ! getent group 1000 >/dev/null; then groupadd -g 1000 app; fi; \
