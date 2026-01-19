@@ -468,6 +468,27 @@ jobs:
         fi
         echo "enabled=false" >> "$GITHUB_OUTPUT"
         echo "DEPLOY_SSH_HOST/DEPLOY_SSH_USER/DEPLOY_SSH_KEY not set; skipping deploy."
+    - name: Ensure deploy directory
+      if: steps.check.outputs.enabled == 'true'
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.DEPLOY_SSH_HOST }}
+        username: ${{ secrets.DEPLOY_SSH_USER }}
+        key: ${{ secrets.DEPLOY_SSH_KEY }}
+        port: ${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}
+        script: |
+          set -euo pipefail
+          mkdir -p /home/admin/stock-picker
+    - name: Upload docker-compose.yml
+      if: steps.check.outputs.enabled == 'true'
+      uses: appleboy/scp-action@v0.1.7
+      with:
+        host: ${{ secrets.DEPLOY_SSH_HOST }}
+        username: ${{ secrets.DEPLOY_SSH_USER }}
+        key: ${{ secrets.DEPLOY_SSH_KEY }}
+        port: ${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}
+        source: "docker-compose.yml"
+        target: "/home/admin/stock-picker"
     - name: Deploy by SSH
       if: steps.check.outputs.enabled == 'true'
       uses: appleboy/ssh-action@v1.0.3
@@ -479,14 +500,18 @@ jobs:
         script: |
           set -euo pipefail
           cd /home/admin/stock-picker
+          if [ ! -f docker-compose.yml ]; then
+            echo "docker-compose.yml not found in $(pwd)"
+            exit 1
+          fi
           export OWNER="${{ github.repository_owner }}"
           export TAG="sha-${{ github.sha }}"
           export BACKEND_IMAGE="ghcr.io/${OWNER}/stock-picker-backend:${TAG}"
           export FRONTEND_IMAGE="ghcr.io/${OWNER}/stock-picker-frontend:${TAG}"
           export DATA_SERVICE_IMAGE="ghcr.io/${OWNER}/stock-picker-data-service:${TAG}"
-          docker compose pull
-          docker compose up -d --remove-orphans
-          docker compose ps
+          docker compose -f /home/admin/stock-picker/docker-compose.yml pull
+          docker compose -f /home/admin/stock-picker/docker-compose.yml up -d --remove-orphans
+          docker compose -f /home/admin/stock-picker/docker-compose.yml ps
 
   notify:
     name: Notify Status
