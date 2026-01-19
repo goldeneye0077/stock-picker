@@ -5,6 +5,16 @@ on:
     branches: [ main, master, develop ]
   pull_request:
     branches: [ main, master, develop ]
+  workflow_dispatch:
+    inputs:
+      publish_images:
+        description: Publish images to GHCR
+        type: boolean
+        default: false
+      deploy:
+        description: Deploy to Ubuntu via SSH
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -343,14 +353,18 @@ jobs:
     needs: [changes, smoke-docker-compose, build]
     if: |
       always() &&
-      github.event_name == 'push' &&
-      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop') &&
-      (needs.changes.outputs.backend == 'true' ||
-       needs.changes.outputs.frontend == 'true' ||
-       needs.changes.outputs.data_service == 'true' ||
-       needs.changes.outputs.ops_runtime == 'true') &&
-      (needs['smoke-docker-compose'].result == 'success' || needs['smoke-docker-compose'].result == 'skipped') &&
-      (needs.build.result == 'success' || needs.build.result == 'skipped')
+      (
+        (github.event_name == 'push' &&
+         (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop') &&
+         (needs.changes.outputs.backend == 'true' ||
+          needs.changes.outputs.frontend == 'true' ||
+          needs.changes.outputs.data_service == 'true' ||
+          needs.changes.outputs.ops_runtime == 'true') &&
+         (needs['smoke-docker-compose'].result == 'success' || needs['smoke-docker-compose'].result == 'skipped') &&
+         (needs.build.result == 'success' || needs.build.result == 'skipped'))
+        ||
+        (github.event_name == 'workflow_dispatch' && inputs.publish_images == true)
+      )
     permissions:
       contents: read
       packages: write
@@ -439,8 +453,11 @@ jobs:
     needs: publish-ghcr
     if: |
       always() &&
-      github.event_name == 'push' &&
-      needs['publish-ghcr'].result == 'success'
+      (
+        (github.event_name == 'push' && needs['publish-ghcr'].result == 'success')
+        ||
+        (github.event_name == 'workflow_dispatch' && inputs.deploy == true && needs['publish-ghcr'].result == 'success')
+      )
     steps:
     - name: Check deploy secrets
       id: check
