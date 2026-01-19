@@ -19,7 +19,8 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend }}
       data_service: ${{ steps.filter.outputs.data_service }}
       specs: ${{ steps.filter.outputs.specs }}
-      ops: ${{ steps.filter.outputs.ops }}
+      ops_runtime: ${{ steps.filter.outputs.ops_runtime }}
+      ci_only: ${{ steps.filter.outputs.ci_only }}
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -57,11 +58,12 @@ jobs:
             - 'specs/**'
             - '.github/workflows/validate-specs.yml'
             - '.github/workflows/ci.yml'
-          ops:
+          ops_runtime:
             - 'docker-compose.yml'
             - 'backend/Dockerfile'
             - 'frontend/Dockerfile'
             - 'data-service/Dockerfile'
+          ci_only:
             - '.github/workflows/**'
 
   validate-specs:
@@ -269,10 +271,12 @@ jobs:
     needs: [changes, gate-checks, validate-specs]
     if: |
       always() &&
-      (needs.changes.outputs.backend == 'true' ||
-       needs.changes.outputs.frontend == 'true' ||
-       needs.changes.outputs.data_service == 'true' ||
-       needs.changes.outputs.ops == 'true') &&
+      (
+        needs.changes.outputs.backend == 'true' ||
+        needs.changes.outputs.frontend == 'true' ||
+        needs.changes.outputs.data_service == 'true' ||
+        needs.changes.outputs.ops_runtime == 'true'
+      ) &&
       needs.gate-checks.result == 'success' &&
       (needs.validate-specs.result == 'success' || needs.validate-specs.result == 'skipped')
     steps:
