@@ -377,7 +377,7 @@ jobs:
     - name: Build Docker images
       run: |
         docker build -t stock-picker-backend ./backend
-        docker build -t stock-picker-frontend ./frontend
+        docker build -t stock-picker-frontend --build-arg VITE_DATA_SERVICE_URL=/data-service --build-arg VITE_API_BASE_URL= ./frontend
         docker build -t stock-picker-data-service -f data-service/Dockerfile .
 
   publish-ghcr:
@@ -465,6 +465,9 @@ jobs:
         push: true
         tags: ${{ steps.meta_frontend.outputs.tags }}
         labels: ${{ steps.meta_frontend.outputs.labels }}
+        build-args: |
+          VITE_DATA_SERVICE_URL=/data-service
+          VITE_API_BASE_URL=
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
@@ -515,12 +518,14 @@ jobs:
         port: ${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}
         script: |
           set -euo pipefail
-          mkdir -p ~/stock-picker
-          mkdir -p ~/stock-picker/data
-          mkdir -p ~/stock-picker/data-service
-          if [ ! -f ~/stock-picker/data-service/.env ]; then
-            printf 'TUSHARE_TOKEN=\n' > ~/stock-picker/data-service/.env
+          DEPLOY_DIR="/home/${{ secrets.DEPLOY_SSH_USER }}/stock-picker"
+          mkdir -p "${DEPLOY_DIR}"
+          mkdir -p "${DEPLOY_DIR}/data"
+          mkdir -p "${DEPLOY_DIR}/data-service"
+          if [ ! -f "${DEPLOY_DIR}/data-service/.env" ]; then
+            printf 'TUSHARE_TOKEN=\n' > "${DEPLOY_DIR}/data-service/.env"
           fi
+          ls -la "${DEPLOY_DIR}"
     - name: Upload docker-compose.yml
       if: steps.check.outputs.enabled == 'true'
       uses: appleboy/scp-action@v0.1.7
@@ -530,7 +535,7 @@ jobs:
         key: ${{ secrets.DEPLOY_SSH_KEY }}
         port: ${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}
         source: "docker-compose.yml"
-        target: "~/stock-picker"
+        target: "/home/${{ secrets.DEPLOY_SSH_USER }}/stock-picker"
     - name: Deploy by SSH
       if: steps.check.outputs.enabled == 'true'
       uses: appleboy/ssh-action@v1.0.3
@@ -541,7 +546,8 @@ jobs:
         port: ${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}
         script: |
           set -euo pipefail
-          cd ~/stock-picker
+          DEPLOY_DIR="/home/${{ secrets.DEPLOY_SSH_USER }}/stock-picker"
+          cd "${DEPLOY_DIR}"
           if [ ! -f docker-compose.yml ]; then
             echo "docker-compose.yml not found in $(pwd)"
             exit 1
@@ -551,9 +557,23 @@ jobs:
           export BACKEND_IMAGE="ghcr.io/${OWNER}/stock-picker-backend:${TAG}"
           export FRONTEND_IMAGE="ghcr.io/${OWNER}/stock-picker-frontend:${TAG}"
           export DATA_SERVICE_IMAGE="ghcr.io/${OWNER}/stock-picker-data-service:${TAG}"
-          docker compose -f ~/stock-picker/docker-compose.yml pull
-          docker compose -f ~/stock-picker/docker-compose.yml up -d --remove-orphans
-          docker compose -f ~/stock-picker/docker-compose.yml ps
+          docker compose -f "${DEPLOY_DIR}/docker-compose.yml" pull
+          docker compose -f "${DEPLOY_DIR}/docker-compose.yml" up -d --remove-orphans
+          docker compose -f "${DEPLOY_DIR}/docker-compose.yml" ps
+
+          for i in $(seq 1 60); do
+            backend_h="$(docker inspect -f '{{.State.Health.Status}}' stock-picker-backend 2>/dev/null || true)"
+            data_h="$(docker inspect -f '{{.State.Health.Status}}' stock-picker-data-service 2>/dev/null || true)"
+            frontend_h="$(docker inspect -f '{{.State.Health.Status}}' stock-picker-frontend 2>/dev/null || true)"
+            if [ "${backend_h}" = "healthy" ] && [ "${data_h}" = "healthy" ] && [ "${frontend_h}" = "healthy" ]; then
+              break
+            fi
+            sleep 2
+          done
+
+          curl -fsS http://localhost:3100/health >/dev/null
+          curl -fsS http://localhost:8001/health >/dev/null
+          curl -fsS http://localhost:3101/ >/dev/null
 
   notify:
     name: Notify Status
