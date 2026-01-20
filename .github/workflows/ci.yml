@@ -132,7 +132,14 @@ jobs:
     needs: [changes, validate-specs]
     if: |
       always() &&
-      needs.changes.outputs.backend == 'true' &&
+      (
+        needs.changes.outputs.backend == 'true' ||
+        needs.changes.outputs.ops_runtime == 'true' ||
+        needs.changes.outputs.ci_only == 'true' ||
+        github.ref == 'refs/heads/main' ||
+        github.ref == 'refs/heads/master' ||
+        github.ref == 'refs/heads/develop'
+      ) &&
       (needs.validate-specs.result == 'success' || needs.validate-specs.result == 'skipped')
 
     steps:
@@ -171,7 +178,14 @@ jobs:
     needs: [changes, validate-specs]
     if: |
       always() &&
-      needs.changes.outputs.frontend == 'true' &&
+      (
+        needs.changes.outputs.frontend == 'true' ||
+        needs.changes.outputs.ops_runtime == 'true' ||
+        needs.changes.outputs.ci_only == 'true' ||
+        github.ref == 'refs/heads/main' ||
+        github.ref == 'refs/heads/master' ||
+        github.ref == 'refs/heads/develop'
+      ) &&
       (needs.validate-specs.result == 'success' || needs.validate-specs.result == 'skipped')
 
     steps:
@@ -210,7 +224,14 @@ jobs:
     needs: [changes, validate-specs]
     if: |
       always() &&
-      needs.changes.outputs.data_service == 'true' &&
+      (
+        needs.changes.outputs.data_service == 'true' ||
+        needs.changes.outputs.ops_runtime == 'true' ||
+        needs.changes.outputs.ci_only == 'true' ||
+        github.ref == 'refs/heads/main' ||
+        github.ref == 'refs/heads/master' ||
+        github.ref == 'refs/heads/develop'
+      ) &&
       (needs.validate-specs.result == 'success' || needs.validate-specs.result == 'skipped')
 
     steps:
@@ -306,9 +327,18 @@ jobs:
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         fetch-depth: 0
-    - name: Build and start services
+    - name: Prepare compose env files
       run: |
-        docker compose up -d --build
+        mkdir -p data-service
+        if [ ! -f data-service/.env ]; then
+          printf 'TUSHARE_TOKEN=\n' > data-service/.env
+        fi
+    - name: Build and start services
+      env:
+        REDIS_IMAGE: redis:7-alpine
+      run: |
+        set -euo pipefail
+        docker compose up -d --build || (docker compose ps && docker compose logs --no-color --tail=200 && exit 1)
     - name: Wait for services
       run: |
         set -e
