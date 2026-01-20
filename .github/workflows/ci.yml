@@ -299,12 +299,6 @@ jobs:
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         fetch-depth: 0
-    - name: Ensure data-service env file
-      run: |
-        mkdir -p data-service
-        if [ ! -f data-service/.env ]; then
-          touch data-service/.env
-        fi
     - name: Build and start services
       run: |
         docker compose up -d --build
@@ -369,7 +363,7 @@ jobs:
          (needs['smoke-docker-compose'].result == 'success' || needs['smoke-docker-compose'].result == 'skipped') &&
          (needs.build.result == 'success' || needs.build.result == 'skipped'))
         ||
-        (github.event_name == 'workflow_dispatch' && inputs.publish_images == 'true')
+        (github.event_name == 'workflow_dispatch' && inputs.publish_images == true)
       )
     permissions:
       contents: read
@@ -462,9 +456,14 @@ jobs:
       (
         (github.event_name == 'push' && needs['publish-ghcr'].result == 'success')
         ||
-        (github.event_name == 'workflow_dispatch' && inputs.deploy == 'true' && needs['publish-ghcr'].result == 'success')
+        (github.event_name == 'workflow_dispatch' && inputs.deploy == true && needs['publish-ghcr'].result == 'success')
       )
     steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
     - name: Check deploy secrets
       id: check
       run: |
@@ -474,12 +473,6 @@ jobs:
         fi
         echo "enabled=false" >> "$GITHUB_OUTPUT"
         echo "DEPLOY_SSH_HOST/DEPLOY_SSH_USER/DEPLOY_SSH_KEY not set; skipping deploy."
-    - name: Checkout code
-      if: steps.check.outputs.enabled == 'true'
-      uses: actions/checkout@v4
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        fetch-depth: 0
     - name: Ensure deploy directory
       if: steps.check.outputs.enabled == 'true'
       uses: appleboy/ssh-action@v1.0.3
