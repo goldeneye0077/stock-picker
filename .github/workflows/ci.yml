@@ -46,14 +46,21 @@ jobs:
       shell: bash
       run: |
         ZERO_SHA="0000000000000000000000000000000000000000"
+        DEFAULT_BRANCH="${{ github.event.repository.default_branch }}"
+        BASE_SHA=""
+
         if [ "${{ github.event_name }}" = "pull_request" ]; then
           BASE_SHA="${{ github.event.pull_request.base.sha }}"
-        else
+        elif [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "${ZERO_SHA}" ]; then
           BASE_SHA="${{ github.event.before }}"
+        elif [ -n "${DEFAULT_BRANCH}" ] && git rev-parse "origin/${DEFAULT_BRANCH}" >/dev/null 2>&1; then
+          BASE_SHA="$(git rev-parse "origin/${DEFAULT_BRANCH}")"
+        elif git rev-parse HEAD^ >/dev/null 2>&1; then
+          BASE_SHA="$(git rev-parse HEAD^)"
+        else
+          BASE_SHA="$(git rev-parse HEAD)"
         fi
-        if [ -z "${BASE_SHA}" ] || [ "${BASE_SHA}" = "${ZERO_SHA}" ]; then
-          BASE_SHA="$(git hash-object -t tree /dev/null)"
-        fi
+
         echo "base=${BASE_SHA}" >> "$GITHUB_OUTPUT"
     - name: Filter paths
       id: filter
