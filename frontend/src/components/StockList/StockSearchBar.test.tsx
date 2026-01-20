@@ -39,7 +39,7 @@ describe('StockSearchBar', () => {
       renderWithConfig(<StockSearchBar {...defaultProps} />);
 
       // 检查容器是否渲染
-      expect(container.querySelector('.ant-space')).toBeInTheDocument();
+      expect(document.querySelector('.ant-space')).toBeInTheDocument();
     });
 
     it('应该渲染搜索输入框', () => {
