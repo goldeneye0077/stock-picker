@@ -35,7 +35,7 @@ FROM registry.openanolis.cn/openanolis/nginx:1.14.1-8.6
 COPY --from=builder /app/dist /usr/share/nginx/html
 
 # Copy custom nginx config
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY nginx.conf /etc/nginx/nginx.conf
 
 # Expose port
 EXPOSE 80

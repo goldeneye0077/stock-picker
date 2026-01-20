@@ -353,6 +353,8 @@ jobs:
         curl -fsS http://localhost:3100/health >/dev/null
         curl -fsS http://localhost:8001/health >/dev/null
         curl -fsS http://localhost:3101/ >/dev/null
+        curl -fsS http://localhost:3101/data-service/health >/dev/null
+        curl -fsS http://localhost:3101/data-service/api/smart-selection/strategies >/dev/null
     - name: Tear down
       if: always()
       run: |
