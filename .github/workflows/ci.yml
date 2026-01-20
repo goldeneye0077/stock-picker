@@ -299,6 +299,12 @@ jobs:
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         fetch-depth: 0
+    - name: Ensure data-service env file
+      run: |
+        mkdir -p data-service
+        if [ ! -f data-service/.env ]; then
+          touch data-service/.env
+        fi
     - name: Build and start services
       run: |
         docker compose up -d --build
