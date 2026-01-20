@@ -313,12 +313,8 @@ jobs:
     needs: [changes, gate-checks, validate-specs]
     if: |
       always() &&
-      (
-        needs.changes.outputs.backend == 'true' ||
-        needs.changes.outputs.frontend == 'true' ||
-        needs.changes.outputs.data_service == 'true' ||
-        needs.changes.outputs.ops_runtime == 'true'
-      ) &&
+      github.event_name == 'workflow_dispatch' &&
+      (inputs.publish_images == true || inputs.deploy == true) &&
       needs.gate-checks.result == 'success' &&
       (needs.validate-specs.result == 'success' || needs.validate-specs.result == 'skipped')
     steps:
@@ -400,7 +396,10 @@ jobs:
          (needs['smoke-docker-compose'].result == 'success' || needs['smoke-docker-compose'].result == 'skipped') &&
          (needs.build.result == 'success' || needs.build.result == 'skipped'))
         ||
-        (github.event_name == 'workflow_dispatch' && inputs.publish_images == true)
+        (github.event_name == 'workflow_dispatch' &&
+         inputs.publish_images == true &&
+         (needs['smoke-docker-compose'].result == 'success' || needs['smoke-docker-compose'].result == 'skipped') &&
+         (needs.build.result == 'success' || needs.build.result == 'skipped'))
       )
     permissions:
       contents: read
@@ -521,6 +520,10 @@ jobs:
         script: |
           set -euo pipefail
           mkdir -p /home/admin/stock-picker
+          mkdir -p /home/admin/stock-picker/data-service
+          if [ ! -f /home/admin/stock-picker/data-service/.env ]; then
+            printf 'TUSHARE_TOKEN=\n' > /home/admin/stock-picker/data-service/.env
+          fi
     - name: Upload docker-compose.yml
       if: steps.check.outputs.enabled == 'true'
       uses: appleboy/scp-action@v0.1.7
