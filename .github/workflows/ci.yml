@@ -546,10 +546,16 @@ jobs:
         username: ${{ secrets.DEPLOY_SSH_USER }}
         key: ${{ secrets.DEPLOY_SSH_KEY }}
         port: ${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}
+        command_timeout: 60m
         script: |
           set -euo pipefail
           DEPLOY_DIR="/home/${{ secrets.DEPLOY_SSH_USER }}/stock-picker"
           cd "${DEPLOY_DIR}"
+          on_error() {
+            docker compose -f "${DEPLOY_DIR}/docker-compose.yml" ps || true
+            docker compose -f "${DEPLOY_DIR}/docker-compose.yml" logs --no-color --tail=200 || true
+          }
+          trap on_error ERR
           if [ ! -f docker-compose.yml ]; then
             echo "docker-compose.yml not found in $(pwd)"
             exit 1
