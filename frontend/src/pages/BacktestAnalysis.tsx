@@ -44,7 +44,7 @@ const BacktestAnalysis: React.FC = () => {
       if (res.strategies && res.strategies.length > 0) {
         setStrategyId(res.strategies[0].id);
       }
-    } catch (e) {
+    } catch {
       setError('加载策略列表失败');
     }
   }, [strategies.length]);
@@ -92,7 +92,7 @@ const BacktestAnalysis: React.FC = () => {
       const cfg = buildStrategyConfig(strategy);
       const res = await runBacktest(cfg, s, e, 'advanced');
       setResult(res);
-    } catch (e) {
+    } catch {
       setError('运行回测失败');
     } finally {
       setLoading(false);

@@ -109,7 +109,7 @@ describe('FundFlowCard', () => {
         resetParams: vi.fn(),
       });
 
-      const { container } = renderWithConfig(<FundFlowCard />);
+      renderWithConfig(<FundFlowCard />);
 
       // 卡片应该存在
       expect(screen.getByText('资金流向分析')).toBeInTheDocument();
@@ -127,7 +127,7 @@ describe('FundFlowCard', () => {
         resetParams: vi.fn(),
       });
 
-      const { container } = renderWithConfig(<FundFlowCard />);
+      renderWithConfig(<FundFlowCard />);
 
       // 刷新按钮应该有 loading 状态
       const button = screen.getByText('刷新').closest('button');
@@ -144,7 +144,7 @@ describe('FundFlowCard', () => {
         resetParams: vi.fn(),
       });
 
-      const { container } = renderWithConfig(<FundFlowCard />);
+      renderWithConfig(<FundFlowCard />);
 
       const button = screen.getByText('刷新').closest('button');
       expect(button?.className).not.toContain('ant-btn-loading');

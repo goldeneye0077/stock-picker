@@ -3,7 +3,7 @@
  * 显示股票的财务指标、估值、分红等基本面数据
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Modal,
   Tabs,
@@ -38,7 +38,6 @@ import {
 import type {
   FundamentalAnalysis,
   FinancialIndicators,
-  TopFundamentalStock,
 } from '../../services/fundamentalService';
 
 const { Title, Text, Paragraph } = Typography;
@@ -65,14 +64,7 @@ const FundamentalDetailModal: React.FC<FundamentalDetailModalProps> = ({
   const [shareholderData, setShareholderData] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // 加载基本面数据
-  useEffect(() => {
-    if (visible && stockCode) {
-      loadFundamentalData();
-    }
-  }, [visible, stockCode]);
-
-  const loadFundamentalData = async () => {
+  const loadFundamentalData = useCallback(async () => {
     setLoading(true);
     setError(null);
 
@@ -133,7 +125,14 @@ const FundamentalDetailModal: React.FC<FundamentalDetailModalProps> = ({
     } finally {
       setLoading(false);
     }
-  };
+  }, [stockCode]);
+
+  // 加载基本面数据
+  useEffect(() => {
+    if (visible && stockCode) {
+      void loadFundamentalData();
+    }
+  }, [visible, stockCode, loadFundamentalData]);
 
   // 获取评分颜色
   const getScoreColor = (score: number): string => {

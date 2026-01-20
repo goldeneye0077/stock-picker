@@ -36,7 +36,7 @@ describe('StockSearchBar', () => {
 
   describe('渲染测试', () => {
     it('应该渲染搜索栏组件', () => {
-      const { container } = renderWithConfig(<StockSearchBar {...defaultProps} />);
+      renderWithConfig(<StockSearchBar {...defaultProps} />);
 
       // 检查容器是否渲染
       expect(container.querySelector('.ant-space')).toBeInTheDocument();
@@ -101,7 +101,7 @@ describe('StockSearchBar', () => {
 
   describe('加载状态', () => {
     it('loading 为 true 时刷新按钮应该显示加载状态', () => {
-      const { container } = renderWithConfig(
+      renderWithConfig(
         <StockSearchBar {...defaultProps} loading={true} />
       );
 
@@ -110,7 +110,7 @@ describe('StockSearchBar', () => {
     });
 
     it('loading 为 false 时刷新按钮不应该显示加载状态', () => {
-      const { container } = renderWithConfig(
+      renderWithConfig(
         <StockSearchBar {...defaultProps} loading={false} />
       );
 
@@ -121,7 +121,7 @@ describe('StockSearchBar', () => {
 
   describe('组件结构', () => {
     it('应该包含所有必要的子组件', () => {
-      const { container } = renderWithConfig(
+      renderWithConfig(
         <StockSearchBar {...defaultProps} selectedDate="2025-10-22" />
       );
 

@@ -7,7 +7,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Collapse, Table, Tag, Space, Statistic, Row, Col, Empty, Button, Tooltip, message, Badge, Pagination } from 'antd';
 import {
   RiseOutlined,
-  FallOutlined,
   FireOutlined,
   TrophyOutlined,
   SyncOutlined,

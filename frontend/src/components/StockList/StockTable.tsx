@@ -4,7 +4,7 @@
  * 性能优化：使用 React.memo 和 useMemo
  */
 
-import React, { useMemo, useCallback } from 'react';
+import React, { useMemo } from 'react';
 import { Table, Tag, Typography } from 'antd';
 import { LineChartOutlined, BarChartOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
