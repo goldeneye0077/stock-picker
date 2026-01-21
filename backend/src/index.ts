@@ -40,6 +40,7 @@ app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
     if (localhostOriginRegex.test(origin)) return callback(null, true);
+    if (corsOrigins.size === 0) return callback(null, true);
     if (corsOrigins.has(origin)) return callback(null, true);
     return callback(new Error('Not allowed by CORS'));
   },
