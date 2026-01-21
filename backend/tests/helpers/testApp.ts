@@ -8,6 +8,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import stockRoutes from '../../src/routes/stocks';
 import analysisRoutes from '../../src/routes/analysis';
+import { authRoutes, adminRoutes } from '../../src/routes/auth';
 import { errorHandler, notFoundHandler } from '../../src/middleware/errorHandler';
 
 export function createTestApp() {
@@ -22,6 +23,8 @@ export function createTestApp() {
   // Routes
   app.use('/api/stocks', stockRoutes);
   app.use('/api/analysis', analysisRoutes);
+  app.use('/api/auth', authRoutes);
+  app.use('/api/admin', adminRoutes);
 
   // Health check
   app.get('/health', (req, res) => {

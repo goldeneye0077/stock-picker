@@ -20,6 +20,12 @@ export type AuthUser = {
   permissions: string[];
 };
 
+const DEFAULT_USER_PAGES = [
+  '/super-main-force',
+  '/smart-selection',
+  '/stocks',
+];
+
 export class UserRepository extends BaseRepository {
   private isHexString(s: string): boolean {
     return /^[0-9a-f]+$/i.test(s);
@@ -100,7 +106,15 @@ export class UserRepository extends BaseRepository {
     `;
     await this.execute(sql, [username, hash, salt, isAdmin ? 1 : 0, isActive ? 1 : 0]);
     const created = await this.findByUsername(username);
-    const user = this.toAuthUser(created as UserRow, []);
+    if (!created) {
+      throw new AppError('创建用户失败', 500, ErrorCode.INTERNAL_SERVER_ERROR);
+    }
+
+    if (!isAdmin) {
+      await this.setPermissions(created.id, DEFAULT_USER_PAGES);
+    }
+    const perms = await this.getPermissions(created.id);
+    const user = this.toAuthUser(created as UserRow, perms);
     return user;
   }
 

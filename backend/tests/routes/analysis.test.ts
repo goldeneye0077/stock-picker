@@ -19,6 +19,18 @@ jest.mock('../../src/repositories', () => {
   return {
     StockRepository: jest.fn().mockImplementation(() => ({})),
     AnalysisRepository: jest.fn().mockImplementation(() => mockAnalysisRepoInstance),
+    UserRepository: jest.fn().mockImplementation(() => ({
+      createUser: jest.fn(),
+      verifyLogin: jest.fn(),
+      createSession: jest.fn(),
+      getSession: jest.fn(),
+      deleteSession: jest.fn(),
+      findById: jest.fn(),
+      getPermissions: jest.fn(),
+      listUsers: jest.fn(),
+      setPermissions: jest.fn(),
+      updateUser: jest.fn(),
+    })),
   };
 });
 
