@@ -2,11 +2,106 @@ from fastapi import APIRouter, HTTPException, Query
 from ..utils.database import get_database
 from ..data_sources.tushare_client import TushareClient
 from loguru import logger
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import math
 import pandas as pd
 
 router = APIRouter()
+
+def _parse_trade_date_param(value: str | None) -> date | None:
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    try:
+        if len(s) >= 10 and "-" in s:
+            return datetime.strptime(s[:10], "%Y-%m-%d").date()
+        if len(s) == 8 and s.isdigit():
+            return datetime.strptime(s, "%Y%m%d").date()
+    except Exception:
+        return None
+    return None
+
+def _fallback_previous_weekday(base: date) -> date:
+    d = base - timedelta(days=1)
+    for _ in range(60):
+        if d.weekday() < 5:
+            return d
+        d -= timedelta(days=1)
+    return base - timedelta(days=1)
+
+async def _resolve_previous_trade_day(db, base: date) -> tuple[str, str]:
+    client = TushareClient()
+    if client.is_available():
+        try:
+            start = (base - timedelta(days=60)).strftime("%Y%m%d")
+            end = base.strftime("%Y%m%d")
+            cal = await client.get_trade_cal(start_date=start, end_date=end)
+            if cal is not None and not cal.empty and "cal_date" in cal.columns:
+                cal_dates = pd.to_datetime(cal["cal_date"], errors="coerce").dt.date
+                is_open = cal["is_open"] if "is_open" in cal.columns else None
+                if is_open is not None:
+                    open_days = [d for d, open_flag in zip(cal_dates.tolist(), is_open.tolist()) if open_flag == 1 and d and d < base]
+                else:
+                    open_days = [d for d in cal_dates.tolist() if d and d < base]
+                if open_days:
+                    prev = max(open_days)
+                    return prev.strftime("%Y-%m-%d"), "tushare_trade_cal"
+        except Exception as e:
+            logger.warning(f"resolve previous trade day via tushare failed: {e}")
+
+    base_str = base.strftime("%Y-%m-%d")
+
+    try:
+        cursor = await db.execute("SELECT MAX(date) AS d FROM klines WHERE date < ?", (base_str,))
+        row = await cursor.fetchone()
+        if row and row["d"]:
+            return str(row["d"]), "db_klines"
+    except Exception:
+        pass
+
+    try:
+        cursor = await db.execute(
+            "SELECT MAX(DATE(snapshot_time)) AS d FROM quote_history WHERE DATE(snapshot_time) < DATE(?)",
+            (base_str,),
+        )
+        row = await cursor.fetchone()
+        if row and row["d"]:
+            return str(row["d"]), "db_quote_history"
+    except Exception:
+        pass
+
+    try:
+        cursor = await db.execute("SELECT MAX(trade_date) AS d FROM daily_basic WHERE trade_date < ?", (base_str,))
+        row = await cursor.fetchone()
+        if row and row["d"]:
+            return str(row["d"]), "db_daily_basic"
+    except Exception:
+        pass
+
+    prev = _fallback_previous_weekday(base)
+    return prev.strftime("%Y-%m-%d"), "weekday_fallback"
+
+@router.get("/trade-day/previous")
+async def get_previous_trade_day(
+    date: str | None = Query(None),
+):
+    base = _parse_trade_date_param(date) or datetime.now().date()
+    try:
+        async with get_database() as db:
+            prev, source = await _resolve_previous_trade_day(db, base)
+            return {
+                "success": True,
+                "data": {
+                    "baseDate": base.strftime("%Y-%m-%d"),
+                    "previousTradeDate": prev,
+                    "source": source,
+                },
+            }
+    except Exception as e:
+        logger.error(f"Error resolving previous trade day: {e}")
+        raise HTTPException(status_code=500, detail="Failed to resolve previous trade day")
 
 async def _get_latest_date(db, table: str) -> str | None:
     cursor = await db.execute(f"SELECT MAX(date) FROM {table}")

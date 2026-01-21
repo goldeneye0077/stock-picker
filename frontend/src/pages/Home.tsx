@@ -8,6 +8,7 @@ import type { ColumnsType } from 'antd/es/table';
 import {
   collectAuctionSnapshot,
   fetchAuctionSuperMainForce,
+  fetchPreviousTradeDate,
   type AuctionSuperMainForceItem,
   type AuctionSuperMainForceData
 } from '../services/analysisService';
@@ -43,6 +44,16 @@ const buildRecentWeekdays = (days: number) => {
     dates.push(d.format('YYYY-MM-DD'));
   }
   return dates;
+};
+
+const fallbackPreviousWeekday = (baseDate: string) => {
+  let d = dayjs(baseDate).subtract(1, 'day');
+  for (let i = 0; i < 60; i += 1) {
+    const weekday = d.day();
+    if (weekday !== 0 && weekday !== 6) return d.format('YYYY-MM-DD');
+    d = d.subtract(1, 'day');
+  }
+  return dayjs(baseDate).subtract(1, 'day').format('YYYY-MM-DD');
 };
 
 async function mapWithConcurrency<T, R>(
@@ -115,9 +126,17 @@ const Home: React.FC = () => {
       setSampleLoading(true);
       setSampleError(null);
       try {
-        const first = await fetchAuctionSuperMainForce(10, undefined, true, 0.25, false);
+        const baseDate = dayjs().format('YYYY-MM-DD');
+        let targetTradeDate = baseDate;
+        try {
+          targetTradeDate = await fetchPreviousTradeDate(baseDate);
+        } catch {
+          targetTradeDate = fallbackPreviousWeekday(baseDate);
+        }
+
+        const first = await fetchAuctionSuperMainForce(10, targetTradeDate, true, 0.25, false);
         if (cancelled) return;
-        const effectiveTradeDate = first.tradeDate ?? dayjs().format('YYYY-MM-DD');
+        const effectiveTradeDate = first.tradeDate ?? targetTradeDate;
         const needCollect =
           !first.tradeDate || first.dataSource === 'none' || (first.items?.length ?? 0) === 0;
 

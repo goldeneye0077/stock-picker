@@ -307,6 +307,34 @@ export async function fetchAuctionSuperMainForce(
   return result.data as AuctionSuperMainForceData;
 }
 
+export async function fetchPreviousTradeDate(baseDate?: string): Promise<string> {
+  const searchParams = new URLSearchParams();
+  if (baseDate) searchParams.set('date', baseDate);
+  const qs = searchParams.toString();
+  const url = qs
+    ? `${DATA_SERVICE_URL}/api/analysis/trade-day/previous?${qs}`
+    : `${DATA_SERVICE_URL}/api/analysis/trade-day/previous`;
+
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    throw new Error('获取上一交易日失败');
+  }
+
+  const result = await response.json();
+
+  if (!result.success) {
+    throw new Error(result.message || '获取上一交易日失败');
+  }
+
+  const prev = String(result.data?.previousTradeDate || '').trim();
+  if (!prev) {
+    throw new Error('获取上一交易日失败');
+  }
+
+  return prev;
+}
+
 export async function collectAuctionSnapshot(
   tradeDate: string,
   tsCodes?: string[],
