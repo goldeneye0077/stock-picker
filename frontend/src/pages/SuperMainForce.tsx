@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Card, Table, Space, Statistic, Row, Col, Tag, Button, Typography, DatePicker, Switch, message, InputNumber, Tooltip } from 'antd';
+import { Card, Table, Space, Statistic, Row, Col, Tag, Button, Typography, DatePicker, Switch, message, InputNumber, Tooltip, Modal, Tabs, Descriptions } from 'antd';
 import { ThunderboltOutlined, SyncOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import {
   collectAuctionSnapshot,
@@ -9,6 +9,11 @@ import {
 } from '../services/analysisService';
 import dayjs, { Dayjs } from 'dayjs';
 import type { ColumnsType } from 'antd/es/table';
+import { useStockDetail } from '../hooks/useStockList';
+import { fetchStockHistory } from '../services/stockService';
+import KLineChart from '../components/KLineChart';
+
+const { TabPane } = Tabs;
 
 const SuperMainForce: React.FC = () => {
   const [data, setData] = useState<AuctionSuperMainForceData | null>(null);
@@ -18,6 +23,10 @@ const SuperMainForce: React.FC = () => {
   const [themeAlpha, setThemeAlpha] = useState<number>(0.25);
   const [peFilterEnabled, setPeFilterEnabled] = useState<boolean>(false);
   const [showLowGapOnly, setShowLowGapOnly] = useState(false);
+  const [currentStock, setCurrentStock] = useState<{ code: string; name: string } | null>(null);
+  const [isAnalysisModalVisible, setIsAnalysisModalVisible] = useState(false);
+  const [klineData, setKlineData] = useState<any[]>([]);
+  const { analysis, loading: analysisLoading, fetchAnalysisData, reset: resetDetail } = useStockDetail();
   const limit = 20;
   const hasSelectedDate = !!selectedDate;
   const hasSnapshot = (data?.dataSource && data.dataSource !== 'none') || false;
@@ -119,6 +128,35 @@ const SuperMainForce: React.FC = () => {
     loadData();
   }, [loadData]);
 
+  const showAnalysisModal = useCallback(async (record: AuctionSuperMainForceItem) => {
+    const stockCode = record.stock;
+    const stockName = record.name ?? '';
+    if (!stockCode) return;
+
+    setCurrentStock({ code: stockCode, name: stockName });
+    setIsAnalysisModalVisible(true);
+
+    try {
+      await fetchAnalysisData(stockCode, { date: selectedDate ?? undefined });
+      const historyData = await fetchStockHistory(stockCode, { period: 'daily' });
+      if (historyData && historyData.klines) {
+        setKlineData(historyData.klines);
+      } else {
+        setKlineData([]);
+      }
+    } catch (error) {
+      console.error('Error fetching analysis data:', error);
+      message.error('获取技术分析数据失败');
+    }
+  }, [fetchAnalysisData, selectedDate]);
+
+  const handleCloseAnalysisModal = useCallback(() => {
+    setIsAnalysisModalVisible(false);
+    setCurrentStock(null);
+    setKlineData([]);
+    resetDetail();
+  }, [resetDetail]);
+
   const columns: ColumnsType<AuctionSuperMainForceItem> = [
     {
       title: '序号',
@@ -142,8 +180,26 @@ const SuperMainForce: React.FC = () => {
 
         return (
           <Space direction="vertical" size={0}>
-            <span style={{ fontWeight: 'bold' }}>{text}</span>
-            <span style={{ fontSize: 12, color: '#888' }}>{record.name}</span>
+            <Typography.Link
+              href="#"
+              style={{ fontWeight: 'bold' }}
+              onClick={(e) => {
+                e.preventDefault();
+                showAnalysisModal(record);
+              }}
+            >
+              {text}
+            </Typography.Link>
+            <Typography.Link
+              href="#"
+              style={{ fontSize: 12, color: '#888' }}
+              onClick={(e) => {
+                e.preventDefault();
+                showAnalysisModal(record);
+              }}
+            >
+              {record.name}
+            </Typography.Link>
             {displayThemeOrIndustry ? (
               <span style={{ fontSize: 12, color: '#aaa' }}>{displayThemeOrIndustry}</span>
             ) : null}
@@ -394,6 +450,47 @@ const SuperMainForce: React.FC = () => {
           scroll={{ x: 1200 }}
         />
       </Card>
+
+      <Modal
+        title={`技术分析 - ${currentStock?.code ?? ''} ${currentStock?.name ?? ''}`}
+        open={isAnalysisModalVisible}
+        onCancel={handleCloseAnalysisModal}
+        footer={null}
+        width={1200}
+        loading={analysisLoading}
+      >
+        <Tabs defaultActiveKey="kline">
+          <TabPane tab="K线图" key="kline">
+            {klineData.length > 0 ? (
+              <KLineChart data={klineData} />
+            ) : (
+              <div style={{ textAlign: 'center', padding: '50px', color: '#999' }}>
+                暂无K线数据
+              </div>
+            )}
+          </TabPane>
+          <TabPane tab="技术指标" key="indicators">
+            {analysis && analysis.indicators ? (
+              <div>
+                <div style={{ marginBottom: '24px' }}>
+                  <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '12px', color: '#1890ff' }}>
+                    移动平均线（MA）
+                  </div>
+                  <Descriptions bordered column={4} size="small">
+                    <Descriptions.Item label="MA5">{analysis.indicators.ma5?.toFixed(2) || '-'}</Descriptions.Item>
+                    <Descriptions.Item label="MA10">{analysis.indicators.ma10?.toFixed(2) || '-'}</Descriptions.Item>
+                    <Descriptions.Item label="MA20">{analysis.indicators.ma20?.toFixed(2) || '-'}</Descriptions.Item>
+                  </Descriptions>
+                </div>
+              </div>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '50px', color: '#999' }}>
+                暂无技术指标数据
+              </div>
+            )}
+          </TabPane>
+        </Tabs>
+      </Modal>
     </div>
   );
 };
