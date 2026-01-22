@@ -91,6 +91,7 @@ function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, firstAllowedPath, canAccess, loading } = useAuth();
+  const isHomePage = location.pathname === '/home';
 
   if (loading) {
     return (
@@ -128,7 +129,10 @@ function AppLayout() {
       }}
       selectedKeys={[location.pathname]}
       layout="side"
-      siderWidth={200}
+      siderWidth={isHomePage ? 0 : 200}
+      collapsed={isHomePage}
+      menuRender={isHomePage ? false : undefined}
+      collapsedButtonRender={isHomePage ? false : undefined}
       headerRender={false}
       footerRender={() => (
         <div
@@ -297,16 +301,21 @@ function App() {
     return {
       algorithm: darkAlgorithm,
       token: {
-        colorPrimary: '#2e90fa',
-        colorBgBase: '#0a0c10',
-        colorBgLayout: '#0a0c10',
-        colorBgContainer: '#14161a',
-        colorBgElevated: '#1f2229',
-        colorBorder: '#303642',
+        colorPrimary: '#00d2ff',
+        colorInfo: '#00d2ff',
+        colorSuccess: '#00f5a0',
+        colorWarning: '#ffb020',
+        colorError: '#ff375f',
+        colorLink: '#00d2ff',
+        colorBgBase: '#070812',
+        colorBgLayout: '#070812',
+        colorBgContainer: '#0c1024',
+        colorBgElevated: '#12183a',
+        colorBorder: 'rgba(180, 110, 255, 0.22)',
         colorText: 'rgba(255, 255, 255, 0.95)',
         colorTextSecondary: 'rgba(255, 255, 255, 0.65)',
         colorTextTertiary: 'rgba(255, 255, 255, 0.45)',
-        borderRadius: 8,
+        borderRadius: 10,
         fontFamily:
           'Inter, "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans", "Helvetica Neue", sans-serif',
         fontFamilyCode:
@@ -317,12 +326,12 @@ function App() {
           paddingLG: 20,
         },
         Table: {
-          headerBg: '#14161a',
+          headerBg: '#0c1024',
           headerColor: 'rgba(255, 255, 255, 0.65)',
         },
         Modal: {
-          contentBg: '#1f2229',
-          headerBg: '#1f2229',
+          contentBg: '#12183a',
+          headerBg: '#12183a',
         },
         Tag: {
           borderRadiusSM: 2,

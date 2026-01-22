@@ -183,24 +183,24 @@ describe('parseNumber', () => {
 describe('getChangeColorStyle', () => {
   it('应该返回正确的涨颜色', () => {
     const style = getChangeColorStyle(5.5);
-    expect(style.color).toBe('#cf1322');
+    expect(style.color).toBe('var(--sq-rise)');
   });
 
   it('应该返回正确的跌颜色', () => {
     const style = getChangeColorStyle(-3.2);
-    expect(style.color).toBe('#3f8600');
+    expect(style.color).toBe('var(--sq-fall)');
   });
 
   it('应该返回正确的平盘颜色', () => {
     const style = getChangeColorStyle(0);
-    expect(style.color).toBe('#666');
+    expect(style.color).toBe('var(--sq-neutral)');
   });
 
   it('应该处理边界情况', () => {
     const style1 = getChangeColorStyle(null);
-    expect(style1.color).toBe('#666');
+    expect(style1.color).toBe('var(--sq-text-tertiary)');
 
     const style2 = getChangeColorStyle(undefined);
-    expect(style2.color).toBe('#666');
+    expect(style2.color).toBe('var(--sq-text-tertiary)');
   });
 });

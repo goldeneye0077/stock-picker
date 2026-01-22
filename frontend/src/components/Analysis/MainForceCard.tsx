@@ -32,7 +32,7 @@ const MainForceCardComponent: React.FC = () => {
       render: (text: string, record: MainForceItem) => (
         <Space direction="vertical" size={0}>
           <span style={{ fontWeight: 'bold' }}>{text}</span>
-          <span style={{ fontSize: '12px', color: '#888' }}>{record.name}</span>
+          <span style={{ fontSize: '12px', color: 'var(--sq-text-tertiary)' }}>{record.name}</span>
         </Space>
       )
     },
@@ -105,7 +105,7 @@ const MainForceCardComponent: React.FC = () => {
             }
             styles={{ root: { maxWidth: '500px' } }}
           >
-            <QuestionCircleOutlined style={{ color: '#1890ff', cursor: 'help' }} />
+            <QuestionCircleOutlined style={{ color: 'var(--sq-primary)', cursor: 'help' }} />
           </Tooltip>
         </Space>
       }
@@ -127,7 +127,8 @@ const MainForceCardComponent: React.FC = () => {
               title="强势介入"
               value={summary.strongCount}
               suffix="只"
-              valueStyle={{ color: '#cf1322' }}
+              formatter={(v) => <span className="sq-glitch">{v}</span>}
+              valueStyle={{ color: 'var(--sq-rise)' }}
             />
           </Col>
           <Col span={6}>
@@ -135,7 +136,7 @@ const MainForceCardComponent: React.FC = () => {
               title="稳步建仓"
               value={summary.moderateCount}
               suffix="只"
-              valueStyle={{ color: '#fa8c16' }}
+              valueStyle={{ color: 'var(--sq-warning)' }}
             />
           </Col>
           <Col span={6}>
@@ -143,7 +144,7 @@ const MainForceCardComponent: React.FC = () => {
               title="小幅流入"
               value={summary.weakCount}
               suffix="只"
-              valueStyle={{ color: '#52c41a' }}
+              valueStyle={{ color: 'var(--sq-fall)' }}
             />
           </Col>
           <Col span={6}>
@@ -152,7 +153,8 @@ const MainForceCardComponent: React.FC = () => {
               value={summary.avgStrength}
               suffix="亿"
               precision={2}
-              valueStyle={{ color: '#1890ff' }}
+              formatter={(v) => <span className="sq-glitch">{v}</span>}
+              valueStyle={{ color: 'var(--sq-primary)' }}
             />
           </Col>
         </Row>

@@ -220,7 +220,7 @@ const SectorMoneyFlowCardComponent: React.FC = () => {
     <Card
       title={
         <Space>
-          <FundOutlined style={{ color: '#1890ff' }} />
+          <FundOutlined style={{ color: 'var(--sq-primary)' }} />
           板块资金流向分析
           <Tooltip
             title={
@@ -241,7 +241,7 @@ const SectorMoneyFlowCardComponent: React.FC = () => {
             }
             placement="right"
           >
-            <QuestionCircleOutlined style={{ color: '#1890ff', cursor: 'help' }} />
+            <QuestionCircleOutlined style={{ color: 'var(--sq-primary)', cursor: 'help' }} />
           </Tooltip>
         </Space>
       }
@@ -278,7 +278,8 @@ const SectorMoneyFlowCardComponent: React.FC = () => {
             value={(totalNetAmount / 100000000).toFixed(2)}
             suffix="亿"
             prefix={totalNetAmount > 0 ? <RiseOutlined /> : <FallOutlined />}
-            valueStyle={{ color: totalNetAmount > 0 ? '#cf1322' : '#3f8600' }}
+            formatter={(v) => <span className="sq-glitch">{v}</span>}
+            valueStyle={{ color: totalNetAmount > 0 ? 'var(--sq-rise)' : 'var(--sq-fall)' }}
           />
         </Col>
         <Col span={6}>
@@ -287,7 +288,7 @@ const SectorMoneyFlowCardComponent: React.FC = () => {
             value={(totalElgAmount / 100000000).toFixed(2)}
             suffix="亿"
             prefix={totalElgAmount > 0 ? <RiseOutlined /> : <FallOutlined />}
-            valueStyle={{ color: totalElgAmount > 0 ? '#cf1322' : '#3f8600' }}
+            valueStyle={{ color: totalElgAmount > 0 ? 'var(--sq-rise)' : 'var(--sq-fall)' }}
           />
         </Col>
         <Col span={6}>
@@ -296,14 +297,14 @@ const SectorMoneyFlowCardComponent: React.FC = () => {
             value={(totalLgAmount / 100000000).toFixed(2)}
             suffix="亿"
             prefix={totalLgAmount > 0 ? <RiseOutlined /> : <FallOutlined />}
-            valueStyle={{ color: totalLgAmount > 0 ? '#cf1322' : '#3f8600' }}
+            valueStyle={{ color: totalLgAmount > 0 ? 'var(--sq-rise)' : 'var(--sq-fall)' }}
           />
         </Col>
         <Col span={6}>
           <Statistic
             title="流入/流出板块"
             value={`${inflowSectors} / ${outflowSectors}`}
-            valueStyle={{ color: '#1890ff' }}
+            valueStyle={{ color: 'var(--sq-primary)' }}
           />
         </Col>
       </Row>

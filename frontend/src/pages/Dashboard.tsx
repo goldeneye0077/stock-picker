@@ -16,9 +16,9 @@ const MarketOverviewContent: React.FC<{ stats: any[], signals: any[] }> = ({ sta
     const volumeSurges = stats[2]?.value || 0;
 
     if (totalStocks === 0) return { status: '数据加载中', color: '#666' };
-    if (todaySignals >= 5) return { status: '活跃', color: '#52c41a' };
-    if (volumeSurges >= 3) return { status: '异动', color: '#faad14' };
-    return { status: '平稳', color: '#1890ff' };
+    if (todaySignals >= 5) return { status: '活跃', color: '#00f5a0' };
+    if (volumeSurges >= 3) return { status: '异动', color: '#ffb020' };
+    return { status: '平稳', color: '#00d2ff' };
   };
 
   const marketStatus = getMarketStatus();
@@ -79,19 +79,20 @@ const MarketOverviewContent: React.FC<{ stats: any[], signals: any[] }> = ({ sta
 
         {/* 市场趋势简要分析 */}
         <div style={{
-          backgroundColor: '#001529',
+          backgroundColor: 'var(--sq-glass-bg-strong)',
           padding: '12px',
           borderRadius: '6px',
-          border: '1px solid #d9d9d9'
+          border: '1px solid var(--sq-border)',
+          backdropFilter: 'blur(12px)'
         }}>
           <Text style={{
             fontSize: '13px',
-            color: '#ffffff',
+            color: 'var(--sq-text)',
             fontWeight: '500'
           }}>
-            📊 基于当前数据分析：监控 <span style={{ color: '#52c41a', fontWeight: 'bold' }}>{stats[0]?.value || 0}</span> 只股票，
-            发现 <span style={{ color: '#faad14', fontWeight: 'bold' }}>{stats[1]?.value || 0}</span> 个买入信号，
-            <span style={{ color: '#ff4d4f', fontWeight: 'bold' }}>{stats[2]?.value || 0}</span> 只股票出现成交量异动
+            📊 基于当前数据分析：监控 <span style={{ color: 'var(--sq-neon-blue)', fontWeight: 'bold' }}>{stats[0]?.value || 0}</span> 只股票，
+            发现 <span style={{ color: 'var(--sq-warning)', fontWeight: 'bold' }}>{stats[1]?.value || 0}</span> 个买入信号，
+            <span style={{ color: 'var(--sq-rise)', fontWeight: 'bold' }}>{stats[2]?.value || 0}</span> 只股票出现成交量异动
           </Text>
         </div>
       </Space>
@@ -456,7 +457,8 @@ const Dashboard: React.FC = () => {
                 title={stat.title}
                 value={stat.value}
                 prefix={stat.prefix}
-                valueStyle={{ color: stat.prefix.type.name === 'ArrowUpOutlined' ? '#3f8600' : '#cf1322' }}
+                formatter={(v) => <span className="sq-glitch">{v}</span>}
+                valueStyle={{ color: stat.prefix.type.name === 'ArrowUpOutlined' ? 'var(--sq-rise)' : 'var(--sq-fall)' }}
               />
             </Card>
           </Col>

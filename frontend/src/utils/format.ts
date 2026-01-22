@@ -249,14 +249,14 @@ export function getChangeColorClass(value: number | null | undefined): string {
  */
 export function getChangeColorStyle(value: number | null | undefined): React.CSSProperties {
   if (value === null || value === undefined) {
-    return { color: '#666' };
+    return { color: 'var(--sq-text-tertiary)' };
   }
 
   if (value > 0) {
-    return { color: '#cf1322' }; // 涨 - 红色
+    return { color: 'var(--sq-rise)' };
   } else if (value < 0) {
-    return { color: '#3f8600' }; // 跌 - 绿色
+    return { color: 'var(--sq-fall)' };
   }
 
-  return { color: '#666' }; // 平 - 灰色
+  return { color: 'var(--sq-neutral)' };
 }
