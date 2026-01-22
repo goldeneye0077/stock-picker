@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { ConfigProvider, Result, Spin, theme } from 'antd';
 import { ProLayout } from '@ant-design/pro-layout';
@@ -21,7 +21,7 @@ import UserManagement from './pages/UserManagement';
 import TopBanner from './components/DateTimeBanner';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
-const { darkAlgorithm } = theme;
+const { darkAlgorithm, defaultAlgorithm } = theme;
 
 const menuItems = [
   {
@@ -76,6 +76,10 @@ function RequireAuth({ path, children }: { path: string; children: React.ReactNo
     return <Navigate to="/forbidden" replace />;
   }
 
+  if (path === '/home') {
+    return <>{children}</>;
+  }
+
   if (!canAccess(path)) {
     return <Navigate to="/forbidden" replace />;
   }
@@ -125,6 +129,7 @@ function AppLayout() {
       selectedKeys={[location.pathname]}
       layout="side"
       siderWidth={200}
+      headerRender={false}
       footerRender={() => (
         <div
           style={{
@@ -134,9 +139,9 @@ function AppLayout() {
             justifyContent: 'center',
             fontSize: 12,
             fontWeight: 500,
-            color: '#d9d9d9',
-            background: '#141414',
-            borderTop: '1px solid #303030',
+            color: 'var(--sq-text-secondary)',
+            background: 'var(--sq-bg)',
+            borderTop: '1px solid var(--sq-border)',
           }}
         >
           本引擎仅供学习，不作为投资依据，严禁用作商业用途
@@ -159,6 +164,14 @@ function AppLayout() {
     >
       <Routes>
         <Route path="/" element={<Navigate to={firstAllowedPath()} replace />} />
+        <Route
+          path="/home"
+          element={
+            <RequireAuth path="/home">
+              <Home />
+            </RequireAuth>
+          }
+        />
         <Route
           path="/stocks"
           element={
@@ -225,25 +238,113 @@ function AppLayout() {
 }
 
 function App() {
+  const [themeMode, setThemeMode] = useState<'dark' | 'light'>(() => {
+    const raw = window.localStorage.getItem('sq_theme_mode');
+    return raw === 'light' ? 'light' : 'dark';
+  });
+
+  useEffect(() => {
+    window.localStorage.setItem('sq_theme_mode', themeMode);
+    document.documentElement.setAttribute('data-theme', themeMode);
+  }, [themeMode]);
+
+  const routeLabels = useMemo(() => {
+    const map: Record<string, string> = {
+      '/': '首页',
+      '/home': '首页',
+      '/login': '登录',
+      '/register': '注册',
+      '/forbidden': '无权限',
+    };
+    for (const item of menuItems) {
+      if (item.path && item.name) map[item.path] = item.name;
+    }
+    return map;
+  }, []);
+
+  const themeConfig = useMemo(() => {
+    if (themeMode === 'light') {
+      return {
+        algorithm: defaultAlgorithm,
+        token: {
+          colorPrimary: '#2e90fa',
+          colorBgBase: '#ffffff',
+          colorBgLayout: '#f5f6f8',
+          colorBgContainer: '#ffffff',
+          colorBgElevated: '#ffffff',
+          colorBorder: '#e5e7eb',
+          colorText: 'rgba(0, 0, 0, 0.88)',
+          colorTextSecondary: 'rgba(0, 0, 0, 0.65)',
+          colorTextTertiary: 'rgba(0, 0, 0, 0.45)',
+          borderRadius: 8,
+          fontFamily:
+            'Inter, "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans", "Helvetica Neue", sans-serif',
+          fontFamilyCode:
+            'ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+        },
+        components: {
+          Table: {
+            headerBg: '#ffffff',
+            headerColor: 'rgba(0, 0, 0, 0.65)',
+          },
+          Tag: {
+            borderRadiusSM: 2,
+          },
+        },
+      };
+    }
+
+    return {
+      algorithm: darkAlgorithm,
+      token: {
+        colorPrimary: '#2e90fa',
+        colorBgBase: '#0a0c10',
+        colorBgLayout: '#0a0c10',
+        colorBgContainer: '#14161a',
+        colorBgElevated: '#1f2229',
+        colorBorder: '#303642',
+        colorText: 'rgba(255, 255, 255, 0.95)',
+        colorTextSecondary: 'rgba(255, 255, 255, 0.65)',
+        colorTextTertiary: 'rgba(255, 255, 255, 0.45)',
+        borderRadius: 8,
+        fontFamily:
+          'Inter, "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans", "Helvetica Neue", sans-serif',
+        fontFamilyCode:
+          'ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+      },
+      components: {
+        Card: {
+          paddingLG: 20,
+        },
+        Table: {
+          headerBg: '#14161a',
+          headerColor: 'rgba(255, 255, 255, 0.65)',
+        },
+        Modal: {
+          contentBg: '#1f2229',
+          headerBg: '#1f2229',
+        },
+        Tag: {
+          borderRadiusSM: 2,
+        },
+      },
+    };
+  }, [themeMode]);
+
   return (
     <ConfigProvider
-      theme={{
-        algorithm: darkAlgorithm,
-        token: {
-          colorPrimary: '#1890ff',
-          colorBgContainer: '#1f1f1f',
-          colorBgLayout: '#141414',
-        },
-      }}
+      theme={themeConfig}
     >
       <AuthProvider>
         <Router>
           <div style={{ width: '100vw', height: '100vh' }}>
-            <TopBanner />
+            <TopBanner
+              themeMode={themeMode}
+              onToggleThemeMode={() => setThemeMode((m) => (m === 'dark' ? 'light' : 'dark'))}
+              routeLabels={routeLabels}
+            />
             <div style={{ height: '100%', paddingTop: 48, boxSizing: 'border-box', overflow: 'auto' }}>
               <Routes>
-                <Route path="/" element={<Home />} />
-                <Route path="/home" element={<Home />} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />
                 <Route path="/*" element={<AppLayout />} />

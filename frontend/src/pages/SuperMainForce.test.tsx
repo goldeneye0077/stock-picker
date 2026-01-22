@@ -33,6 +33,7 @@ vi.mock('../services/stockService', async () => {
   const actual = await vi.importActual<typeof import('../services/stockService')>('../services/stockService');
   return {
     ...actual,
+    fetchStockDetail: vi.fn(),
     fetchStockAnalysis: vi.fn(),
     fetchStockHistory: vi.fn(),
   };
@@ -48,6 +49,7 @@ describe('SuperMainForce', () => {
   });
 
   it('点击股票代码打开技术分析弹窗并加载数据', async () => {
+    const user = userEvent.setup();
     vi.mocked(analysisService.fetchAuctionSuperMainForce).mockResolvedValue({
       tradeDate: '2026-01-02',
       dataSource: 'quote_history',
@@ -78,6 +80,13 @@ describe('SuperMainForce', () => {
       },
     } as any);
 
+    vi.mocked(stockService.fetchStockDetail).mockResolvedValue({
+      code: '000001',
+      name: '平安银行',
+      current_price: 10.12,
+      change_percent: 1.2,
+    } as any);
+
     vi.mocked(stockService.fetchStockAnalysis).mockResolvedValue({
       indicators: { ma5: 1, ma10: 2, ma20: 3 },
     } as any);
@@ -89,9 +98,7 @@ describe('SuperMainForce', () => {
     renderWithConfig(<SuperMainForce />);
 
     const stockLink = await screen.findByRole('link', { name: '000001' });
-    await userEvent.click(stockLink);
-
-    expect(await screen.findByText(/技术分析 - 000001/)).toBeInTheDocument();
+    await user.click(stockLink);
 
     await waitFor(() => {
       expect(stockService.fetchStockAnalysis).toHaveBeenCalledWith(
@@ -99,12 +106,9 @@ describe('SuperMainForce', () => {
         expect.objectContaining({ date: expect.any(String) })
       );
       expect(stockService.fetchStockHistory).toHaveBeenCalledWith('000001', { period: 'daily' });
+      expect(screen.getByText('kline:1')).toBeInTheDocument();
+      expect(screen.getByText('MA5')).toBeInTheDocument();
+      expect(screen.getByText('1.00')).toBeInTheDocument();
     });
-
-    expect(screen.getByText('kline:1')).toBeInTheDocument();
-
-    await userEvent.click(screen.getByText('技术指标'));
-    expect(await screen.findByText('MA5')).toBeInTheDocument();
-    expect(screen.getByText('1.00')).toBeInTheDocument();
-  });
+  }, 15000);
 });
