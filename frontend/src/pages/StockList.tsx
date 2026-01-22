@@ -4,16 +4,14 @@
  * 性能优化：使用 useCallback 稳定回调函数引用
  */
 
-import React, { useState, useCallback } from 'react';
-import { Card, Modal, Descriptions, Alert, Button, Tabs, message } from 'antd';
+import React, { useEffect, useState, useCallback } from 'react';
+import { Card, Modal, Descriptions, Alert, Button, message } from 'antd';
+import { useLocation } from 'react-router-dom';
 import { StockSearchBar, StockTable } from '../components/StockList';
 import { useStockList, useStockDetail } from '../hooks/useStockList';
-import { fetchStockHistory } from '../services/stockService';
-import KLineChart from '../components/KLineChart';
 import FundamentalDetailModal from '../components/Fundamental/FundamentalDetailModal';
+import TechnicalAnalysisModal from '../components/TechnicalAnalysisModal';
 import type { StockItem } from '../services/stockService';
-
-const { TabPane } = Tabs;
 
 const StockList: React.FC = () => {
   // 使用自定义 Hooks
@@ -26,16 +24,28 @@ const StockList: React.FC = () => {
     fetchData,
     updateParams,
     handleSearch,
+    setSearchQuery,
   } = useStockList();
 
-  const { detail, analysis, loading: detailLoading, fetchDetail, fetchAnalysisData, reset: resetDetail } = useStockDetail();
+  const { detail, loading: detailLoading, fetchDetail, reset: resetDetail } = useStockDetail();
+  const location = useLocation();
 
   // 本地状态
   const [isDetailModalVisible, setIsDetailModalVisible] = useState(false);
   const [isAnalysisModalVisible, setIsAnalysisModalVisible] = useState(false);
   const [isFundamentalModalVisible, setIsFundamentalModalVisible] = useState(false);
   const [currentStock, setCurrentStock] = useState<StockItem | null>(null);
-  const [klineData, setKlineData] = useState<any[]>([]);
+
+  useEffect(() => {
+    const q = new URLSearchParams(location.search).get('search');
+    if (!q) return;
+    const query = q.trim();
+    if (!query) return;
+    if (query === searchQuery) return;
+    setSearchQuery(query);
+    handleSearch(query);
+    message.info(`已定位到搜索：${query}`);
+  }, [handleSearch, location.search, searchQuery, setSearchQuery]);
 
   // 处理搜索 - 使用 useCallback 优化
   const handleSearchSubmit = useCallback((value: string) => {
@@ -67,21 +77,7 @@ const StockList: React.FC = () => {
   const showAnalysisModal = useCallback(async (record: StockItem) => {
     setCurrentStock(record);
     setIsAnalysisModalVisible(true);
-
-    try {
-      await fetchAnalysisData(record.code, { date: params.date });
-
-      const historyData = await fetchStockHistory(record.code, {
-        period: 'daily'
-      });
-
-      if (historyData && historyData.klines) {
-        setKlineData(historyData.klines);
-      }
-    } catch (error) {
-      console.error('Error fetching analysis data:', error);
-    }
-  }, [fetchAnalysisData, params.date]);
+  }, []);
 
   // 显示基本面分析模态框 - 使用 useCallback 优化
   const showFundamentalModal = useCallback((record: StockItem) => {
@@ -100,9 +96,7 @@ const StockList: React.FC = () => {
   const handleCloseAnalysisModal = useCallback(() => {
     setIsAnalysisModalVisible(false);
     setCurrentStock(null);
-    setKlineData([]);
-    resetDetail();
-  }, [resetDetail]);
+  }, []);
 
   const handleCloseFundamentalModal = useCallback(() => {
     setIsFundamentalModalVisible(false);
@@ -173,9 +167,11 @@ const StockList: React.FC = () => {
               ¥{detail.current_price?.toFixed(2) || '-'}
             </Descriptions.Item>
             <Descriptions.Item label="涨跌幅">
-              <span style={{
-                color: detail.change_percent > 0 ? '#cf1322' : detail.change_percent < 0 ? '#3f8600' : '#666'
-              }}>
+              <span
+                className={
+                  detail.change_percent > 0 ? 'sq-rise sq-mono' : detail.change_percent < 0 ? 'sq-fall sq-mono' : 'sq-neutral sq-mono'
+                }
+              >
                 {detail.change_percent > 0 ? '+' : ''}
                 {detail.change_percent?.toFixed(2)}%
               </span>
@@ -190,107 +186,13 @@ const StockList: React.FC = () => {
         )}
       </Modal>
 
-      {/* 技术分析模态框 */}
-      <Modal
-        title={`技术分析 - ${currentStock?.code} ${currentStock?.name}`}
+      <TechnicalAnalysisModal
         open={isAnalysisModalVisible}
-        onCancel={handleCloseAnalysisModal}
-        footer={null}
-        width={1200}
-        loading={detailLoading}
-      >
-        <Tabs defaultActiveKey="kline">
-          <TabPane tab="K线图" key="kline">
-            {klineData.length > 0 ? (
-              <KLineChart data={klineData} />
-            ) : (
-              <div style={{ textAlign: 'center', padding: '50px', color: '#999' }}>
-                暂无K线数据
-              </div>
-            )}
-          </TabPane>
-          <TabPane tab="技术指标" key="indicators">
-            {analysis && analysis.indicators ? (
-              <div>
-                {/* 移动平均线指标 */}
-                <div style={{ marginBottom: '24px' }}>
-                  <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '12px', color: '#1890ff' }}>
-                    移动平均线（MA）
-                  </div>
-                  <Descriptions bordered column={4} size="small">
-                    <Descriptions.Item label="MA5">{analysis.indicators.ma5?.toFixed(2) || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="MA10">{analysis.indicators.ma10?.toFixed(2) || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="MA20">{analysis.indicators.ma20?.toFixed(2) || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="MA60">{analysis.indicators.ma60?.toFixed(2) || '-'}</Descriptions.Item>
-                  </Descriptions>
-                </div>
-
-                {/* 趋势指标 */}
-                <div style={{ marginBottom: '24px' }}>
-                  <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '12px', color: '#1890ff' }}>
-                    趋势指标
-                  </div>
-                  <Descriptions bordered column={3} size="small">
-                    <Descriptions.Item label="MACD">{analysis.indicators.macd?.toFixed(4) || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="MACD信号">{analysis.indicators.macd_signal?.toFixed(4) || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="MACD柱">{analysis.indicators.macd_hist?.toFixed(4) || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="RSI(14)">{analysis.indicators.rsi?.toFixed(2) || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="KDJ_K">{analysis.indicators.kdj_k?.toFixed(2) || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="KDJ_D">{analysis.indicators.kdj_d?.toFixed(2) || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="KDJ_J">{analysis.indicators.kdj_j?.toFixed(2) || '-'}</Descriptions.Item>
-                  </Descriptions>
-                </div>
-
-                {/* 换手率和量比 */}
-                <div style={{ marginBottom: '24px' }}>
-                  <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '12px', color: '#1890ff' }}>
-                    成交活跃度指标
-                  </div>
-                  <Descriptions bordered column={3} size="small">
-                    <Descriptions.Item label="换手率">{analysis.indicators.turnover_rate ? `${analysis.indicators.turnover_rate.toFixed(2)}%` : '-'}</Descriptions.Item>
-                    <Descriptions.Item label="换手率(自由流通股)">{analysis.indicators.turnover_rate_f ? `${analysis.indicators.turnover_rate_f.toFixed(2)}%` : '-'}</Descriptions.Item>
-                    <Descriptions.Item label="量比">{analysis.indicators.volume_ratio?.toFixed(2) || '-'}</Descriptions.Item>
-                  </Descriptions>
-                </div>
-
-                {/* 估值指标 */}
-                <div style={{ marginBottom: '24px' }}>
-                  <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '12px', color: '#1890ff' }}>
-                    估值指标
-                  </div>
-                  <Descriptions bordered column={4} size="small">
-                    <Descriptions.Item label="市盈率(PE)">{analysis.indicators.pe?.toFixed(2) || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="市盈率TTM">{analysis.indicators.pe_ttm?.toFixed(2) || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="市净率(PB)">{analysis.indicators.pb?.toFixed(2) || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="市销率(PS)">{analysis.indicators.ps?.toFixed(2) || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="市销率TTM">{analysis.indicators.ps_ttm?.toFixed(2) || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="股息率">{analysis.indicators.dv_ratio?.toFixed(2) || '-'}</Descriptions.Item>
-                    <Descriptions.Item label="股息率TTM">{analysis.indicators.dv_ttm?.toFixed(2) || '-'}</Descriptions.Item>
-                  </Descriptions>
-                </div>
-
-                {/* 市值和股本 */}
-                <div>
-                  <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '12px', color: '#1890ff' }}>
-                    市值与股本
-                  </div>
-                  <Descriptions bordered column={3} size="small">
-                    <Descriptions.Item label="总市值">{analysis.indicators.total_mv ? `${(analysis.indicators.total_mv / 10000).toFixed(2)}亿` : '-'}</Descriptions.Item>
-                    <Descriptions.Item label="流通市值">{analysis.indicators.circ_mv ? `${(analysis.indicators.circ_mv / 10000).toFixed(2)}亿` : '-'}</Descriptions.Item>
-                    <Descriptions.Item label="总股本">{analysis.indicators.total_share ? `${(analysis.indicators.total_share / 10000).toFixed(2)}亿股` : '-'}</Descriptions.Item>
-                    <Descriptions.Item label="流通股本">{analysis.indicators.float_share ? `${(analysis.indicators.float_share / 10000).toFixed(2)}亿股` : '-'}</Descriptions.Item>
-                    <Descriptions.Item label="自由流通股本">{analysis.indicators.free_share ? `${(analysis.indicators.free_share / 10000).toFixed(2)}亿股` : '-'}</Descriptions.Item>
-                  </Descriptions>
-                </div>
-              </div>
-            ) : (
-              <div style={{ textAlign: 'center', padding: '50px', color: '#999' }}>
-                暂无技术指标数据
-              </div>
-            )}
-          </TabPane>
-        </Tabs>
-      </Modal>
+        onClose={handleCloseAnalysisModal}
+        stockCode={currentStock?.code}
+        stockName={currentStock?.name}
+        analysisDate={params.date || null}
+      />
 
       {/* 基本面分析模态框 */}
       {currentStock && (

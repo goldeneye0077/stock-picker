@@ -192,7 +192,7 @@ const StockTableComponent: React.FC<StockTableProps> = ({
               e.stopPropagation();
               onAnalysisClick(record);
             }}
-            style={{ color: '#1890ff' }}
+            style={{ color: 'var(--sq-primary)' }}
           >
             <LineChartOutlined style={{ marginRight: 4 }} />
             技术分析
@@ -202,7 +202,7 @@ const StockTableComponent: React.FC<StockTableProps> = ({
               e.stopPropagation();
               onFundamentalClick(record);
             }}
-            style={{ color: '#52c41a' }}
+            style={{ color: 'var(--sq-fall)' }}
           >
             <BarChartOutlined style={{ marginRight: 4 }} />
             基本面分析
@@ -225,7 +225,7 @@ const StockTableComponent: React.FC<StockTableProps> = ({
         showTotal: (total) => `共 ${total} 条记录`,
         pageSizeOptions: ['10', '20', '50', '100']
       }}
-      size="middle"
+      size="small"
       bordered
     />
   );
