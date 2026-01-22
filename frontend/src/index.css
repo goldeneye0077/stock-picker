@@ -1,31 +1,63 @@
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
+  --sq-bg: #0a0c10;
+  --sq-bg-container: #14161a;
+  --sq-bg-elevated: #1f2229;
+  --sq-border: #303642;
+  --sq-text: rgba(255, 255, 255, 0.95);
+  --sq-text-secondary: rgba(255, 255, 255, 0.65);
+  --sq-text-tertiary: rgba(255, 255, 255, 0.45);
+  --sq-primary: #2e90fa;
+  --sq-rise: #f53f3f;
+  --sq-fall: #00b578;
+  --sq-warning: #faad14;
+  --sq-neutral: #8c8c8c;
 
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
-
+  color-scheme: dark;
+  font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, Segoe UI, Roboto, Arial,
+    "Noto Sans", "Helvetica Neue", sans-serif;
+  font-variant-numeric: tabular-nums;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
+[data-theme='light'] {
+  --sq-bg: #f5f6f8;
+  --sq-bg-container: #ffffff;
+  --sq-bg-elevated: #ffffff;
+  --sq-border: #e5e7eb;
+  --sq-text: rgba(0, 0, 0, 0.88);
+  --sq-text-secondary: rgba(0, 0, 0, 0.65);
+  --sq-text-tertiary: rgba(0, 0, 0, 0.45);
+  --sq-primary: #2e90fa;
+  --sq-rise: #f53f3f;
+  --sq-fall: #00b578;
+  --sq-warning: #faad14;
+  --sq-neutral: #8c8c8c;
+
+  color-scheme: light;
+}
+
+html,
+body {
+  height: 100%;
+}
+
 a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
+  color: var(--sq-primary);
+  text-decoration: none;
 }
 a:hover {
-  color: #535bf2;
+  text-decoration: underline;
 }
 
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  background: var(--sq-bg);
+  color: var(--sq-text);
 }
 
 /* 强制覆盖 ProLayout 的滚动行为 */
@@ -34,7 +66,7 @@ body {
   overflow-y: auto !important;
   height: 100% !important;
   /* 确保内容可以滚动 */
-  min-height: 0 !important; 
+  min-height: 0 !important;
 }
 
 /* 确保外层容器不截断 */
@@ -42,39 +74,85 @@ body {
   height: 100%;
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
+.ant-pro-layout,
+.ant-layout {
+  background: var(--sq-bg);
 }
 
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
-  cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+.ant-layout-sider,
+.ant-pro-layout .ant-layout-sider {
+  background: var(--sq-bg) !important;
+  border-right: 1px solid var(--sq-border);
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
-  }
+.ant-pro-layout .ant-menu,
+.ant-layout-sider .ant-menu {
+  background: transparent !important;
+}
+
+.ant-menu-dark .ant-menu-item-selected,
+.ant-menu-dark .ant-menu-submenu-selected > .ant-menu-submenu-title {
+  background: color-mix(in srgb, var(--sq-primary) 20%, transparent 80%) !important;
+}
+
+.ant-menu-dark .ant-menu-item-selected a,
+.ant-menu-dark .ant-menu-item-selected .ant-menu-title-content {
+  color: var(--sq-text) !important;
+}
+
+.ant-menu-dark .ant-menu-item:hover,
+.ant-menu-dark .ant-menu-submenu-title:hover {
+  background: color-mix(in srgb, var(--sq-border) 30%, transparent 70%) !important;
+}
+
+.ant-card,
+.ant-pro-card {
+  border-color: var(--sq-border) !important;
+}
+
+.ant-table-wrapper .ant-table,
+.ant-table-wrapper .ant-table-container {
+  background: var(--sq-bg-container);
+}
+
+.ant-table-wrapper .ant-table-thead > tr > th {
+  background: color-mix(in srgb, var(--sq-bg-container) 80%, #000 20%);
+  color: var(--sq-text-secondary);
+  border-bottom: 1px solid var(--sq-border);
+}
+
+.ant-table-wrapper .ant-table-tbody > tr > td {
+  border-bottom: 1px solid color-mix(in srgb, var(--sq-border) 70%, transparent 30%);
+}
+
+.ant-table-wrapper .ant-table-tbody > tr:nth-child(even) > td {
+  background: color-mix(in srgb, var(--sq-bg-container) 70%, #000 30%);
+}
+
+.ant-table-wrapper .ant-table-tbody > tr:hover > td {
+  background: #2a2f3a !important;
+}
+
+.ant-modal-mask,
+.ant-drawer-mask {
+  background: rgba(0, 0, 0, 0.55) !important;
+  backdrop-filter: blur(10px);
+}
+
+.sq-mono {
+  font-family: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
+    monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.sq-rise {
+  color: var(--sq-rise);
+}
+
+.sq-fall {
+  color: var(--sq-fall);
+}
+
+.sq-neutral {
+  color: var(--sq-neutral);
 }

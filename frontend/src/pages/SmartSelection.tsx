@@ -68,6 +68,7 @@ import {
   type AdvancedSelectionHistoryItem,
 } from '../services/advancedSelectionService';
 import FundamentalDetailModal from '../components/Fundamental/FundamentalDetailModal';
+import TechnicalAnalysisModal from '../components/TechnicalAnalysisModal';
 
 const { Title, Text, Paragraph } = Typography;
 const { Option } = Select;
@@ -140,6 +141,8 @@ const SmartSelection: React.FC = () => {
   const [industryModalVisible, setIndustryModalVisible] = useState<boolean>(false);
   const [fundamentalModalVisible, setFundamentalModalVisible] = useState<boolean>(false);
   const [currentFundamentalStock, setCurrentFundamentalStock] = useState<SmartSelectionResult | null>(null);
+  const [analysisModalVisible, setAnalysisModalVisible] = useState<boolean>(false);
+  const [currentAnalysisStock, setCurrentAnalysisStock] = useState<SmartSelectionResult | null>(null);
 
   const getConceptCategory = (industry?: string | null): string => {
     if (!industry || industry.trim() === '') {
@@ -839,6 +842,16 @@ const SmartSelection: React.FC = () => {
     setCurrentFundamentalStock(null);
   };
 
+  const handleShowAnalysisModal = (record: SmartSelectionResult) => {
+    setCurrentAnalysisStock(record);
+    setAnalysisModalVisible(true);
+  };
+
+  const handleCloseAnalysisModal = () => {
+    setAnalysisModalVisible(false);
+    setCurrentAnalysisStock(null);
+  };
+
   const columns: any[] = [
     {
       title: '股票代码',
@@ -847,8 +860,26 @@ const SmartSelection: React.FC = () => {
       width: 120,
       render: (text: string, record: SmartSelectionResult) => (
         <div>
-          <div style={{ fontWeight: 'bold' }}>{text}</div>
-          <div style={{ fontSize: 12, color: '#666' }}>{record.stock_name || '--'}</div>
+          <a
+            onClick={(e) => {
+              e.preventDefault();
+              handleShowAnalysisModal(record);
+            }}
+            style={{ fontWeight: 700, color: 'var(--sq-primary)' }}
+          >
+            <span className="sq-mono">{text}</span>
+          </a>
+          <div>
+            <a
+              onClick={(e) => {
+                e.preventDefault();
+                handleShowAnalysisModal(record);
+              }}
+              style={{ fontSize: 12, color: 'var(--sq-text-secondary)' }}
+            >
+              {record.stock_name || '--'}
+            </a>
+          </div>
         </div>
       ),
     },
@@ -1055,10 +1086,11 @@ const SmartSelection: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      width: 120,
+      width: 180,
       render: (_: any, record: SmartSelectionResult) => (
         <Space>
           <Button type="link" size="small" onClick={() => handleShowFundamentalModal(record)}>详情</Button>
+          <Button type="link" size="small" onClick={() => handleShowAnalysisModal(record)}>技术分析</Button>
           <Button type="link" size="small">加入自选</Button>
         </Space>
       ),
@@ -2443,6 +2475,19 @@ const SmartSelection: React.FC = () => {
           onClose={handleCloseFundamentalModal}
         />
       )}
+
+      <TechnicalAnalysisModal
+        open={analysisModalVisible}
+        onClose={handleCloseAnalysisModal}
+        stockCode={currentAnalysisStock?.stock_code}
+        stockName={currentAnalysisStock?.stock_name}
+        analysisDate={currentAnalysisStock?.analysis_date || null}
+        tags={[
+          ...(currentAnalysisStock?.industry ? [{ label: currentAnalysisStock.industry, color: 'geekblue' }] : []),
+          ...(currentAnalysisStock?.risk_level ? [{ label: `${currentAnalysisStock.risk_level}风险`, color: getRiskColor(currentAnalysisStock.risk_level) }] : []),
+          ...(currentAnalysisStock?.holding_period ? [{ label: currentAnalysisStock.holding_period, color: getHoldingPeriodColor(currentAnalysisStock.holding_period) }] : []),
+        ]}
+      />
     </PageContainer>
   );
 };

@@ -47,3 +47,28 @@ global.ResizeObserver = class ResizeObserver {
   observe() {}
   unobserve() {}
 } as any;
+
+class MockMutationObserver {
+  constructor(_cb?: MutationCallback) {}
+  disconnect() {}
+  observe() {}
+  takeRecords() {
+    return [];
+  }
+}
+
+if (typeof window !== 'undefined') {
+  if (typeof window.MutationObserver !== 'function') {
+    (window as any).MutationObserver = MockMutationObserver as any;
+  }
+  if (typeof (globalThis as any).MutationObserver !== 'function') {
+    (globalThis as any).MutationObserver = MockMutationObserver as any;
+  }
+
+  const originalGetComputedStyle = window.getComputedStyle;
+  if (typeof originalGetComputedStyle === 'function') {
+    window.getComputedStyle = ((elt: Element, _pseudoElt?: string | null) => {
+      return originalGetComputedStyle(elt);
+    }) as any;
+  }
+}
