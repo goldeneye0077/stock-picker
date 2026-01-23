@@ -380,7 +380,7 @@ jobs:
       run: |
         docker build -t stock-picker-backend ./backend
         docker build -t stock-picker-frontend --build-arg VITE_DATA_SERVICE_URL=/data-service --build-arg VITE_API_BASE_URL= ./frontend
-        docker build -t stock-picker-data-service -f data-service/Dockerfile .
+        docker build -t stock-picker-data-service ./data-service
 
   publish-ghcr:
     name: Publish Images (GHCR)
@@ -476,8 +476,8 @@ jobs:
     - name: Build and push data service
       uses: docker/build-push-action@v6
       with:
-        context: .
-        file: data-service/Dockerfile
+        context: ./data-service
+        file: Dockerfile
         push: true
         tags: ${{ steps.meta_data_service.outputs.tags }}
         labels: ${{ steps.meta_data_service.outputs.labels }}
