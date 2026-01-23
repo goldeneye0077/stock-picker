@@ -44,8 +44,8 @@ services:
   data-service:
     image: ${DATA_SERVICE_IMAGE:-stock-picker-data-service}
     build:
-      context: .
-      dockerfile: data-service/Dockerfile
+      context: ./data-service
+      dockerfile: Dockerfile
     container_name: stock-picker-data-service
     restart: unless-stopped
     ports:
