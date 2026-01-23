@@ -21,26 +21,40 @@ def get_multi_source_manager():
     if multi_source_manager is None:
         multi_source_manager = MultiSourceManager()
 
-        # 注册数据源
-        tushare_client = TushareClient()
-        if tushare_client.is_available():
-            multi_source_manager.register_source(tushare_client)
-            multi_source_manager.set_preferred_source("tushare")
-            logger.info("Tushare数据源已注册")
-        else:
-            logger.warning("Tushare数据源不可用")
+    if "tushare" not in multi_source_manager.sources:
+        try:
+            tushare_client = TushareClient()
+            if tushare_client.is_available():
+                multi_source_manager.register_source(tushare_client)
+                if not multi_source_manager.preferred_source:
+                    multi_source_manager.set_preferred_source("tushare")
+                logger.info("Tushare数据源已注册")
+            else:
+                logger.warning("Tushare数据源不可用")
+        except Exception as e:
+            logger.warning(f"Tushare数据源初始化失败: {e}")
 
-        akshare_client = AKShareClient()
-        if akshare_client.is_available():
-            multi_source_manager.register_source(akshare_client)
-            logger.info("AKShare数据源已注册")
-        else:
-            logger.warning("AKShare数据源不可用")
+    if "akshare" not in multi_source_manager.sources:
+        try:
+            akshare_client = AKShareClient()
+            if akshare_client.is_available():
+                multi_source_manager.register_source(akshare_client)
+                if not multi_source_manager.preferred_source:
+                    multi_source_manager.set_preferred_source("akshare")
+                logger.info("AKShare数据源已注册")
+            else:
+                logger.warning("AKShare数据源不可用")
+        except Exception as e:
+            logger.warning(f"AKShare数据源初始化失败: {e}")
 
-        # 设置备用顺序
-        multi_source_manager.set_fallback_order(["akshare"])
+    fallback_order = []
+    if "akshare" in multi_source_manager.sources:
+        fallback_order.append("akshare")
+    if "tushare" in multi_source_manager.sources and multi_source_manager.preferred_source != "tushare":
+        fallback_order.append("tushare")
+    multi_source_manager.set_fallback_order(fallback_order)
 
-        logger.info("多数据源管理器初始化完成")
+    logger.info("多数据源管理器初始化完成")
 
     return multi_source_manager
 
@@ -80,7 +94,10 @@ async def fetch_stock_list(background_tasks: BackgroundTasks):
 
         # 检查是否有可用的数据源
         if not manager.sources:
-            raise HTTPException(status_code=400, detail="No data source available")
+            return {
+                "success": False,
+                "message": "No data source available"
+            }
 
         # Run in background
         background_tasks.add_task(fetch_stocks_task)
@@ -956,7 +973,11 @@ async def quick_refresh_all(background_tasks: BackgroundTasks):
         manager = get_multi_source_manager()
 
         if not manager.sources:
-            raise HTTPException(status_code=400, detail="No data source available")
+            return {
+                "success": False,
+                "strategy": None,
+                "message": "No data source available"
+            }
 
         incremental_enabled = False
         incremental_days = 7
@@ -994,7 +1015,8 @@ async def quick_refresh_all(background_tasks: BackgroundTasks):
             message = "全量数据采集任务已启动，将采集最近7天的数据"
 
         tushare_client = TushareClient()
-        background_tasks.add_task(update_auction_from_tushare_task, tushare_client)
+        if tushare_client.is_available():
+            background_tasks.add_task(update_auction_from_tushare_task, tushare_client)
 
         return {
             "success": True,
