@@ -24,6 +24,10 @@ concurrency:
   group: stock-picker-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CODECOV_ENABLED: ${{ vars.CODECOV_ENABLED || 'false' }}
+  ARTIFACTS_ENABLED: ${{ vars.ARTIFACTS_ENABLED || 'false' }}
+
 jobs:
   changes:
     name: Detect Changes
@@ -167,6 +171,8 @@ jobs:
         NODE_ENV: test
 
     - name: Upload test coverage
+      if: env.CODECOV_ENABLED == 'true'
+      continue-on-error: true
       uses: codecov/codecov-action@v4
       with:
         directory: backend/coverage
@@ -213,6 +219,8 @@ jobs:
         NODE_ENV: test
 
     - name: Upload test coverage
+      if: env.CODECOV_ENABLED == 'true'
+      continue-on-error: true
       uses: codecov/codecov-action@v4
       with:
         directory: frontend/coverage
@@ -299,6 +307,8 @@ jobs:
         npm run build -w stock-picker-frontend
 
     - name: Upload build artifacts
+      if: env.ARTIFACTS_ENABLED == 'true'
+      continue-on-error: true
       uses: actions/upload-artifact@v4
       with:
         name: build-artifacts
@@ -457,8 +467,6 @@ jobs:
         push: true
         tags: ${{ steps.meta_backend.outputs.tags }}
         labels: ${{ steps.meta_backend.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
 
     - name: Build and push frontend
       uses: docker/build-push-action@v6
@@ -470,8 +478,6 @@ jobs:
         build-args: |
           VITE_DATA_SERVICE_URL=/data-service
           VITE_API_BASE_URL=
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
 
     - name: Build and push data service
       uses: docker/build-push-action@v6
@@ -481,8 +487,6 @@ jobs:
         push: true
         tags: ${{ steps.meta_data_service.outputs.tags }}
         labels: ${{ steps.meta_data_service.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
 
   deploy-ubuntu:
     name: Deploy (Ubuntu via SSH)
