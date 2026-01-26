@@ -356,7 +356,7 @@ export async function collectAuctionSnapshot(
   }
 
   const response = await fetch(
-    `${API_BASE_URL}${API_ENDPOINTS.QUOTES}/update-auction?${searchParams}`,
+    `${DATA_SERVICE_URL}${API_ENDPOINTS.QUOTES}/update-auction?${searchParams}`,
     { method: 'POST' }
   );
 

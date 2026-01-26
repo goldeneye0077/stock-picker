@@ -1090,10 +1090,55 @@ async def get_auction_super_main_force(
                         }
                     }
                 target_date = str(row[0])
+            else:
+                cursor = await db.execute(
+                    """
+                    SELECT MAX(DATE(snapshot_time)) AS d
+                    FROM quote_history
+                    WHERE DATE(snapshot_time) <= DATE(?)
+                    """,
+                    (target_date,),
+                )
+                row = await cursor.fetchone()
+                if row and row["d"]:
+                    target_date = str(row["d"])
 
             data_source = "quote_history"
 
-            snapshot_time = f"{target_date} 09:26:00"
+            desired_snapshot_time = f"{target_date} 09:26:00"
+            window_start = f"{target_date} 09:20:00"
+            window_end = f"{target_date} 09:31:00"
+
+            snapshot_time = desired_snapshot_time
+            cursor = await db.execute(
+                """
+                SELECT snapshot_time AS st
+                FROM quote_history
+                WHERE snapshot_time >= ? AND snapshot_time < ?
+                GROUP BY snapshot_time
+                ORDER BY snapshot_time DESC
+                LIMIT 1
+                """,
+                (window_start, window_end),
+            )
+            row = await cursor.fetchone()
+            if row and row["st"]:
+                snapshot_time = str(row["st"])
+            else:
+                cursor = await db.execute(
+                    """
+                    SELECT snapshot_time AS st
+                    FROM quote_history
+                    WHERE DATE(snapshot_time) = DATE(?)
+                    GROUP BY snapshot_time
+                    ORDER BY snapshot_time DESC
+                    LIMIT 1
+                    """,
+                    (target_date,),
+                )
+                row = await cursor.fetchone()
+                if row and row["st"]:
+                    snapshot_time = str(row["st"])
             cursor = await db.execute(
                 """
                 SELECT

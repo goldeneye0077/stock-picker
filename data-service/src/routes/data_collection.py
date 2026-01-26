@@ -8,6 +8,7 @@ from ..utils.database import get_database
 from loguru import logger
 import pandas as pd
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from .quotes import update_auction_from_tushare_task
 
 router = APIRouter()
@@ -585,7 +586,7 @@ async def get_collection_status():
                     "total_stocks": stock_count[0] if stock_count else 0,
                     "stocks_with_recent_data": recent_data_count[0] if recent_data_count else 0,
                     "recent_analysis_count": analysis_count[0] if analysis_count else 0,
-                    "last_update": datetime.now().isoformat()
+                    "last_update": datetime.now(ZoneInfo("Asia/Shanghai")).replace(microsecond=0).isoformat()
                 }
             }
     except Exception as e:

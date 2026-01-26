@@ -62,7 +62,9 @@ const SuperMainForce: React.FC = () => {
       }
 
       setData(result);
-      if (!selectedDate && result.tradeDate) setSelectedDate(result.tradeDate);
+      if (result.tradeDate && result.tradeDate !== selectedDate) {
+        setSelectedDate(result.tradeDate);
+      }
 
       if ((result.items?.length ?? 0) > 0) {
         message.success('集合竞价超强主力数据已刷新');
