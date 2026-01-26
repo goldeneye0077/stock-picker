@@ -2,9 +2,9 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ main, master, develop ]
+    branches: [ main, master, develop, "fix/**" ]
   pull_request:
-    branches: [ main, master, develop ]
+    branches: [ main, master, develop, "fix/**" ]
   workflow_dispatch:
     inputs:
       publish_images:

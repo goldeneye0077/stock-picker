@@ -3,12 +3,12 @@ name: Validate OpenAPI Specifications
 on:
   workflow_call:
   push:
-    branches: [ main, master, develop ]
+    branches: [ main, master, develop, "fix/**" ]
     paths:
       - 'specs/**'
       - '.github/workflows/validate-specs.yml'
   pull_request:
-    branches: [ main, master, develop ]
+    branches: [ main, master, develop, "fix/**" ]
     paths:
       - 'specs/**'
       - '.github/workflows/validate-specs.yml'
