@@ -104,6 +104,6 @@ nul
 *.temp
 
 # Test files
-test_*.py
+/test_*.py
 populate_sample_data.py
 data/

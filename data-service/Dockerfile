@@ -14,7 +14,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy source code
 COPY src ./src
-COPY tests ./tests
 ENV NODE_OPTIONS=--max-old-space-size=4096
 RUN set -eux; \
     if ! getent group 1000 >/dev/null; then groupadd -g 1000 app; fi; \
