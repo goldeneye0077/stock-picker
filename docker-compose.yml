@@ -50,6 +50,8 @@ services:
     restart: unless-stopped
     ports:
       - "8001:8001"
+    env_file:
+      - ./data-service/.env
     environment:
       - REDIS_URL=redis://redis:6379
       - DATABASE_URL=sqlite:/data/stock_picker.db

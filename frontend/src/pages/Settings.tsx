@@ -7,6 +7,13 @@ import { DATA_SERVICE_URL } from '../config/api';
 const { Option } = Select;
 const { Text } = Typography;
 
+const formatShanghaiDateTime = (value?: string) => {
+  if (!value) return '--';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
+};
+
 const Settings: React.FC = () => {
   const [form] = Form.useForm();
   const [dataStatus, setDataStatus] = useState<any>(null);
@@ -236,17 +243,6 @@ const Settings: React.FC = () => {
     fetchQualityMetrics();
     fetchIncrementalStatus();
     fetchConfig();
-
-    // 每30秒刷新一次状态
-    const interval = setInterval(() => {
-      fetchDataStatus();
-      fetchSchedulerStatus();
-      fetchMultiSourceStatus();
-      fetchQualityMetrics();
-      fetchIncrementalStatus();
-    }, 30000);
-
-    return () => clearInterval(interval);
   }, [fetchDataStatus, fetchSchedulerStatus, fetchMultiSourceStatus, fetchQualityMetrics, fetchIncrementalStatus, fetchConfig]);
 
   return (
@@ -328,7 +324,7 @@ const Settings: React.FC = () => {
             <Col span={6}>
               <Statistic
                 title="最后更新"
-                value={dataStatus?.last_update ? new Date(dataStatus.last_update).toLocaleString('zh-CN') : '--'}
+                value={formatShanghaiDateTime(dataStatus?.last_update)}
                 valueStyle={{ fontSize: '14px' }}
               />
             </Col>
