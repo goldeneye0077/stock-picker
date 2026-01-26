@@ -234,6 +234,34 @@ async def init_database():
             )
         """)
 
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS ths_indices (
+                ts_code TEXT PRIMARY KEY,
+                name TEXT,
+                exchange TEXT,
+                type TEXT,
+                count INTEGER,
+                list_date TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS ths_members (
+                ts_code TEXT NOT NULL,
+                stock_code TEXT NOT NULL,
+                stock_name TEXT,
+                weight REAL,
+                in_date TEXT,
+                out_date TEXT,
+                is_new TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (ts_code, stock_code)
+            )
+        """)
+
         # 技术指标表
         await db.execute("""
             CREATE TABLE IF NOT EXISTS technical_indicators (
@@ -410,6 +438,9 @@ async def init_database():
         await db.execute("CREATE INDEX IF NOT EXISTS idx_daily_basic_stock_code ON daily_basic(stock_code)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_daily_basic_trade_date ON daily_basic(trade_date)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_daily_basic_stock_date ON daily_basic(stock_code, trade_date)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_ths_indices_type ON ths_indices(type)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_ths_members_stock_code ON ths_members(stock_code)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_ths_members_ts_code ON ths_members(ts_code)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_technical_stock_code ON technical_indicators(stock_code)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_technical_date ON technical_indicators(date)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_technical_stock_date ON technical_indicators(stock_code, date)")

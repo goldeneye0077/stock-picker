@@ -9,6 +9,7 @@ from loguru import logger
 import pandas as pd
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+import asyncio
 from .quotes import update_auction_from_tushare_task
 
 router = APIRouter()
@@ -145,6 +146,93 @@ async def fetch_stocks_task():
     except Exception as e:
         logger.error(f"Error in fetch_stocks_task: {e}")
 
+async def fetch_ths_industry_mapping_task(force: bool = False):
+    try:
+        client = TushareClient()
+        if not client.is_available():
+            logger.warning("Tushare 数据源不可用，跳过 ths_index 行业映射更新")
+            return
+
+        today_prefix = datetime.now().strftime("%Y-%m-%d")
+        async with get_database() as db:
+            cursor = await db.execute(
+                "SELECT COUNT(1) AS c, MAX(updated_at) AS t FROM ths_indices WHERE type = 'I'"
+            )
+            row = await cursor.fetchone()
+            exists_cnt = int(row["c"] or 0) if row else 0
+            last_ts = str(row["t"] or "") if row else ""
+            if (not force) and exists_cnt > 0 and last_ts.startswith(today_prefix):
+                return
+
+        df_index = await client.get_ths_index(exchange="A", type_="I")
+        if df_index is None or df_index.empty:
+            return
+
+        ts_codes: list[str] = []
+        async with get_database() as db:
+            for _, r in df_index.iterrows():
+                ts_code = str(r.get("ts_code") or "").strip()
+                if not ts_code:
+                    continue
+                ts_codes.append(ts_code)
+                await db.execute(
+                    """
+                    INSERT OR REPLACE INTO ths_indices
+                    (ts_code, name, exchange, type, count, list_date, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM ths_indices WHERE ts_code = ?), datetime('now')), datetime('now'))
+                    """,
+                    (
+                        ts_code,
+                        str(r.get("name") or "").strip(),
+                        str(r.get("exchange") or "").strip(),
+                        str(r.get("type") or "I").strip(),
+                        int(r.get("count") or 0) if pd.notna(r.get("count")) else None,
+                        str(r.get("list_date") or "").strip(),
+                        ts_code,
+                    ),
+                )
+            await db.commit()
+
+            for idx, ts_code in enumerate(ts_codes, 1):
+                df_members = await client.get_ths_member(ts_code)
+                if df_members is None or df_members.empty:
+                    await asyncio.sleep(0.2)
+                    continue
+
+                for _, m in df_members.iterrows():
+                    stock_code = str(m.get("code") or "").strip()
+                    if not stock_code:
+                        continue
+                    if "." in stock_code:
+                        stock_code = stock_code.split(".")[0]
+
+                    await db.execute(
+                        """
+                        INSERT OR REPLACE INTO ths_members
+                        (ts_code, stock_code, stock_name, weight, in_date, out_date, is_new, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM ths_members WHERE ts_code = ? AND stock_code = ?), datetime('now')), datetime('now'))
+                        """,
+                        (
+                            ts_code,
+                            stock_code,
+                            str(m.get("name") or "").strip(),
+                            float(m.get("weight")) if pd.notna(m.get("weight")) else None,
+                            str(m.get("in_date") or "").strip(),
+                            str(m.get("out_date") or "").strip(),
+                            str(m.get("is_new") or "").strip(),
+                            ts_code,
+                            stock_code,
+                        ),
+                    )
+
+                if idx % 5 == 0:
+                    await db.commit()
+                await asyncio.sleep(0.2)
+
+            await db.commit()
+    except Exception as e:
+        logger.error(f"ths_index 行业映射更新失败: {e}")
+
 @router.post("/fetch-klines/{stock_code}")
 async def fetch_stock_klines(stock_code: str, background_tasks: BackgroundTasks, days: int = 30):
     """Fetch K-line data for a specific stock"""
@@ -272,7 +360,11 @@ async def analyze_volume_task(stock_code: str):
         logger.error(f"Error in analyze_volume_task: {e}")
 
 @router.post("/batch-collect-7days")
-async def batch_collect_7days(background_tasks: BackgroundTasks, include_moneyflow: bool = True):
+async def batch_collect_7days(
+    background_tasks: BackgroundTasks,
+    include_moneyflow: bool = True,
+    include_auction: bool = True,
+):
     """
     批量采集最近 7 天 A 股全量数据
 
@@ -289,7 +381,7 @@ async def batch_collect_7days(background_tasks: BackgroundTasks, include_moneyfl
             raise HTTPException(status_code=400, detail="No data source available")
 
         # 添加后台任务
-        background_tasks.add_task(batch_collect_7days_task, include_moneyflow)
+        background_tasks.add_task(batch_collect_7days_task, include_moneyflow, include_auction)
 
         return {
             "success": True,
@@ -300,7 +392,7 @@ async def batch_collect_7days(background_tasks: BackgroundTasks, include_moneyfl
         raise HTTPException(status_code=500, detail=str(e))
 
 
-async def batch_collect_7days_task(include_moneyflow: bool = True):
+async def batch_collect_7days_task(include_moneyflow: bool = True, include_auction: bool = True):
     """批量采集 7 天数据的后台任务"""
     import time as time_module
     history_id = None
@@ -357,6 +449,8 @@ async def batch_collect_7days_task(include_moneyflow: bool = True):
                     """, (code, row['name'], row['exchange'], row.get('industry', '')))
                 await db.commit()
             logger.info(f"股票基本信息更新完成: {len(stocks_df)} 只")
+
+        await fetch_ths_industry_mapping_task()
 
         time_module.sleep(0.5)  # API 限流
 
@@ -518,8 +612,24 @@ async def batch_collect_7days_task(include_moneyflow: bool = True):
 
             time_module.sleep(0.5)  # API 限流
 
+        # 7. 批量采集合竞价数据（可选，使用 Tushare stk_auction）
+        total_auctions = 0
+        if include_auction:
+            tushare_client = TushareClient()
+            if tushare_client.is_available():
+                logger.info("开始批量采集合竞价数据（Tushare stk_auction）...")
+                for i, trade_date in enumerate(trading_days, 1):
+                    logger.info(f"[{i}/{len(trading_days)}] 下载 {trade_date} 集合竞价...")
+                    inserted = await update_auction_from_tushare_task(tushare_client, trade_date)
+                    total_auctions += int(inserted or 0)
+                    time_module.sleep(0.5)
+            else:
+                logger.info("Tushare 数据源不可用，跳过集合竞价采集")
+
         elapsed_time = time_module.time() - start_time
-        logger.info(f"批量数据采集完成！K线: {total_klines} 条, 个股资金流向: {total_flows} 条, 大盘资金流向: {total_market_flows} 条, 技术指标: {total_indicators} 条, 耗时: {elapsed_time:.1f}秒")
+        logger.info(
+            f"批量数据采集完成！K线: {total_klines} 条, 个股资金流向: {total_flows} 条, 大盘资金流向: {total_market_flows} 条, 技术指标: {total_indicators} 条, 集合竞价: {total_auctions} 条, 耗时: {elapsed_time:.1f}秒"
+        )
 
         try:
             async with get_database() as db:

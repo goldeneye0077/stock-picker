@@ -1185,6 +1185,7 @@ async def get_auction_super_main_force(
             stock_theme_candidates_map: dict[str, list[dict]] = {}
             theme_coverage = 0.0
             closing_info_map: dict[str, dict] = {}
+            ths_industry_map: dict[str, str] = {}
 
             trade_date_ret = target_date
             theme_date = trade_date_ret
@@ -1204,6 +1205,32 @@ async def get_auction_super_main_force(
                         "industry": row["industry"],
                         "exchange": row["exchange"],
                     }
+
+                trade_date_cutoff = trade_date_ret.replace("-", "")
+                cursor = await db.execute(
+                    f"""
+                    SELECT
+                        m.stock_code AS stock_code,
+                        i.name AS industry_name
+                    FROM ths_members m
+                    JOIN ths_indices i
+                      ON i.ts_code = m.ts_code
+                    WHERE i.type = 'I'
+                      AND m.stock_code IN ({placeholders})
+                      AND (m.out_date IS NULL OR m.out_date = '' OR m.out_date >= ?)
+                    ORDER BY
+                      m.stock_code,
+                      COALESCE(m.weight, 0) DESC,
+                      COALESCE(m.in_date, '') DESC
+                    """,
+                    (*stock_codes, trade_date_cutoff),
+                )
+                ths_rows = await cursor.fetchall()
+                for row in ths_rows:
+                    code = str(row["stock_code"] or "")
+                    if not code or code in ths_industry_map:
+                        continue
+                    ths_industry_map[code] = str(row["industry_name"] or "")
 
                 cursor = await db.execute(
                     f"""
@@ -1466,6 +1493,7 @@ async def get_auction_super_main_force(
                 continue
 
             info = stock_info_map.get(stock_code, {})
+            industry_name = ths_industry_map.get(stock_code) or str(info.get("industry") or "")
 
             price = float(r.get("open") or r.get("close") or 0.0)
             pre_close = float(r.get("pre_close") or 0.0)
@@ -1630,13 +1658,13 @@ async def get_auction_super_main_force(
             if not theme_name:
                 theme_heat_score = 0.0
                 theme_code = ""
-                theme_name = str(info.get("industry") or "")
+                theme_name = industry_name
 
             pool.append({
                 "stock": stock_code,
                 "tsCode": ts_code,
                 "name": info.get("name") or "",
-                "industry": info.get("industry") or "",
+                "industry": industry_name,
                 "price": round(price, 3),
                 "preClose": round(pre_close, 3),
                 "gapPercent": round(gap_percent, 2),

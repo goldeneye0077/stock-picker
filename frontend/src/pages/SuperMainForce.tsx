@@ -229,6 +229,17 @@ const SuperMainForce: React.FC = () => {
       }
     },
     {
+      title: '当日盈亏',
+      key: 'dailyProfit',
+      width: 110,
+      render: (_: unknown, record: AuctionSuperMainForceItem) => {
+        const day = Number(record.changePercent || 0);
+        const gap = Number(record.gapPercent || 0);
+        const v = day - gap;
+        return <span className={`${v >= 0 ? 'sq-rise' : 'sq-fall'} sq-mono`}>{v.toFixed(2)}%</span>;
+      }
+    },
+    {
       title: '量比',
       dataIndex: 'volumeRatio',
       key: 'volumeRatio',
@@ -437,7 +448,7 @@ const SuperMainForce: React.FC = () => {
           dataSource={tableItems.slice(0, 20)}
           rowKey={(record) => `${record.stock}-${record.rank}`}
           pagination={false}
-          scroll={{ x: 1200 }}
+          scroll={{ x: 1300 }}
         />
       </Card>
 

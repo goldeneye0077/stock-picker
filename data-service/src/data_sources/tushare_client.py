@@ -721,6 +721,57 @@ class TushareClient(DataSource):
             logger.error(f"Error fetching kpl_concept_cons for date {trade_date}: {e}")
             return None
 
+    async def get_ths_index(self, exchange: str = "A", type_: str = "I") -> Optional[pd.DataFrame]:
+        if not self.pro:
+            return None
+
+        try:
+            df = self.pro.ths_index(
+                exchange=exchange,
+                type=type_,
+            )
+
+            if df is None or df.empty:
+                logger.warning(f"No ths_index data returned (exchange={exchange}, type={type_})")
+                return None
+
+            for col in ["count"]:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors="coerce")
+
+            logger.info(f"Retrieved {len(df)} ths_index records (exchange={exchange}, type={type_})")
+            return df
+        except Exception as e:
+            logger.error(f"Error fetching ths_index (exchange={exchange}, type={type_}): {e}")
+            return None
+
+    async def get_ths_member(self, ts_code: str) -> Optional[pd.DataFrame]:
+        if not self.pro:
+            return None
+
+        code = str(ts_code or "").strip()
+        if not code:
+            return None
+
+        try:
+            df = self.pro.ths_member(
+                ts_code=code,
+                fields="ts_code,code,name,weight,in_date,out_date,is_new",
+            )
+
+            if df is None or df.empty:
+                logger.warning(f"No ths_member data returned (ts_code={code})")
+                return None
+
+            if "weight" in df.columns:
+                df["weight"] = pd.to_numeric(df["weight"], errors="coerce")
+
+            logger.info(f"Retrieved {len(df)} ths_member records (ts_code={code})")
+            return df
+        except Exception as e:
+            logger.error(f"Error fetching ths_member (ts_code={code}): {e}")
+            return None
+
     def is_available(self) -> bool:
         """
         检查数据源是否可用
