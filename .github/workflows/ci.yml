@@ -561,7 +561,7 @@ jobs:
         username: ${{ secrets.DEPLOY_SSH_USER }}
         key: ${{ secrets.DEPLOY_SSH_KEY }}
         port: ${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}
-        command_timeout: 60m
+        command_timeout: 180m
         script: |
           set -euo pipefail
           DEPLOY_DIR="/home/${{ secrets.DEPLOY_SSH_USER }}/stock-picker"
