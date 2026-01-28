@@ -35,7 +35,9 @@ vi.mock('../services/stockService', async () => {
     ...actual,
     fetchStockDetail: vi.fn(),
     fetchStockAnalysis: vi.fn(),
-    fetchStockHistory: vi.fn(),
+    fetchStockHistoryForRealtime: vi.fn(),
+    fetchRealtimeQuote: vi.fn(),
+    fetchRealtimeQuotesBatch: vi.fn(),
   };
 });
 
@@ -91,9 +93,19 @@ describe('SuperMainForce', () => {
       indicators: { ma5: 1, ma10: 2, ma20: 3 },
     } as any);
 
-    vi.mocked(stockService.fetchStockHistory).mockResolvedValue({
+    vi.mocked(stockService.fetchStockHistoryForRealtime).mockResolvedValue({
       klines: [{ date: '2026-01-01', open: 1, close: 2, low: 0.5, high: 2.5, volume: 10 }],
     } as any);
+
+    vi.mocked(stockService.fetchRealtimeQuote).mockResolvedValue({
+      stock_code: '000001',
+      ts_code: '000001.SZ',
+      close: 10.12,
+      pre_close: 9.98,
+      updated_at: '2026-01-02 09:31:00',
+    } as any);
+
+    vi.mocked(stockService.fetchRealtimeQuotesBatch).mockResolvedValue([] as any);
 
     renderWithConfig(<SuperMainForce />);
 
@@ -105,7 +117,7 @@ describe('SuperMainForce', () => {
         '000001',
         expect.objectContaining({ date: expect.any(String) })
       );
-      expect(stockService.fetchStockHistory).toHaveBeenCalledWith('000001', { period: 'daily' });
+      expect(stockService.fetchStockHistoryForRealtime).toHaveBeenCalledWith('000001');
       expect(screen.getByText('kline:1')).toBeInTheDocument();
       expect(screen.getByText('MA5')).toBeInTheDocument();
       expect(screen.getByText('1.00')).toBeInTheDocument();

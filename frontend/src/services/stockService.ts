@@ -89,7 +89,7 @@ export async function fetchStockDetail(stockCode: string) {
   const result = await response.json();
 
   if (!result.success) {
-    throw new Error(result.message || '获取股票详情失败');
+    throw new Error(result.message || '获取K线数据失败');
   }
 
   return result.data;
@@ -144,7 +144,7 @@ export async function fetchStockAnalysis(stockCode: string, params: StockAnalysi
   const result = await response.json();
 
   if (!result.success) {
-    throw new Error(result.message || '获取技术分析失败');
+    throw new Error(result.message || '获取K线数据失败');
   }
 
   return result.data;
@@ -173,4 +173,92 @@ export async function searchStocks(query: string) {
   }
 
   return result.data || [];
+}
+
+/**
+ * 获取实时行情数据
+ */
+export async function fetchRealtimeQuote(stockCode: string) {
+  const response = await fetch(
+    `${API_BASE_URL}${API_ENDPOINTS.QUOTES}/realtime?ts_code=${encodeURIComponent(stockCode)}`
+  );
+
+  if (!response.ok) {
+    throw new Error('获取实时行情失败');
+  }
+
+  const result = await response.json();
+
+  if (!result.success) {
+    throw new Error(result.message || '获取K线数据失败');
+  }
+
+  return result.data;
+}
+
+export async function fetchRealtimeQuotesBatch(
+  tsCodes: string[],
+  params: { maxAgeSeconds?: number; force?: boolean } = {}
+) {
+  const searchParams = new URLSearchParams();
+  for (const c of tsCodes) {
+    if (c) searchParams.append('ts_codes', c);
+  }
+  if (typeof params.maxAgeSeconds === 'number') {
+    searchParams.set('max_age_seconds', String(params.maxAgeSeconds));
+  }
+  if (params.force !== undefined) {
+    searchParams.set('force', params.force ? 'true' : 'false');
+  }
+
+  const response = await fetch(
+    `${API_BASE_URL}${API_ENDPOINTS.QUOTES}/realtime-batch?${searchParams.toString()}`
+  );
+
+  if (!response.ok) {
+    throw new Error('获取实时行情失败');
+  }
+
+  const result = await response.json();
+
+  if (!result.success) {
+    throw new Error(result.message || '获取实时行情失败');
+  }
+
+  return result.data;
+}
+
+/**
+ * 获取股票历史K线数据（1年）
+ */
+export async function fetchStockHistoryForRealtime(stockCode: string) {
+  const endDate = new Date();
+  const startDate = new Date();
+  startDate.setFullYear(startDate.getFullYear() - 1);
+
+  const formatYmd = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  const startDateStr = formatYmd(startDate);
+  const endDateStr = formatYmd(endDate);
+
+  const url = `${API_BASE_URL}${API_ENDPOINTS.STOCKS}/${stockCode}/history?start_date=${startDateStr}&end_date=${endDateStr}`;
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    throw new Error('获取K线数据失败');
+  }
+
+  const result = await response.json();
+
+  if (!result.success) {
+    throw new Error(result.message || '获取K线数据失败');
+  }
+
+  return result.data;
+
 }

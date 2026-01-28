@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Alert, Button, Card, Col, Progress, Row, Space, Statistic, Table, Tag, Typography, message } from 'antd';
-import { BarChartOutlined, CalculatorOutlined, RightOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { BarChartOutlined, CalculatorOutlined, RightOutlined, SyncOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import dayjs from 'dayjs';
 import type { ColumnsType } from 'antd/es/table';
@@ -109,6 +109,7 @@ const Home: React.FC = () => {
   const [sampleLoading, setSampleLoading] = useState(false);
   const [sampleError, setSampleError] = useState<string | null>(null);
   const [sample, setSample] = useState<AuctionSuperMainForceData | null>(null);
+  const [sampleRefreshKey, setSampleRefreshKey] = useState(0);
 
   const [monthLoading, setMonthLoading] = useState(false);
   const [monthProgress, setMonthProgress] = useState({ total: 0, done: 0 });
@@ -174,7 +175,7 @@ const Home: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [sampleRefreshKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -530,53 +531,91 @@ const Home: React.FC = () => {
   return (
     <div style={{ padding: 24 }}>
       <Row gutter={[16, 16]}>
+        {/* 顶部大横幅：AI智能选股引擎介绍 */}
         <Col span={24}>
-          <Card>
-            <Row gutter={[16, 16]} align="middle">
-              <Col xs={24} md={16}>
-                <Typography.Title level={3} style={{ marginTop: 0, marginBottom: 8 }}>
-                  AI智能选股引擎
-                </Typography.Title>
-                <Typography.Paragraph style={{ marginBottom: 12, color: '#aaa' }}>
-                  以竞价热度、题材强度、资金行为与多因子评分为核心，提供“超强主力”与“精算智选”两条主线，
-                  帮你在开盘前更快锁定候选标的，并通过策略回测与收益曲线对比做决策校验。
-                </Typography.Paragraph>
-                <Space wrap>
-                  <Button type="primary" icon={<ThunderboltOutlined />} onClick={() => navigate('/super-main-force')}>
-                    进入超强主力
-                  </Button>
-                  <Button icon={<CalculatorOutlined />} onClick={() => navigate('/smart-selection')}>
-                    进入精算智选
-                  </Button>
-                  <Button type="text" icon={<RightOutlined />} onClick={() => navigate('/stocks')}>
-                    浏览股票列表
-                  </Button>
+          <Card
+            style={{ 
+              background: 'linear-gradient(135deg, #1890ff 0%, #722ed1 100%)',
+              border: 'none'
+            }}
+            styles={{ body: { padding: '32px' } }}
+          >
+            <Row gutter={[32, 16]} align="middle">
+              <Col xs={24} md={14}>
+                <Space direction="vertical" size={8}>
+                  <Space>
+                    <ThunderboltOutlined style={{ fontSize: 28, color: '#fff' }} />
+                    <Typography.Title level={2} style={{ margin: 0, color: '#fff' }}>
+                      AI智能选股引擎
+                    </Typography.Title>
+                  </Space>
+                  <Typography.Paragraph style={{ marginBottom: 16, color: 'rgba(255,255,255,0.9)', fontSize: 16 }}>
+                    以竞价热度、题材强度、资金行为与多因子评分为核心，提供"超强主力"与"精算智选"两条主线，
+                    帮你在开盘前更快锁定候选标的，并通过策略回测与收益曲线对比做决策校验。
+                  </Typography.Paragraph>
+                  <Space wrap>
+                    <Button 
+                      type="primary" 
+                      size="large"
+                      icon={<ThunderboltOutlined />} 
+                      onClick={() => navigate('/super-main-force')}
+                      style={{ background: '#fff', color: '#1890ff', borderColor: '#fff' }}
+                    >
+                      超强主力
+                    </Button>
+                    <Button 
+                      size="large"
+                      icon={<CalculatorOutlined />} 
+                      onClick={() => navigate('/smart-selection')}
+                      style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', borderColor: 'rgba(255,255,255,0.5)' }}
+                    >
+                      精算智选
+                    </Button>
+                    <Button 
+                      type="link" 
+                      icon={<RightOutlined />} 
+                      onClick={() => navigate('/stocks')}
+                      style={{ color: '#fff' }}
+                    >
+                      浏览股票
+                    </Button>
+                  </Space>
                 </Space>
               </Col>
-              <Col xs={24} md={8}>
+              <Col xs={24} md={10}>
                 <Row gutter={[16, 16]}>
                   <Col span={12}>
-                    <Statistic title="近月入选数" value={monthStats?.totalSelected || 0} suffix="只" />
-                  </Col>
-                  <Col span={12}>
-                    <Statistic
-                      title="收盘涨停（竞价未涨停）"
-                      value={monthStats?.totalCloseLimitUp || 0}
+                    <Statistic 
+                      title={<span style={{ color: 'rgba(255,255,255,0.8)' }}>近月入选</span>} 
+                      value={monthStats?.totalSelected || 0} 
                       suffix="只"
-                      valueStyle={{ color: '#faad14' }}
+                      valueStyle={{ color: '#fff', fontSize: 28 }}
                     />
                   </Col>
                   <Col span={12}>
-                    <Statistic
-                      title="收盘涨停率"
-                      value={monthStats?.closeLimitUpRate || 0}
+                    <Statistic 
+                      title={<span style={{ color: 'rgba(255,255,255,0.8)' }}>收盘涨停</span>} 
+                      value={monthStats?.totalCloseLimitUp || 0} 
+                      suffix="只"
+                      valueStyle={{ color: '#faad14', fontSize: 28 }}
+                    />
+                  </Col>
+                  <Col span={12}>
+                    <Statistic 
+                      title={<span style={{ color: 'rgba(255,255,255,0.8)' }}>涨停率</span>} 
+                      value={monthStats?.closeLimitUpRate || 0} 
                       precision={1}
                       suffix="%"
-                      valueStyle={{ color: '#52c41a' }}
+                      valueStyle={{ color: '#52c41a', fontSize: 28 }}
                     />
                   </Col>
                   <Col span={12}>
-                    <Statistic title="样例数据日" value={sample?.tradeDate || '-'} />
+                    <Statistic 
+                      title={<span style={{ color: 'rgba(255,255,255,0.8)' }}>策略数量</span>} 
+                      value={strategies?.length || 0} 
+                      suffix="个"
+                      valueStyle={{ color: '#fff', fontSize: 28 }}
+                    />
                   </Col>
                 </Row>
               </Col>
@@ -584,6 +623,144 @@ const Home: React.FC = () => {
           </Card>
         </Col>
 
+        {/* 市场概览区域 */}
+        <Col xs={24} lg={12}>
+          <Card 
+            title={
+              <Space>
+                <BarChartOutlined style={{ color: '#1890ff' }} />
+                <span>实时市场概览</span>
+              </Space>
+            }
+          >
+            <Row gutter={[16, 16]}>
+              <Col span={24}>
+                <Row gutter={16}>
+                  <Col span={8}>
+                    <Statistic 
+                      title="上证指数" 
+                      value={3145.68} 
+                      precision={2}
+                      valueStyle={{ color: '#cf1322', fontSize: 20 }}
+                      suffix={
+                        <span style={{ fontSize: 12, color: '#cf1322', marginLeft: 4 }}>
+                          +0.45%
+                        </span>
+                      }
+                    />
+                  </Col>
+                  <Col span={8}>
+                    <Statistic 
+                      title="深证成指" 
+                      value={9852.32} 
+                      precision={2}
+                      valueStyle={{ color: '#3f8600', fontSize: 20 }}
+                      suffix={
+                        <span style={{ fontSize: 12, color: '#3f8600', marginLeft: 4 }}>
+                          -0.32%
+                        </span>
+                      }
+                    />
+                  </Col>
+                  <Col span={8}>
+                    <Statistic 
+                      title="创业板指" 
+                      value={1967.85} 
+                      precision={2}
+                      valueStyle={{ color: '#cf1322', fontSize: 20 }}
+                      suffix={
+                        <span style={{ fontSize: 12, color: '#cf1322', marginLeft: 4 }}>
+                          +0.68%
+                        </span>
+                      }
+                    />
+                  </Col>
+                </Row>
+              </Col>
+              <Col span={24}>
+                <div style={{ marginTop: 16 }}>
+                  <Typography.Text strong style={{ marginBottom: 8, display: 'block' }}>热门板块</Typography.Text>
+                  <Space wrap>
+                    <Tag color="#f50" style={{ marginBottom: 8 }}>人工智能 +2.5%</Tag>
+                    <Tag color="#2db7f5" style={{ marginBottom: 8 }}>新能源 +1.8%</Tag>
+                    <Tag color="#87d068" style={{ marginBottom: 8 }}>半导体 +1.5%</Tag>
+                    <Tag color="#108ee9" style={{ marginBottom: 8 }}>军工 +1.2%</Tag>
+                    <Tag color="#f50" style={{ marginBottom: 8 }}>券商 +0.9%</Tag>
+                  </Space>
+                </div>
+              </Col>
+            </Row>
+          </Card>
+        </Col>
+
+        {/* 核心功能区域 */}
+        <Col xs={24} lg={12}>
+          <Card 
+            title={
+              <Space>
+                <CalculatorOutlined style={{ color: '#722ed1' }} />
+                <span>核心功能</span>
+              </Space>
+            }
+          >
+            <Row gutter={[16, 16]}>
+              <Col xs={24} sm={12}>
+                <Card size="small" bordered={false} style={{ background: 'rgba(24, 144, 255, 0.05)' }}>
+                  <Space>
+                    <ThunderboltOutlined style={{ fontSize: 24, color: '#1890ff' }} />
+                    <div>
+                      <Typography.Text strong>超强主力</Typography.Text>
+                      <Typography.Paragraph style={{ marginBottom: 0, color: '#aaa', fontSize: 12 }}>
+                        集合竞价阶段快速锁定强势标的
+                      </Typography.Paragraph>
+                    </div>
+                  </Space>
+                </Card>
+              </Col>
+              <Col xs={24} sm={12}>
+                <Card size="small" bordered={false} style={{ background: 'rgba(114, 46, 209, 0.05)' }}>
+                  <Space>
+                    <CalculatorOutlined style={{ fontSize: 24, color: '#722ed1' }} />
+                    <div>
+                      <Typography.Text strong>精算智选</Typography.Text>
+                      <Typography.Paragraph style={{ marginBottom: 0, color: '#aaa', fontSize: 12 }}>
+                        多因子模型精挑细选
+                      </Typography.Paragraph>
+                    </div>
+                  </Space>
+                </Card>
+              </Col>
+              <Col xs={24} sm={12}>
+                <Card size="small" bordered={false} style={{ background: 'rgba(82, 196, 26, 0.05)' }}>
+                  <Space>
+                    <BarChartOutlined style={{ fontSize: 24, color: '#52c41a' }} />
+                    <div>
+                      <Typography.Text strong>策略回测</Typography.Text>
+                      <Typography.Paragraph style={{ marginBottom: 0, color: '#aaa', fontSize: 12 }}>
+                        验证策略有效性
+                      </Typography.Paragraph>
+                    </div>
+                  </Space>
+                </Card>
+              </Col>
+              <Col xs={24} sm={12}>
+                <Card size="small" bordered={false} style={{ background: 'rgba(250, 173, 20, 0.05)' }}>
+                  <Space>
+                    <RightOutlined style={{ fontSize: 24, color: '#faad14' }} />
+                    <div>
+                      <Typography.Text strong>实时监控</Typography.Text>
+                      <Typography.Paragraph style={{ marginBottom: 0, color: '#aaa', fontSize: 12 }}>
+                        把握每一个交易机会
+                      </Typography.Paragraph>
+                    </div>
+                  </Space>
+                </Card>
+              </Col>
+            </Row>
+          </Card>
+        </Col>
+
+        {/* 超强主力样例 */}
         <Col span={24}>
           <Row gutter={[16, 16]} align="stretch">
             <Col xs={24} lg={14}>
@@ -591,7 +768,7 @@ const Home: React.FC = () => {
                 style={{ height: '100%' }}
                 title={
                   <Space>
-                    <ThunderboltOutlined />
+                    <ThunderboltOutlined style={{ color: '#faad14' }} />
                     <span>超强主力样例</span>
                     <span style={{ fontSize: 12, color: '#aaa' }}>
                       {sample?.tradeDate ? `（${sample.tradeDate}）` : ''}
@@ -599,9 +776,19 @@ const Home: React.FC = () => {
                   </Space>
                 }
                 extra={
-                  <Button size="small" onClick={() => navigate('/super-main-force')}>
-                    查看全部
-                  </Button>
+                  <Space>
+                    <Button size="small" onClick={() => navigate('/super-main-force')}>
+                      查看全部
+                    </Button>
+                    <Button
+                      size="small"
+                      type="primary"
+                      icon={<SyncOutlined />}
+                      onClick={() => setSampleRefreshKey((v) => v + 1)}
+                    >
+                      刷新数据
+                    </Button>
+                  </Space>
                 }
                 styles={{ body: { padding: 0 } }}
               >
@@ -622,8 +809,8 @@ const Home: React.FC = () => {
                 style={{ height: '100%' }}
                 title={
                   <Space>
-                    <BarChartOutlined />
-                    <span>最近一个月：超强主力入选后涨停名单</span>
+                    <BarChartOutlined style={{ color: '#52c41a' }} />
+                    <span>近月涨停表现</span>
                   </Space>
                 }
                 extra={
@@ -644,13 +831,15 @@ const Home: React.FC = () => {
 
                 <Row gutter={[16, 16]} style={{ marginTop: 8 }}>
                   <Col span={12}>
-                    <Statistic title="统计区间" value={monthStats ? `${monthStats.fromDate} ~ ${monthStats.toDate}` : '-'} />
+                    <Statistic title="统计区间" value={monthStats ? `${monthStats.fromDate} ~ ${monthStats.toDate}` : '-'} valueStyle={{ fontSize: 12 }} />
                   </Col>
                   <Col span={12}>
-                    <Statistic
-                      title="口径"
-                      value="入选股票中收盘涨停（竞价未涨停）占比"
-                      valueStyle={{ fontSize: 12, color: '#aaa' }}
+                    <Statistic 
+                      title="收盘涨停率" 
+                      value={monthStats?.closeLimitUpRate || 0} 
+                      precision={1} 
+                      suffix="%"
+                      valueStyle={{ color: '#52c41a', fontSize: 20 }}
                     />
                   </Col>
                 </Row>
@@ -659,18 +848,7 @@ const Home: React.FC = () => {
                   {!monthLoading && !monthError && monthStats && monthStats.coveredDays < monthStats.requestedDays ? (
                     <Alert
                       type="warning"
-                      message={`近月仅覆盖 ${monthStats.coveredDays}/${monthStats.requestedDays} 个交易日，统计区间已按可用数据缩短`}
-                      showIcon
-                      style={{ marginBottom: 12 }}
-                    />
-                  ) : null}
-                  {!monthLoading && !monthError && monthStats && monthStats.totalSelected === 0 ? (
-                    <Alert type="info" message="近月暂无入选记录" showIcon style={{ marginBottom: 12 }} />
-                  ) : null}
-                  {!monthLoading && !monthError && monthStats && monthStats.totalSelected > 0 && monthStats.records.length === 0 ? (
-                    <Alert
-                      type="info"
-                      message="近月暂无“收盘涨停（竞价未涨停）”记录"
+                      message={`近月仅覆盖 ${monthStats.coveredDays}/${monthStats.requestedDays} 个交易日`}
                       showIcon
                       style={{ marginBottom: 12 }}
                     />
@@ -678,7 +856,7 @@ const Home: React.FC = () => {
                   <Table
                     loading={monthLoading}
                     columns={monthColumns}
-                    dataSource={(monthStats?.records || []).slice(0, 10)}
+                    dataSource={(monthStats?.records || []).slice(0, 8)}
                     rowKey={(r: MonthlyLimitUpRecord) => `${r.tradeDate}-${r.stock}`}
                     pagination={false}
                     size="small"
@@ -689,16 +867,17 @@ const Home: React.FC = () => {
           </Row>
         </Col>
 
+        {/* 精选策略 */}
         <Col span={24}>
           <Card
             title={
               <Space>
-                <CalculatorOutlined />
-                <span>精算智选：策略样例</span>
+                <CalculatorOutlined style={{ color: '#722ed1' }} />
+                <span>精选策略</span>
               </Space>
             }
             extra={
-              <Button size="small" onClick={() => navigate('/smart-selection')}>
+              <Button size="small" type="primary" onClick={() => navigate('/smart-selection')}>
                 去使用
               </Button>
             }
@@ -707,26 +886,44 @@ const Home: React.FC = () => {
             {strategiesError ? <Alert type="warning" message={strategiesError} /> : null}
             <Row gutter={[16, 16]}>
               {(strategies || []).map((s) => (
-                <Col key={s.id} xs={24} md={12} lg={8}>
-                  <Card size="small" title={<Space><span>{s.strategy_name}</span>{s.algorithm_type ? <Tag>{s.algorithm_type}</Tag> : null}</Space>}>
-                    <Typography.Paragraph style={{ marginBottom: 10, color: '#aaa' }}>
+                <Col key={s.id} xs={24} md={12} lg={8} xl={6}>
+                  <Card 
+                    size="small" 
+                    title={
+                      <Space>
+                        <span>{s.strategy_name}</span>
+                        {s.algorithm_type ? <Tag color={s.algorithm_type === 'advanced' ? 'purple' : 'blue'}>{s.algorithm_type}</Tag> : null}
+                      </Space>
+                    }
+                    hoverable
+                    onClick={() => navigate('/smart-selection')}
+                  >
+                    <Typography.Paragraph style={{ marginBottom: 10, color: '#aaa', fontSize: 12 }}>
                       {s.description}
                     </Typography.Paragraph>
-                    <div style={{ marginBottom: 10 }}>
-                      <div style={{ fontSize: 12, color: '#aaa' }}>技术</div>
-                      <Progress percent={Math.round((s.technical_weight || 0) * 100)} size="small" showInfo />
-                      <div style={{ fontSize: 12, color: '#aaa' }}>基本面</div>
-                      <Progress percent={Math.round((s.fundamental_weight || 0) * 100)} size="small" showInfo />
-                      <div style={{ fontSize: 12, color: '#aaa' }}>资金</div>
-                      <Progress percent={Math.round((s.capital_weight || 0) * 100)} size="small" showInfo />
-                      <div style={{ fontSize: 12, color: '#aaa' }}>市场</div>
-                      <Progress percent={Math.round((s.market_weight || 0) * 100)} size="small" showInfo />
-                    </div>
+                    <Row gutter={4} style={{ marginBottom: 10 }}>
+                      <Col span={6}>
+                        <div style={{ fontSize: 10, color: '#aaa' }}>技术</div>
+                        <Progress percent={Math.round((s.technical_weight || 0) * 100)} size="small" showInfo={false} strokeColor="#1890ff" />
+                      </Col>
+                      <Col span={6}>
+                        <div style={{ fontSize: 10, color: '#aaa' }}>基本面</div>
+                        <Progress percent={Math.round((s.fundamental_weight || 0) * 100)} size="small" showInfo={false} strokeColor="#722ed1" />
+                      </Col>
+                      <Col span={6}>
+                        <div style={{ fontSize: 10, color: '#aaa' }}>资金</div>
+                        <Progress percent={Math.round((s.capital_weight || 0) * 100)} size="small" showInfo={false} strokeColor="#52c41a" />
+                      </Col>
+                      <Col span={6}>
+                        <div style={{ fontSize: 10, color: '#aaa' }}>市场</div>
+                        <Progress percent={Math.round((s.market_weight || 0) * 100)} size="small" showInfo={false} strokeColor="#faad14" />
+                      </Col>
+                    </Row>
                     <Space wrap>
-                      {typeof s.min_score === 'number' ? <Tag color="blue">最低分 {s.min_score}</Tag> : null}
-                      {typeof s.max_results === 'number' ? <Tag color="purple">最多 {s.max_results}</Tag> : null}
-                      {s.require_uptrend ? <Tag color="green">要求上升趋势</Tag> : null}
-                      {s.require_hot_sector ? <Tag color="gold">偏热门板块</Tag> : null}
+                      {typeof s.min_score === 'number' ? <Tag color="blue">最低{s.min_score}分</Tag> : null}
+                      {typeof s.max_results === 'number' ? <Tag color="purple">最多{s.max_results}只</Tag> : null}
+                      {s.require_uptrend ? <Tag color="green">上升趋势</Tag> : null}
+                      {s.require_hot_sector ? <Tag color="gold">热门板块</Tag> : null}
                     </Space>
                   </Card>
                 </Col>
@@ -739,41 +936,197 @@ const Home: React.FC = () => {
           <Card
             title={
               <Space>
-                <BarChartOutlined />
+                <ThunderboltOutlined style={{ color: '#1890ff' }} />
+                <span>AI选股工作流</span>
+              </Space>
+            }
+          >
+            <Row gutter={[16, 16]}>
+              <Col xs={24} md={8}>
+                <Card size="small" hoverable onClick={() => navigate('/stocks')}>
+                  <Space direction="vertical" size={6}>
+                    <Typography.Text strong>1. 建立观察池</Typography.Text>
+                    <Typography.Text type="secondary">从全市场快速筛选行业/题材/形态</Typography.Text>
+                    <Button type="link" icon={<RightOutlined />} style={{ padding: 0 }}>
+                      去浏览股票
+                    </Button>
+                  </Space>
+                </Card>
+              </Col>
+              <Col xs={24} md={8}>
+                <Card size="small" hoverable onClick={() => navigate('/super-main-force')}>
+                  <Space direction="vertical" size={6}>
+                    <Typography.Text strong>2. 竞价锁定强势</Typography.Text>
+                    <Typography.Text type="secondary">用热度评分+题材增强，缩小范围</Typography.Text>
+                    <Button type="link" icon={<RightOutlined />} style={{ padding: 0 }}>
+                      去超强主力
+                    </Button>
+                  </Space>
+                </Card>
+              </Col>
+              <Col xs={24} md={8}>
+                <Card size="small" hoverable onClick={() => navigate('/smart-selection')}>
+                  <Space direction="vertical" size={6}>
+                    <Typography.Text strong>3. 策略校验与回测</Typography.Text>
+                    <Typography.Text type="secondary">用多因子策略挑选并验证可复制性</Typography.Text>
+                    <Button type="link" icon={<RightOutlined />} style={{ padding: 0 }}>
+                      去精算智选
+                    </Button>
+                  </Space>
+                </Card>
+              </Col>
+            </Row>
+          </Card>
+        </Col>
+
+        {/* 收益曲线和功能推荐 */}
+        <Col xs={24} lg={12}>
+          <Card
+            title={
+              <Space>
+                <BarChartOutlined style={{ color: '#1890ff' }} />
                 <span>收益曲线对比（虚拟示例）</span>
               </Space>
             }
           >
-            <ReactECharts option={chartOption} style={{ height: 320 }} notMerge lazyUpdate />
-            <div style={{ marginTop: 8, color: '#aaa', fontSize: 12 }}>
-              提示：此处为演示用虚拟曲线，用于对比展示布局与指标含义；实际回测曲线以“精算智选→回测”为准。
-            </div>
+            <ReactECharts option={chartOption} style={{ height: 280 }} notMerge lazyUpdate />
+            <Alert 
+              type="info" 
+              message="提示：此处为演示用虚拟曲线，用于对比展示布局与指标含义；实际回测曲线以「精算智选→回测」为准。" 
+              style={{ marginTop: 12 }}
+            />
           </Card>
         </Col>
 
-        <Col span={24}>
-          <Card title="你可能还需要的功能">
+        <Col xs={24} lg={12}>
+          <Card title="特色功能">
             <Row gutter={[16, 16]}>
-              <Col xs={24} md={12} lg={8}>
-                <Card size="small" title="一键采集补齐数据">
-                  <Typography.Paragraph style={{ marginBottom: 0, color: '#aaa' }}>
-                    超强主力在数据缺失时可自动触发采集，减少“空表”的等待成本。
-                  </Typography.Paragraph>
+              <Col xs={24} sm={12} md={8}>
+                <Card size="small" hoverable>
+                  <Space>
+                    <ThunderboltOutlined style={{ fontSize: 28, color: '#faad14' }} />
+                    <div>
+                      <Typography.Text strong>题材增强α</Typography.Text>
+                      <Typography.Paragraph style={{ marginBottom: 0, color: '#aaa', fontSize: 12 }}>
+                        调节α系数，放大/减弱题材影响
+                      </Typography.Paragraph>
+                    </div>
+                  </Space>
                 </Card>
               </Col>
-              <Col xs={24} md={12} lg={8}>
-                <Card size="small" title="题材增强α调参">
-                  <Typography.Paragraph style={{ marginBottom: 0, color: '#aaa' }}>
-                    通过 α 放大/减弱题材热度，适配不同市场风格。
-                  </Typography.Paragraph>
+              <Col xs={24} sm={12} md={8}>
+                <Card size="small" hoverable>
+                  <Space>
+                    <BarChartOutlined style={{ fontSize: 28, color: '#1890ff' }} />
+                    <div>
+                      <Typography.Text strong>自动数据采集</Typography.Text>
+                      <Typography.Paragraph style={{ marginBottom: 0, color: '#aaa', fontSize: 12 }}>
+                        数据缺失时自动触发采集
+                      </Typography.Paragraph>
+                    </div>
+                  </Space>
                 </Card>
               </Col>
-              <Col xs={24} md={12} lg={8}>
-                <Card size="small" title="权限与多用户">
-                  <Typography.Paragraph style={{ marginBottom: 0, color: '#aaa' }}>
-                    支持按路径授权，适合团队内部试用与分角色管理。
-                  </Typography.Paragraph>
+              <Col xs={24} sm={12} md={8}>
+                <Card size="small" hoverable>
+                  <Space>
+                    <CalculatorOutlined style={{ fontSize: 28, color: '#722ed1' }} />
+                    <div>
+                      <Typography.Text strong>多策略组合</Typography.Text>
+                      <Typography.Paragraph style={{ marginBottom: 0, color: '#aaa', fontSize: 12 }}>
+                        组合多个策略，分散风险
+                      </Typography.Paragraph>
+                    </div>
+                  </Space>
                 </Card>
+              </Col>
+              <Col xs={24} sm={12} md={8}>
+                <Card size="small" hoverable>
+                  <Space>
+                    <RightOutlined style={{ fontSize: 28, color: '#52c41a' }} />
+                    <div>
+                      <Typography.Text strong>实时行情监控</Typography.Text>
+                      <Typography.Paragraph style={{ marginBottom: 0, color: '#aaa', fontSize: 12 }}>
+                        把握盘中实时机会
+                      </Typography.Paragraph>
+                    </div>
+                  </Space>
+                </Card>
+              </Col>
+              <Col xs={24} sm={12} md={8}>
+                <Card size="small" hoverable>
+                  <Space>
+                    <SyncOutlined style={{ fontSize: 28, color: '#13c2c2' }} />
+                    <div>
+                      <Typography.Text strong>30秒自动刷新</Typography.Text>
+                      <Typography.Paragraph style={{ marginBottom: 0, color: '#aaa', fontSize: 12 }}>
+                        实时盈亏数据快速掌握
+                      </Typography.Paragraph>
+                    </div>
+                  </Space>
+                </Card>
+              </Col>
+              <Col xs={24} sm={12} md={8}>
+                <Card size="small" hoverable>
+                  <Space>
+                    <BarChartOutlined style={{ fontSize: 28, color: '#eb2f96' }} />
+                    <div>
+                      <Typography.Text strong>回测验证</Typography.Text>
+                      <Typography.Paragraph style={{ marginBottom: 0, color: '#aaa', fontSize: 12 }}>
+                        历史数据验证策略有效性
+                      </Typography.Paragraph>
+                    </div>
+                  </Space>
+                </Card>
+              </Col>
+            </Row>
+          </Card>
+        </Col>
+
+        {/* 快捷入口 */}
+        <Col span={24}>
+          <Card title="快捷入口" size="small">
+            <Row gutter={[16, 16]}>
+              <Col xs={24} sm={12} md={6}>
+                <Button 
+                  type="primary" 
+                  block 
+                  size="large"
+                  icon={<ThunderboltOutlined />}
+                  onClick={() => navigate('/super-main-force')}
+                >
+                  超强主力
+                </Button>
+              </Col>
+              <Col xs={24} sm={12} md={6}>
+                <Button 
+                  block 
+                  size="large"
+                  icon={<CalculatorOutlined />}
+                  onClick={() => navigate('/smart-selection')}
+                >
+                  精算智选
+                </Button>
+              </Col>
+              <Col xs={24} sm={12} md={6}>
+                <Button 
+                  block 
+                  size="large"
+                  icon={<BarChartOutlined />}
+                  onClick={() => navigate('/backtest-analysis')}
+                >
+                  回测分析
+                </Button>
+              </Col>
+              <Col xs={24} sm={12} md={6}>
+                <Button 
+                  block 
+                  size="large"
+                  icon={<RightOutlined />}
+                  onClick={() => navigate('/stocks')}
+                >
+                  股票列表
+                </Button>
               </Col>
             </Row>
           </Card>

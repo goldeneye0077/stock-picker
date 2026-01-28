@@ -14,6 +14,14 @@ const formatShanghaiDateTime = (value?: string) => {
   return date.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
 };
 
+const getHealthDisplay = (available: boolean, status?: string) => {
+  if (!available) return { text: '❌ 不可用', color: '#ff4d4f' };
+  if (status === 'healthy') return { text: '✅ 健康', color: '#52c41a' };
+  if (status === 'degraded') return { text: '⚠️ 降级', color: '#faad14' };
+  if (status === 'unavailable') return { text: '⚠️ 异常', color: '#faad14' };
+  return { text: '--', color: '#999' };
+};
+
 const Settings: React.FC = () => {
   const [form] = Form.useForm();
   const [dataStatus, setDataStatus] = useState<any>(null);
@@ -422,40 +430,39 @@ const Settings: React.FC = () => {
               {multiSourceStatus.sources && Object.keys(multiSourceStatus.sources).length > 0 && (
                 <div style={{ marginTop: '16px' }}>
                   <Divider orientation="left">数据源详情</Divider>
-                  {Object.entries(multiSourceStatus.sources).map(([sourceName, sourceInfo]: [string, any]) => (
-                    <Card
-                      key={sourceName}
-                      size="small"
-                      style={{ marginBottom: '8px' }}
-                      title={
-                        <Space>
-                          <span>{sourceName}</span>
-                          <span style={{
-                            color: sourceInfo.health?.status === 'healthy' ? '#52c41a' :
-                                   sourceInfo.health?.status === 'degraded' ? '#faad14' : '#ff4d4f'
-                          }}>
-                            {sourceInfo.health?.status === 'healthy' ? '✅ 健康' :
-                             sourceInfo.health?.status === 'degraded' ? '⚠️ 降级' : '❌ 不可用'}
-                          </span>
-                        </Space>
-                      }
-                    >
-                      <Row gutter={16}>
-                        <Col span={8}>
-                          <div>可用性: {sourceInfo.available ? '✅ 可用' : '❌ 不可用'}</div>
-                          <div>成功率: {(sourceInfo.health?.success_rate * 100).toFixed(1)}%</div>
-                        </Col>
-                        <Col span={8}>
-                          <div>平均延迟: {sourceInfo.health?.avg_latency.toFixed(2)}秒</div>
-                          <div>总请求数: {sourceInfo.health?.total_requests}</div>
-                        </Col>
-                        <Col span={8}>
-                          <div>成功请求: {sourceInfo.health?.successful_requests}</div>
-                          <div>失败请求: {sourceInfo.health?.failed_requests}</div>
-                        </Col>
-                      </Row>
-                    </Card>
-                  ))}
+                  {Object.entries(multiSourceStatus.sources).map(([sourceName, sourceInfo]: [string, any]) => {
+                    const healthDisplay = getHealthDisplay(!!sourceInfo.available, sourceInfo.health?.status);
+                    return (
+                      <Card
+                        key={sourceName}
+                        size="small"
+                        style={{ marginBottom: '8px' }}
+                        title={
+                          <Space>
+                            <span>{sourceName}</span>
+                            <span style={{ color: healthDisplay.color }}>
+                              {healthDisplay.text}
+                            </span>
+                          </Space>
+                        }
+                      >
+                        <Row gutter={16}>
+                          <Col span={8}>
+                            <div>可用性: {sourceInfo.available ? '✅ 可用' : '❌ 不可用'}</div>
+                            <div>成功率: {(((sourceInfo.health?.success_rate ?? 0) * 100)).toFixed(1)}%</div>
+                          </Col>
+                          <Col span={8}>
+                            <div>平均延迟: {(sourceInfo.health?.avg_latency ?? 0).toFixed(2)}秒</div>
+                            <div>总请求数: {sourceInfo.health?.total_requests ?? 0}</div>
+                          </Col>
+                          <Col span={8}>
+                            <div>成功请求: {sourceInfo.health?.successful_requests ?? 0}</div>
+                            <div>失败请求: {sourceInfo.health?.failed_requests ?? 0}</div>
+                          </Col>
+                        </Row>
+                      </Card>
+                    );
+                  })}
                 </div>
               )}
             </div>

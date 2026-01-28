@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Descriptions, Modal, Space, Tabs, Tag, Typography } from 'antd';
-import { CopyOutlined, LineChartOutlined, PlusOutlined } from '@ant-design/icons';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import { Alert, Button, Descriptions, Modal, Space, Tabs, Tag, Typography, Statistic, Row, Col, Spin } from 'antd';
+import { CopyOutlined, LineChartOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useStockDetail } from '../hooks/useStockList';
-import { fetchStockHistory } from '../services/stockService';
+import { fetchStockHistoryForRealtime, fetchRealtimeQuote } from '../services/stockService';
 import KLineChart from './KLineChart';
 
 const { Text, Title } = Typography;
@@ -80,18 +80,53 @@ export default function TechnicalAnalysisModal({
   const { detail, analysis, loading, fetchDetail, fetchAnalysisData, reset } = useStockDetail();
   const [klineData, setKlineData] = useState<any[]>([]);
   const [klineError, setKlineError] = useState<string | null>(null);
+  const [realtimeData, setRealtimeData] = useState<any>(null);
+  const [realtimeLoading, setRealtimeLoading] = useState(false);
+  const [realtimeError, setRealtimeError] = useState<string | null>(null);
+
+  // 获取实时行情数据
+  const fetchRealtimeData = useCallback(async () => {
+    if (!stockCode) return;
+    setRealtimeLoading(true);
+    setRealtimeError(null);
+    try {
+      const tsCode = stockCode.includes('.') ? stockCode : `${stockCode}.SZ`;
+      const data = await fetchRealtimeQuote(tsCode);
+      setRealtimeData(data);
+    } catch (err) {
+      setRealtimeError('实时行情加载失败');
+      console.error('获取实时行情失败:', err);
+    } finally {
+      setRealtimeLoading(false);
+    }
+  }, [stockCode]);
 
   useEffect(() => {
     if (!open || !stockCode) return;
     fetchDetail(stockCode);
     fetchAnalysisData(stockCode, { date: analysisDate ?? undefined });
+    fetchRealtimeData();
   }, [analysisDate, fetchAnalysisData, fetchDetail, open, stockCode]);
+
+  // 5秒自动刷新实时行情
+  useEffect(() => {
+    if (!open || !stockCode) return;
+
+    const timer = setInterval(() => {
+      fetchRealtimeData();
+    }, 5000); // 5秒刷新
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, [open, stockCode, fetchRealtimeData]);
 
   useEffect(() => {
     if (!open || !stockCode) return;
     let cancelled = false;
     setKlineError(null);
-    fetchStockHistory(stockCode, { period: 'daily' })
+    // 使用1年历史数据
+    fetchStockHistoryForRealtime(stockCode)
       .then((res) => {
         if (cancelled) return;
         setKlineData(res?.klines || []);
@@ -108,8 +143,17 @@ export default function TechnicalAnalysisModal({
 
   const resolvedCode = stockCode || '-';
   const resolvedName = stockName || detail?.stock?.name || '-';
-  const currentPrice = detail?.realtimeQuote?.close ?? detail?.stock?.current_price;
-  const changePercent = detail?.realtimeQuote?.change_percent ?? detail?.stock?.change_percent;
+  
+  // 使用实时行情数据，如果没有则使用详情数据
+  const currentPrice = realtimeData?.close ?? detail?.realtimeQuote?.close ?? detail?.stock?.current_price;
+  const changePercent = realtimeData?.change_percent ?? detail?.realtimeQuote?.change_percent ?? detail?.stock?.change_percent;
+  const changeAmount = realtimeData?.change_amount ?? 0;
+  const openPrice = realtimeData?.open ?? 0;
+  const highPrice = realtimeData?.high ?? 0;
+  const lowPrice = realtimeData?.low ?? 0;
+  const volume = realtimeData?.vol ?? 0;
+  const amount = realtimeData?.amount ?? 0;
+  const updatedAt = realtimeData?.updated_at ?? null;
 
   const priceText = useMemo(() => {
     const p = Number(currentPrice);
@@ -119,10 +163,17 @@ export default function TechnicalAnalysisModal({
 
   const changeText = useMemo(() => {
     const cp = Number(changePercent);
-    if (!Number.isFinite(cp)) return null;
+    if (!Number.isFinite(cp)) return undefined;
     const prefix = cp > 0 ? '+' : '';
     return `${prefix}${cp.toFixed(2)}%`;
   }, [changePercent]);
+
+  const changeAmountText = useMemo(() => {
+    const ca = Number(changeAmount);
+    if (!Number.isFinite(ca)) return undefined;
+    const prefix = ca > 0 ? '+' : '';
+    return `${prefix}${ca.toFixed(2)}`;
+  }, [changeAmount]);
 
   const changeClass = useMemo(() => {
     const cp = Number(changePercent);
@@ -133,6 +184,22 @@ export default function TechnicalAnalysisModal({
   }, [changePercent]);
 
   const signalSummary = useMemo(() => computeSignals({ price: Number(currentPrice), indicators: analysis?.indicators }), [analysis?.indicators, currentPrice]);
+
+  // 格式化成交量
+  const volumeText = useMemo(() => {
+    if (!volume) return '-';
+    if (volume >= 100000000) return `${(volume / 100000000).toFixed(2)}亿`;
+    if (volume >= 10000) return `${(volume / 10000).toFixed(2)}万`;
+    return volume.toString();
+  }, [volume]);
+
+  // 格式化成交额
+  const amountText = useMemo(() => {
+    if (!amount) return '-';
+    if (amount >= 100000000) return `${(amount / 100000000).toFixed(2)}亿`;
+    if (amount >= 10000) return `${(amount / 10000).toFixed(2)}万`;
+    return amount.toString();
+  }, [amount]);
 
   const header = (
     <Space direction="vertical" size={2} style={{ width: '100%' }}>
@@ -162,20 +229,71 @@ export default function TechnicalAnalysisModal({
           >
             复制代码
           </Button>
+          <Button size="small" icon={<ReloadOutlined />} onClick={fetchRealtimeData} loading={realtimeLoading}>
+            刷新行情
+          </Button>
           <Button size="small" icon={<PlusOutlined />}>
             加入观察
           </Button>
         </Space>
       </Space>
-      <Space size={12}>
-        <Text className="sq-mono" style={{ fontSize: 16, fontWeight: 650 }}>{priceText}</Text>
-        {changeText ? (
-          <Text className={`${changeClass} sq-mono`} style={{ fontSize: 14, fontWeight: 650 }}>
-            {changeText}
-          </Text>
-        ) : (
-          <Text style={{ color: 'var(--sq-text-tertiary)' }}>-</Text>
-        )}
+      
+      {/* 实时行情区域 */}
+      <Row gutter={16} style={{ marginTop: 8, padding: '12px', background: 'var(--sq-bg-secondary)', borderRadius: 8 }}>
+        <Col span={4}>
+          <Statistic 
+            title="当前价" 
+            value={priceText} 
+            precision={2} 
+            valueStyle={{ color: changePercent > 0 ? '#cf1322' : changePercent < 0 ? '#3f8600' : '#666', fontSize: 20, fontWeight: 650 }}
+            suffix="元"
+          />
+        </Col>
+        <Col span={4}>
+          <Statistic 
+            title="涨跌额" 
+            value={changeAmountText} 
+            precision={2} 
+            valueStyle={{ color: changeAmount > 0 ? '#cf1322' : changeAmount < 0 ? '#3f8600' : '#666', fontSize: 16 }}
+            suffix="元"
+          />
+        </Col>
+        <Col span={4}>
+          <Statistic 
+            title="涨跌幅" 
+            value={changeText} 
+            valueStyle={{ color: changePercent > 0 ? '#cf1322' : changePercent < 0 ? '#3f8600' : '#666', fontSize: 16 }}
+          />
+        </Col>
+        <Col span={3}>
+          <div style={{ fontSize: 12, color: 'var(--sq-text-tertiary)' }}>今开</div>
+          <div style={{ fontSize: 14, fontWeight: 500 }}>{openPrice > 0 ? openPrice.toFixed(2) : '-'}</div>
+        </Col>
+        <Col span={3}>
+          <div style={{ fontSize: 12, color: 'var(--sq-text-tertiary)' }}>最高</div>
+          <div style={{ fontSize: 14, fontWeight: 500, color: '#cf1322' }}>{highPrice > 0 ? highPrice.toFixed(2) : '-'}</div>
+        </Col>
+        <Col span={3}>
+          <div style={{ fontSize: 12, color: 'var(--sq-text-tertiary)' }}>最低</div>
+          <div style={{ fontSize: 14, fontWeight: 500, color: '#3f8600' }}>{lowPrice > 0 ? lowPrice.toFixed(2) : '-'}</div>
+        </Col>
+        <Col span={3}>
+          <div style={{ fontSize: 12, color: 'var(--sq-text-tertiary)' }}>成交量</div>
+          <div style={{ fontSize: 14, fontWeight: 500 }}>{volumeText}</div>
+        </Col>
+      </Row>
+      
+      {realtimeError && (
+        <Alert type="warning" message={realtimeError} showIcon style={{ marginTop: 8 }} />
+      )}
+      
+      {updatedAt && (
+        <div style={{ fontSize: 12, color: 'var(--sq-text-tertiary)', marginTop: 4 }}>
+          更新时间: {new Date(updatedAt).toLocaleString('zh-CN')}
+        </div>
+      )}
+      
+      <Space size={12} style={{ marginTop: 8 }}>
         <Text style={{ color: 'var(--sq-text-tertiary)' }}>综合判断：{signalSummary.verdict}</Text>
       </Space>
     </Space>

@@ -1,12 +1,13 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Card, Table, Space, Statistic, Row, Col, Tag, Button, Typography, DatePicker, Switch, message, InputNumber, Tooltip } from 'antd';
-import { ThunderboltOutlined, SyncOutlined, QuestionCircleOutlined } from '@ant-design/icons';
+import { Card, Table, Space, Statistic, Row, Col, Tag, Button, Typography, DatePicker, Switch, message, InputNumber, Tooltip, Spin } from 'antd';
+import { ThunderboltOutlined, SyncOutlined, QuestionCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import {
   collectAuctionSnapshot,
   fetchAuctionSuperMainForce,
   type AuctionSuperMainForceItem,
   type AuctionSuperMainForceData
 } from '../services/analysisService';
+import { fetchRealtimeQuotesBatch } from '../services/stockService';
 import dayjs, { Dayjs } from 'dayjs';
 import type { ColumnsType } from 'antd/es/table';
 import TechnicalAnalysisModal from '../components/TechnicalAnalysisModal';
@@ -25,6 +26,12 @@ const SuperMainForce: React.FC = () => {
     tags: Array<{ label: string; color?: string }>;
   } | null>(null);
   const [isAnalysisModalVisible, setIsAnalysisModalVisible] = useState(false);
+  
+  // 实时行情数据缓存
+  const [realtimeQuotes, setRealtimeQuotes] = useState<Map<string, any>>(new Map());
+  const [realtimeLoading, setRealtimeLoading] = useState(false);
+  const [realtimeError, setRealtimeError] = useState<string | null>(null);
+  
   const limit = 20;
   const hasSelectedDate = !!selectedDate;
   const hasSnapshot = (data?.dataSource && data.dataSource !== 'none') || false;
@@ -32,6 +39,7 @@ const SuperMainForce: React.FC = () => {
   const isSelectedDateDataComplete = hasSelectedDate && hasSnapshot && hasItems;
   const isNotCollected = hasSelectedDate && !hasSnapshot;
   const isCollectedNoItems = hasSelectedDate && hasSnapshot && !hasItems;
+  const isToday = (selectedDate ?? dayjs().format('YYYY-MM-DD')) === dayjs().format('YYYY-MM-DD');
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -127,6 +135,83 @@ const SuperMainForce: React.FC = () => {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // 获取实时行情数据
+  const fetchRealtimeData = useCallback(async () => {
+    if (!isToday) return;
+    if (!data?.items || data.items.length === 0) return;
+    
+    setRealtimeLoading(true);
+    setRealtimeError(null);
+    
+    try {
+      const inferTsCode = (stockCode: string) => {
+        const code = String(stockCode || '').trim();
+        if (!code) return '';
+        if (code.includes('.')) return code;
+        if (code.startsWith('00') || code.startsWith('30')) return `${code}.SZ`;
+        return `${code}.SH`;
+      };
+
+      const tsCodes = data.items
+        .slice(0, 20)
+        .map((item) => inferTsCode(item.stock))
+        .filter(Boolean);
+
+      if (tsCodes.length === 0) {
+        setRealtimeQuotes(new Map());
+        return;
+      }
+
+      const quotes = await fetchRealtimeQuotesBatch(tsCodes, { maxAgeSeconds: 25 });
+      const newQuotes = new Map<string, any>();
+      for (const q of quotes || []) {
+        const key = String(q?.stock_code || q?.ts_code || '').trim();
+        if (!key) continue;
+        newQuotes.set(key, q);
+        if (key.includes('.')) {
+          const base = key.split('.')[0];
+          if (base) newQuotes.set(base, q);
+        }
+      }
+      setRealtimeQuotes(newQuotes);
+    } catch (err) {
+      setRealtimeError('实时行情加载失败');
+      console.error('获取实时行情失败:', err);
+    } finally {
+      setRealtimeLoading(false);
+    }
+  }, [data?.items, isToday]);
+
+  // 数据加载后获取实时行情
+  useEffect(() => {
+    if (isToday && data?.items && data.items.length > 0) {
+      fetchRealtimeData();
+    }
+  }, [data?.items, fetchRealtimeData, isToday]);
+
+  // 30秒自动刷新实时行情
+  useEffect(() => {
+    const isMarketTrading = () => {
+      const d = new Date();
+      const minutes = d.getHours() * 60 + d.getMinutes();
+      const morning = minutes >= 9 * 60 + 30 && minutes <= 11 * 60 + 30;
+      const afternoon = minutes >= 13 * 60 && minutes <= 15 * 60;
+      return morning || afternoon;
+    };
+
+    const timer = setInterval(() => {
+      if (!isToday) return;
+      if (!isMarketTrading()) return;
+      if (data?.items && data.items.length > 0) {
+        fetchRealtimeData();
+      }
+    }, 30000);
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, [data?.items, fetchRealtimeData, isToday]);
 
   const showAnalysisModal = useCallback(async (record: AuctionSuperMainForceItem) => {
     const stockCode = record.stock;
@@ -233,10 +318,38 @@ const SuperMainForce: React.FC = () => {
       key: 'dailyProfit',
       width: 110,
       render: (_: unknown, record: AuctionSuperMainForceItem) => {
-        const day = Number(record.changePercent || 0);
-        const gap = Number(record.gapPercent || 0);
-        const v = day - gap;
-        return <span className={`${v >= 0 ? 'sq-rise' : 'sq-fall'} sq-mono`}>{v.toFixed(2)}%</span>;
+        const inferTsCode = (stockCode: string) => {
+          const code = String(stockCode || '').trim();
+          if (!code) return '';
+          if (code.includes('.')) return code;
+          if (code.startsWith('00') || code.startsWith('30')) return `${code}.SZ`;
+          return `${code}.SH`;
+        };
+
+        const tsCode = String(record.tsCode || '').trim() || inferTsCode(record.stock);
+        const realtimeQuote = realtimeQuotes.get(tsCode) || realtimeQuotes.get(record.stock);
+
+        const entryPrice = Number(record.price || 0);
+        const currentPrice = Number(realtimeQuote?.close || 0);
+        if (entryPrice > 0 && currentPrice > 0) {
+          const v = ((currentPrice - entryPrice) / entryPrice) * 100;
+          return (
+            <Space>
+              <Spin size="small" spinning={realtimeLoading} />
+              <span className={`${v >= 0 ? 'sq-rise' : 'sq-fall'} sq-mono`}>
+                {v >= 0 ? '+' : ''}{v.toFixed(2)}%
+              </span>
+            </Space>
+          );
+        }
+
+        const closePrice = Number(record.close || 0);
+        if (!isToday && entryPrice > 0 && closePrice > 0) {
+          const v = ((closePrice - entryPrice) / entryPrice) * 100;
+          return <span className={`${v >= 0 ? 'sq-rise' : 'sq-fall'} sq-mono`}>{v.toFixed(2)}%</span>;
+        }
+
+        return <span className="sq-neutral sq-mono">-</span>;
       }
     },
     {

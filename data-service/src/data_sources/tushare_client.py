@@ -137,6 +137,24 @@ class TushareClient(DataSource):
         """Check if Tushare client is available"""
         return self.pro is not None
 
+    async def get_realtime_quote(self, ts_code: str, src: str = "sina") -> Optional[pd.DataFrame]:
+        if not TUSHARE_AVAILABLE or ts is None:
+            return None
+        if not self.token:
+            return None
+        try:
+            df = ts.realtime_quote(ts_code=ts_code, src=src)
+            if df is None or df.empty:
+                return None
+            cols = {str(c).lower(): c for c in df.columns}
+            for key in ["date", "time"]:
+                if key in cols:
+                    df[cols[key]] = df[cols[key]].astype(str)
+            return df
+        except Exception as e:
+            logger.error(f"Error fetching realtime_quote for {ts_code}: {e}")
+            return None
+
     async def get_stk_auction(self, trade_date: str, ts_code: Optional[str] = None) -> Optional[pd.DataFrame]:
         """
         获取当日集合竞价成交数据（9:25~9:29）

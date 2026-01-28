@@ -5,6 +5,7 @@
 import os
 import sys
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from loguru import logger
@@ -17,14 +18,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 env_path = Path(__file__).parent.parent / ".env"
 load_dotenv(dotenv_path=env_path)
 
-local_tz = datetime.now().astimezone().tzinfo
-
-scheduler = BackgroundScheduler(timezone=local_tz)
+scheduler_tz = ZoneInfo(os.getenv("SCHEDULER_TZ", "Asia/Shanghai"))
+scheduler = BackgroundScheduler(timezone=scheduler_tz)
 _is_running = False
 
 
 def is_trading_day() -> bool:
-    today = datetime.now()
+    today = datetime.now(scheduler_tz)
     is_weekday = today.weekday() < 5
     return is_weekday
 
@@ -156,7 +156,7 @@ def start_scheduler():
                 hour=15,
                 minute=30,
                 day_of_week='mon-fri',
-                timezone=local_tz
+                timezone=scheduler_tz
             ),
             id='daily_data_collection',
             name='每日股票数据采集',
@@ -171,7 +171,7 @@ def start_scheduler():
                 minute='15-25',
                 second='*/5',
                 day_of_week='mon-fri',
-                timezone=local_tz
+                timezone=scheduler_tz
             ),
             id='auction_realtime_quotes',
             name='集合竞价实时行情采集',
@@ -185,7 +185,7 @@ def start_scheduler():
                 minute='26-29',
                 second=0,
                 day_of_week='mon-fri',
-                timezone=local_tz
+                timezone=scheduler_tz
             ),
             id='auction_stk_auction',
             name='集合竞价成交采集(Tushare)',

@@ -69,9 +69,8 @@ const StockList: React.FC = () => {
   // 显示详情模态框 - 使用 useCallback 优化
   const showDetailModal = useCallback(async (record: StockItem) => {
     setCurrentStock(record);
-    setIsDetailModalVisible(true);
-    await fetchDetail(record.code);
-  }, [fetchDetail]);
+    setIsAnalysisModalVisible(true);
+  }, []);
 
   // 显示分析模态框 - 使用 useCallback 优化
   const showAnalysisModal = useCallback(async (record: StockItem) => {

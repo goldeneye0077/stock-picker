@@ -34,6 +34,14 @@ const { Title, Text } = Typography;
 const { TabPane } = Tabs;
 const { Panel } = Collapse;
 
+const getHealthTag = (available: boolean, status?: string) => {
+  if (!available) return { color: 'error' as const, text: '不可用' };
+  if (status === 'healthy') return { color: 'success' as const, text: '健康' };
+  if (status === 'degraded') return { color: 'warning' as const, text: '降级' };
+  if (status === 'unavailable') return { color: 'warning' as const, text: '异常' };
+  return { color: 'default' as const, text: '--' };
+};
+
 interface ConsistencyResult {
   source1: string;
   source2: string;
@@ -367,31 +375,28 @@ const DataSourceConsistency: React.FC = () => {
       {multiSourceStatus && (
         <Card style={{ marginBottom: '24px' }} title="数据源状态">
           <Row gutter={16}>
-            {Object.entries(multiSourceStatus.sources || {}).map(([sourceName, sourceInfo]: [string, any]) => (
-              <Col span={8} key={sourceName}>
-                <Card size="small">
-                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
-                    <DatabaseOutlined style={{ marginRight: '8px' }} />
-                    <Text strong>{sourceName}</Text>
-                    <Tag
-                      color={
-                        sourceInfo.health?.status === 'healthy' ? 'success' :
-                        sourceInfo.health?.status === 'degraded' ? 'warning' : 'error'
-                      }
-                      style={{ marginLeft: '8px' }}
-                    >
-                      {sourceInfo.health?.status === 'healthy' ? '健康' :
-                       sourceInfo.health?.status === 'degraded' ? '降级' : '不可用'}
-                    </Tag>
-                  </div>
-                  <div style={{ fontSize: '12px', color: '#666' }}>
-                    <div>成功率: {(sourceInfo.health?.success_rate * 100).toFixed(1)}%</div>
-                    <div>延迟: {sourceInfo.health?.avg_latency.toFixed(2)}秒</div>
-                    <div>请求数: {sourceInfo.health?.total_requests}</div>
-                  </div>
-                </Card>
-              </Col>
-            ))}
+            {Object.entries(multiSourceStatus.sources || {}).map(([sourceName, sourceInfo]: [string, any]) => {
+              const tag = getHealthTag(!!sourceInfo.available, sourceInfo.health?.status);
+              return (
+                <Col span={8} key={sourceName}>
+                  <Card size="small">
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+                      <DatabaseOutlined style={{ marginRight: '8px' }} />
+                      <Text strong>{sourceName}</Text>
+                      <Tag color={tag.color} style={{ marginLeft: '8px' }}>
+                        {tag.text}
+                      </Tag>
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#666' }}>
+                      <div>可用性: {sourceInfo.available ? '✅ 可用' : '❌ 不可用'}</div>
+                      <div>成功率: {(((sourceInfo.health?.success_rate ?? 0) * 100)).toFixed(1)}%</div>
+                      <div>延迟: {(sourceInfo.health?.avg_latency ?? 0).toFixed(2)}秒</div>
+                      <div>请求数: {sourceInfo.health?.total_requests ?? 0}</div>
+                    </div>
+                  </Card>
+                </Col>
+              );
+            })}
           </Row>
         </Card>
       )}

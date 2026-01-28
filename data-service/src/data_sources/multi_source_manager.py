@@ -29,18 +29,27 @@ class DataSourceHealth:
         self.total_requests = 0
         self.successful_requests = 0
         self.failed_requests = 0
+        self.no_data_requests = 0
 
-    def update(self, success: bool, latency: float = 0.0, error_msg: str = ""):
+    def update(self, success: bool, latency: float = 0.0, error_msg: str = "", result_type: str | None = None):
         """更新健康状态"""
         self.total_requests += 1
-        if success:
+        if result_type is None:
+            result_type = "success" if success else "error"
+
+        if result_type == "success":
             self.successful_requests += 1
+        elif result_type == "no_data":
+            self.no_data_requests += 1
         else:
             self.failed_requests += 1
 
         # 计算成功率
-        if self.total_requests > 0:
-            self.success_rate = self.successful_requests / self.total_requests
+        effective_total = self.successful_requests + self.failed_requests
+        if effective_total > 0:
+            self.success_rate = self.successful_requests / effective_total
+        else:
+            self.success_rate = 0.0
 
         # 更新平均延迟（指数移动平均）
         if latency > 0:
@@ -55,6 +64,10 @@ class DataSourceHealth:
         self.last_check_time = datetime.now()
 
         # 更新状态
+        if effective_total == 0:
+            self.status = "degraded" if self.no_data_requests > 0 else "unknown"
+            return
+
         if self.success_rate >= 0.95:
             self.status = "healthy"
         elif self.success_rate >= 0.80:
@@ -74,7 +87,8 @@ class DataSourceHealth:
             "data_freshness": round(self.data_freshness, 4),
             "total_requests": self.total_requests,
             "successful_requests": self.successful_requests,
-            "failed_requests": self.failed_requests
+            "failed_requests": self.failed_requests,
+            "no_data_requests": self.no_data_requests
         }
 
 
@@ -200,11 +214,11 @@ class MultiSourceManager:
                 # 检查结果是否有效
                 if isinstance(result, pd.DataFrame):
                     if result.empty:
-                        health.update(success=False, latency=latency, error_msg="返回空DataFrame")
+                        health.update(success=True, latency=latency, error_msg="返回空DataFrame", result_type="no_data")
                         return None
                 elif isinstance(result, (list, dict)):
                     if not result:
-                        health.update(success=False, latency=latency, error_msg="返回空数据")
+                        health.update(success=True, latency=latency, error_msg="返回空数据", result_type="no_data")
                         return None
 
                 # 更新健康状态
@@ -212,7 +226,7 @@ class MultiSourceManager:
                 logger.debug(f"数据源 {source.get_source_name()} 成功: {method_name}, 耗时: {latency:.2f}s")
                 return result
             else:
-                health.update(success=False, latency=latency, error_msg="返回None")
+                health.update(success=True, latency=latency, error_msg="返回None", result_type="no_data")
                 logger.warning(f"数据源 {source.get_source_name()} 返回空数据: {method_name}")
                 return None
 
@@ -286,7 +300,7 @@ class MultiSourceManager:
             oldest_key = min(self.cache.keys(), key=lambda k: self.cache[k]["timestamp"])
             del self.cache[oldest_key]
 
-    async def run_health_check(self):
+    async def run_health_check(self, timeout_sec: float = 8.0):
         """运行健康检查"""
         logger.info("开始数据源健康检查...")
 
@@ -298,7 +312,7 @@ class MultiSourceManager:
                 start_time = time.time()
 
                 # 测试股票列表获取
-                test_result = await source.get_stock_basic()
+                test_result = await asyncio.wait_for(source.get_stock_basic(), timeout=timeout_sec)
                 latency = time.time() - start_time
 
                 if test_result is not None and not test_result.empty:
@@ -306,8 +320,12 @@ class MultiSourceManager:
                     health.data_freshness = 1.0  # 假设数据新鲜
                     logger.info(f"数据源 {name} 健康检查通过: 获取到 {len(test_result)} 只股票")
                 else:
-                    health.update(success=False, latency=latency, error_msg="测试返回空数据")
+                    health.update(success=True, latency=latency, error_msg="测试返回空数据", result_type="no_data")
                     logger.warning(f"数据源 {name} 健康检查失败: 返回空数据")
+
+            except asyncio.TimeoutError:
+                health.update(success=False, error_msg="健康检查超时")
+                logger.warning(f"数据源 {name} 健康检查超时")
 
             except Exception as e:
                 health.update(success=False, error_msg=str(e))

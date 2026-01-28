@@ -1,15 +1,17 @@
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends, Request, Header
 from pathlib import Path
 from pydantic import BaseModel
 from ..data_sources.tushare_client import TushareClient
 from ..data_sources.akshare_client import AKShareClient
 from ..data_sources.multi_source_manager import MultiSourceManager, ConsistencyMonitor
+from ..utils.auth import require_admin, require_user
 from ..utils.database import get_database
 from loguru import logger
 import pandas as pd
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import asyncio
+import os
 from .quotes import update_auction_from_tushare_task
 
 router = APIRouter()
@@ -65,6 +67,20 @@ class RunScriptRequest(BaseModel):
     """运行脚本请求体"""
     script_name: str
 
+def _env_flag(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"1", "true", "yes", "y", "on"}
+
+RUN_SCRIPT_ENABLED = _env_flag(os.getenv("ENABLE_RUN_SCRIPT_ENDPOINT", "0"))
+
+def _is_local_request(request: Request) -> bool:
+    host = request.client.host if request.client else ""
+    return host in {"127.0.0.1", "::1", "localhost"}
+
+async def require_admin_or_local(request: Request, authorization: str | None = Header(None)) -> dict:
+    if _env_flag(os.getenv("ALLOW_LOCAL_JOBS", "1")) and _is_local_request(request):
+        return {"id": 0, "username": "local", "isAdmin": True, "isActive": True, "token": "", "permissions": []}
+    user = await require_user(authorization)
+    return await require_admin(user)
 
 async def batch_collect_7days_data(include_moneyflow: bool = True) -> dict:
     """
@@ -89,7 +105,7 @@ async def batch_collect_7days_data(include_moneyflow: bool = True) -> dict:
 
 
 @router.post("/fetch-stocks")
-async def fetch_stock_list(background_tasks: BackgroundTasks):
+async def fetch_stock_list(background_tasks: BackgroundTasks, _: dict = Depends(require_admin_or_local)):
     """Fetch and update stock list from multi-source"""
     try:
         manager = get_multi_source_manager()
@@ -234,7 +250,7 @@ async def fetch_ths_industry_mapping_task(force: bool = False):
         logger.error(f"ths_index 行业映射更新失败: {e}")
 
 @router.post("/fetch-klines/{stock_code}")
-async def fetch_stock_klines(stock_code: str, background_tasks: BackgroundTasks, days: int = 30):
+async def fetch_stock_klines(stock_code: str, background_tasks: BackgroundTasks, days: int = 30, _: dict = Depends(require_admin_or_local)):
     """Fetch K-line data for a specific stock"""
     try:
         manager = get_multi_source_manager()
@@ -297,7 +313,7 @@ async def fetch_klines_task(stock_code: str, days: int = 30):
         logger.error(f"Error in fetch_klines_task: {e}")
 
 @router.post("/analyze-volume/{stock_code}")
-async def analyze_stock_volume(stock_code: str, background_tasks: BackgroundTasks):
+async def analyze_stock_volume(stock_code: str, background_tasks: BackgroundTasks, _: dict = Depends(require_admin_or_local)):
     """Analyze volume for a specific stock"""
     try:
         background_tasks.add_task(analyze_volume_task, stock_code)
@@ -364,6 +380,7 @@ async def batch_collect_7days(
     background_tasks: BackgroundTasks,
     include_moneyflow: bool = True,
     include_auction: bool = True,
+    _: dict = Depends(require_admin_or_local),
 ):
     """
     批量采集最近 7 天 A 股全量数据
@@ -452,7 +469,7 @@ async def batch_collect_7days_task(include_moneyflow: bool = True, include_aucti
 
         await fetch_ths_industry_mapping_task()
 
-        time_module.sleep(0.5)  # API 限流
+        await asyncio.sleep(0.5)
 
         # 3. 批量下载日线数据
         logger.info("开始批量下载日线数据...")
@@ -483,7 +500,7 @@ async def batch_collect_7days_task(include_moneyflow: bool = True, include_aucti
                 total_klines += len(df)
                 logger.info(f"  成功插入 {len(df)} 条K线数据")
 
-            time_module.sleep(0.5)  # API 限流
+            await asyncio.sleep(0.5)
 
         # 4. 批量下载资金流向数据（可选，使用 DC 接口 - 东方财富数据）
         total_flows = 0
@@ -525,7 +542,7 @@ async def batch_collect_7days_task(include_moneyflow: bool = True, include_aucti
                     total_flows += len(df)
                     logger.info(f"  成功插入 {len(df)} 条 DC 资金流向数据")
 
-                time_module.sleep(0.5)  # API 限流
+                await asyncio.sleep(0.5)
 
         # 5. 批量下载大盘资金流向数据（市场整体资金流向）
         total_market_flows = 0
@@ -567,7 +584,7 @@ async def batch_collect_7days_task(include_moneyflow: bool = True, include_aucti
                 total_market_flows += len(df)
                 logger.info(f"  成功插入 {len(df)} 条大盘资金流向数据")
 
-            time_module.sleep(0.5)  # API 限流
+            await asyncio.sleep(0.5)
 
         # 6. 批量下载每日指标数据（技术分析指标）
         total_indicators = 0
@@ -622,7 +639,7 @@ async def batch_collect_7days_task(include_moneyflow: bool = True, include_aucti
                     logger.info(f"[{i}/{len(trading_days)}] 下载 {trade_date} 集合竞价...")
                     inserted = await update_auction_from_tushare_task(tushare_client, trade_date)
                     total_auctions += int(inserted or 0)
-                    time_module.sleep(0.5)
+                    await asyncio.sleep(0.5)
             else:
                 logger.info("Tushare 数据源不可用，跳过集合竞价采集")
 
@@ -705,7 +722,7 @@ async def get_collection_status():
 
 
 @router.get("/scheduler-status")
-async def get_scheduler_status_api():
+async def get_scheduler_status_api(_: dict = Depends(require_admin_or_local)):
     """获取定时任务调度器状态"""
     # 延迟导入避免循环依赖
     from ..scheduler import get_scheduler_status
@@ -713,7 +730,7 @@ async def get_scheduler_status_api():
 
 
 @router.post("/run-script")
-async def run_script(background_tasks: BackgroundTasks, request: RunScriptRequest):
+async def run_script(background_tasks: BackgroundTasks, request: RunScriptRequest, _: dict = Depends(require_admin_or_local)):
     """
     执行指定的Python脚本
 
@@ -721,13 +738,16 @@ async def run_script(background_tasks: BackgroundTasks, request: RunScriptReques
         request: 包含脚本文件名的请求体
     """
     try:
-        # 检查脚本文件是否存在
-        import os
-        from pathlib import Path
+        if not RUN_SCRIPT_ENABLED:
+            raise HTTPException(status_code=404, detail="Not found")
 
-        # 项目根目录路径
-        project_root = Path(__file__).parent.parent.parent.parent
-        script_path = project_root / request.script_name
+        # 检查脚本文件是否存在
+        script_name = Path(request.script_name).name.strip()
+        if not script_name or script_name.endswith(("/", "\\")) or not script_name.endswith(".py"):
+            raise HTTPException(status_code=400, detail="Invalid script name")
+
+        src_root = Path(__file__).resolve().parents[1]
+        script_path = src_root / "scripts" / script_name
 
         if not script_path.exists():
             raise HTTPException(status_code=404, detail=f"脚本文件不存在: {request.script_name}")
@@ -1127,7 +1147,8 @@ async def quick_refresh_all(background_tasks: BackgroundTasks):
 
         tushare_client = TushareClient()
         if tushare_client.is_available():
-            background_tasks.add_task(update_auction_from_tushare_task, tushare_client)
+            today_sh = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d")
+            background_tasks.add_task(update_auction_from_tushare_task, tushare_client, today_sh)
 
         return {
             "success": True,
@@ -1372,13 +1393,16 @@ async def get_quality_trend(days: int = 30):
 # ==================== 多数据源管理相关API ====================
 
 @router.get("/multi-source/status")
-async def get_multi_source_status():
+async def get_multi_source_status(refresh: bool = False, timeout_sec: float = 8.0):
     """获取多数据源状态"""
     try:
         manager = get_multi_source_manager()
 
-        # 运行健康检查
-        await manager.run_health_check()
+        if refresh:
+            try:
+                await asyncio.wait_for(manager.run_health_check(timeout_sec=timeout_sec), timeout=timeout_sec + 1.0)
+            except asyncio.TimeoutError:
+                logger.warning("多数据源健康检查刷新超时，返回缓存状态")
 
         # 获取状态报告
         status_report = manager.get_status_report()
