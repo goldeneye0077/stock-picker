@@ -97,6 +97,32 @@ authRoutes.get('/me', asyncHandler(async (req, res) => {
   sendSuccess(res, { user });
 }));
 
+authRoutes.get('/watchlist', asyncHandler(async (req, res) => {
+  const { userId } = await requireUser(req);
+  const codes = await authRepo.getWatchlist(userId);
+  sendSuccess(res, { codes });
+}));
+
+authRoutes.post('/watchlist', asyncHandler(async (req, res) => {
+  const { userId } = await requireUser(req);
+  const stockCode = typeof req.body?.stockCode === 'string' ? req.body.stockCode.trim() : '';
+  if (!stockCode) {
+    throw new AppError('stockCode 必填', 400, ErrorCode.INVALID_PARAMETER);
+  }
+  await authRepo.addToWatchlist(userId, stockCode);
+  sendSuccess(res, { success: true });
+}));
+
+authRoutes.delete('/watchlist/:stockCode', asyncHandler(async (req, res) => {
+  const { userId } = await requireUser(req);
+  const stockCode = typeof req.params.stockCode === 'string' ? req.params.stockCode.trim() : '';
+  if (!stockCode) {
+    throw new AppError('stockCode 必填', 400, ErrorCode.INVALID_PARAMETER);
+  }
+  await authRepo.removeFromWatchlist(userId, stockCode);
+  sendSuccess(res, { success: true });
+}));
+
 export const adminRoutes = express.Router();
 
 adminRoutes.get('/users', asyncHandler(async (req, res) => {
@@ -111,6 +137,7 @@ adminRoutes.get('/pages', asyncHandler(async (req, res) => {
     '/super-main-force',
     '/smart-selection',
     '/stocks',
+    '/watchlist',
     '/settings',
     '/user-management'
   ];
@@ -151,4 +178,3 @@ adminRoutes.post('/users', asyncHandler(async (req, res) => {
   const user = await authRepo.createUser(username, password, !!isAdmin, isActive !== false);
   sendSuccess(res, { user });
 }));
-

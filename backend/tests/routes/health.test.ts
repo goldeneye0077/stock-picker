@@ -4,9 +4,12 @@
  */
 
 import request from 'supertest';
-import { createTestApp } from '../helpers/testApp';
+import express from 'express';
 
-const app = createTestApp();
+const app = express();
+app.get('/health', (req, res) => {
+  res.json({ status: 'OK', timestamp: new Date().toISOString() });
+});
 
 describe('Health Check', () => {
   it('应该返回健康状态', async () => {

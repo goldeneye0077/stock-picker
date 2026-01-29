@@ -84,7 +84,7 @@ describe('useStockList', () => {
     });
 
     it('应该使用初始参数', async () => {
-      const initialParams = { page: 1, pageSize: 20 };
+      const initialParams = { date: '2025-10-22' };
       vi.mocked(stockService.fetchStockList).mockResolvedValue(mockStockList);
 
       const { result } = renderHook(() => useStockList(initialParams));
@@ -137,15 +137,15 @@ describe('useStockList', () => {
       });
 
       // 更新参数
-      result.current.updateParams({ page: 2 });
+      result.current.updateParams({ date: '2025-10-23' });
 
       await waitFor(() => {
-        expect(result.current.params).toEqual({ page: 2 });
+        expect(result.current.params).toEqual({ date: '2025-10-23' });
       });
     });
 
     it('应该能够重置参数', async () => {
-      const initialParams = { page: 1 };
+      const initialParams = { date: '2025-10-22' };
       vi.mocked(stockService.fetchStockList).mockResolvedValue(mockStockList);
 
       const { result } = renderHook(() => useStockList(initialParams));
@@ -155,7 +155,7 @@ describe('useStockList', () => {
       });
 
       // 更新参数
-      result.current.updateParams({ page: 5 });
+      result.current.updateParams({ date: '2025-10-24' });
 
       // 重置参数
       result.current.resetParams();

@@ -198,7 +198,7 @@ const Settings: React.FC = () => {
     setCollecting(true);
     setProgressModalVisible(true);
     setProgress(0);
-    setCurrentStep('正在启动快速数据更新...');
+    setCurrentStep('正在启动数据更新任务...');
     setStartTime(new Date());
 
     try {
@@ -214,27 +214,27 @@ const Settings: React.FC = () => {
       const strategy = response.data.strategy || 'incremental';
 
       if (strategy === 'incremental') {
-        setCurrentStep('已启动增量更新任务，正在更新最近数据...');
+        setCurrentStep('增量更新任务已启动，后台将更新最近数据...');
       } else {
-        setCurrentStep('已启动全量更新任务，正在更新最近7天数据...');
+        setCurrentStep('全量更新任务已启动，后台将更新最近7天数据...');
       }
       setProgress(40);
 
       await new Promise(resolve => setTimeout(resolve, 3000));
 
-      setCurrentStep('正在检查数据更新结果...');
+      setCurrentStep('正在刷新状态（后台任务可能仍在运行）...');
       setProgress(80);
 
       await fetchDataStatus();
       await fetchIncrementalStatus();
 
-      setCurrentStep('数据更新完成！');
+      setCurrentStep('数据更新任务已启动，可稍后再次刷新查看结果');
       setProgress(100);
 
       setTimeout(() => {
         setProgressModalVisible(false);
         setCollecting(false);
-        message.success('数据更新完成！');
+        message.success('数据更新任务已启动');
       }, 1000);
     } catch (error: any) {
       message.error(`数据更新失败: ${error.message}`);

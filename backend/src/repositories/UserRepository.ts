@@ -24,6 +24,7 @@ const DEFAULT_USER_PAGES = [
   '/super-main-force',
   '/smart-selection',
   '/stocks',
+  '/watchlist',
 ];
 
 export class UserRepository extends BaseRepository {
@@ -92,6 +93,28 @@ export class UserRepository extends BaseRepository {
     for (const p of paths) {
       await this.execute(`INSERT OR IGNORE INTO user_permissions (user_id, path) VALUES (?, ?)`, [userId, p]);
     }
+  }
+
+  async getWatchlist(userId: number): Promise<string[]> {
+    const rows = await this.query<{ stock_code: string }>(
+      `SELECT stock_code FROM user_watchlists WHERE user_id = ? ORDER BY created_at DESC`,
+      [userId]
+    );
+    return rows.map((r) => r.stock_code);
+  }
+
+  async addToWatchlist(userId: number, stockCode: string): Promise<void> {
+    await this.execute(
+      `INSERT OR IGNORE INTO user_watchlists (user_id, stock_code) VALUES (?, ?)`,
+      [userId, stockCode]
+    );
+  }
+
+  async removeFromWatchlist(userId: number, stockCode: string): Promise<void> {
+    await this.execute(
+      `DELETE FROM user_watchlists WHERE user_id = ? AND stock_code = ?`,
+      [userId, stockCode]
+    );
   }
 
   async createUser(username: string, password: string, isAdmin: boolean = false, isActive: boolean = true): Promise<AuthUser> {

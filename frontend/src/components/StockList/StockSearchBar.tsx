@@ -4,8 +4,8 @@
  */
 
 import React from 'react';
-import { Space, Input, DatePicker, Button, AutoComplete } from 'antd';
-import { SearchOutlined, ReloadOutlined, CalendarOutlined } from '@ant-design/icons';
+import { Space, Input, DatePicker, Button, AutoComplete, Tooltip } from 'antd';
+import { SearchOutlined, ReloadOutlined, CalendarOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 
 interface StockSearchBarProps {
@@ -57,6 +57,26 @@ export const StockSearchBar: React.FC<StockSearchBarProps> = ({
         allowClear
       />
 
+      <Button
+        icon={<LeftOutlined />}
+        disabled={!selectedDate}
+        onClick={() => {
+          if (!selectedDate) return;
+          const d = dayjs(selectedDate).subtract(1, 'day');
+          onDateChange(d, d.format('YYYY-MM-DD'));
+        }}
+      />
+
+      <Button
+        icon={<RightOutlined />}
+        disabled={!selectedDate}
+        onClick={() => {
+          if (!selectedDate) return;
+          const d = dayjs(selectedDate).add(1, 'day');
+          onDateChange(d, d.format('YYYY-MM-DD'));
+        }}
+      />
+
       {selectedDate && (
         <Button
           icon={<ReloadOutlined />}
@@ -66,14 +86,16 @@ export const StockSearchBar: React.FC<StockSearchBarProps> = ({
         </Button>
       )}
 
-      <Button
-        type="primary"
-        icon={<ReloadOutlined spin={loading} />}
-        onClick={onRefresh}
-        loading={loading}
-      >
-        刷新数据
-      </Button>
+      <Tooltip title="仅重新拉取列表数据；今日收盘数据需到「设置-数据采集管理」点击「立即更新数据」">
+        <Button
+          type="primary"
+          icon={<ReloadOutlined spin={loading} />}
+          onClick={onRefresh}
+          loading={loading}
+        >
+          刷新数据
+        </Button>
+      </Tooltip>
     </Space>
   );
 };

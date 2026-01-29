@@ -15,11 +15,14 @@ const renderWithConfig = (ui: React.ReactElement) => {
 describe('StockTable', () => {
   const mockOnRowClick = vi.fn();
   const mockOnAnalysisClick = vi.fn();
+  const mockOnFundamentalClick = vi.fn();
 
   const mockData: StockItem[] = [
     {
+      key: '0',
       code: '000001',
       name: '平安银行',
+      preClose: 12.0,
       price: 12.50,
       changeAmount: 0.50,
       change: '+4.17%',
@@ -29,11 +32,14 @@ describe('StockTable', () => {
       volume: '1.2亿',
       amount: '15.0亿',
       quoteTime: '2025-10-22 15:00:00',
-      status: '正常交易'
+      status: '正常交易',
+      signal: '持有'
     },
     {
+      key: '1',
       code: '600000',
       name: '浦发银行',
+      preClose: 8.5,
       price: 8.30,
       changeAmount: -0.20,
       change: '-2.35%',
@@ -43,7 +49,8 @@ describe('StockTable', () => {
       volume: '0.8亿',
       amount: '6.6亿',
       quoteTime: '2025-10-22 15:00:00',
-      status: '正常交易'
+      status: '正常交易',
+      signal: '持有'
     }
   ];
 
@@ -52,6 +59,7 @@ describe('StockTable', () => {
     loading: false,
     onRowClick: mockOnRowClick,
     onAnalysisClick: mockOnAnalysisClick,
+    onFundamentalClick: mockOnFundamentalClick,
   };
 
   beforeEach(() => {
@@ -244,8 +252,10 @@ describe('StockTable', () => {
     it('缺失数据应该显示破折号', () => {
       const dataWithMissing: StockItem[] = [
         {
+          key: '0',
           code: '000001',
           name: '测试股票',
+          preClose: 0,
           price: 0,
           changeAmount: 0,
           change: '0%',
@@ -255,7 +265,8 @@ describe('StockTable', () => {
           volume: '',
           amount: '',
           quoteTime: '',
-          status: '停牌'
+          status: '停牌',
+          signal: '持有'
         }
       ];
 

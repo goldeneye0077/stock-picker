@@ -18,6 +18,7 @@ export interface Stock {
   change_percent?: number;
   change_amount?: number;
   quote_time?: string;
+  quote_date?: string;
   volume_ratio?: number;
   is_volume_surge?: number;
   latest_signal?: string;

@@ -9,6 +9,7 @@ import {
   ThunderboltOutlined,
   TeamOutlined,
   HomeOutlined,
+  StarOutlined,
 } from '@ant-design/icons';
 import Home from './pages/Home';
 import StockList from './pages/StockList';
@@ -43,6 +44,11 @@ const menuItems = [
     path: '/stocks',
     name: '股票列表',
     icon: <StockOutlined />,
+  },
+  {
+    path: '/watchlist',
+    name: '自选股',
+    icon: <StarOutlined />,
   },
   {
     path: '/settings',
@@ -180,7 +186,15 @@ function AppLayout() {
           path="/stocks"
           element={
             <RequireAuth path="/stocks">
-              <StockList />
+              <StockList mode="all" />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/watchlist"
+          element={
+            <RequireAuth path="/watchlist">
+              <StockList mode="watchlist" />
             </RequireAuth>
           }
         />

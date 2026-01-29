@@ -145,3 +145,27 @@ export async function adminCreateUser(
     body: JSON.stringify(payload),
   }, token);
 }
+
+export type WatchlistResponse = {
+  success: boolean;
+  data: {
+    codes: string[];
+  };
+};
+
+export async function getWatchlist(token: string): Promise<WatchlistResponse> {
+  return request<WatchlistResponse>('/api/auth/watchlist', { method: 'GET' }, token);
+}
+
+export async function addToWatchlist(token: string, stockCode: string): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>('/api/auth/watchlist', {
+    method: 'POST',
+    body: JSON.stringify({ stockCode }),
+  }, token);
+}
+
+export async function removeFromWatchlist(token: string, stockCode: string): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>(`/api/auth/watchlist/${encodeURIComponent(stockCode)}`, {
+    method: 'DELETE',
+  }, token);
+}

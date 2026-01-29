@@ -14,6 +14,7 @@ from pathlib import Path
 import logging
 from typing import List, Dict, Tuple, Optional, Any
 import pandas as pd
+from zoneinfo import ZoneInfo
 
 # 导入重试工具和数据验证
 sys.path.append('.')
@@ -204,7 +205,12 @@ class IncrementalDataCollector:
             if date_str > last_date_str:
                 new_dates.append(date_str)
 
-        # 最多采集7天
+        now_sh = datetime.now(ZoneInfo("Asia/Shanghai"))
+        today_str = now_sh.strftime("%Y%m%d")
+        after_close = (now_sh.hour > 15) or (now_sh.hour == 15 and now_sh.minute >= 30)
+        if not new_dates and after_close and last_date_str == today_str:
+            return [today_str]
+
         result = new_dates[:7]
         logger.info(f"找到 {len(result)} 个新交易日: {result}")
         return result

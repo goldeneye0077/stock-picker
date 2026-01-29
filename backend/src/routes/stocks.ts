@@ -20,52 +20,34 @@ function firstOptionalString(value: unknown): string | undefined {
   return v ? v : undefined;
 }
 
-// Get all stocks
-router.get('/', asyncHandler(async (req, res) => {
-  const stocks = await stockRepo.findAll();
-
-  sendPaginatedSuccess(res, stocks, stocks.length);
-}));
-
-// Get stock by code
-router.get('/:code', asyncHandler(async (req, res) => {
-  const code = firstString(req.params.code);
-  const stockDetails = await stockRepo.findDetailsByCode(code);
-
-  if (!stockDetails) {
-    throw new StockNotFoundError(code);
+function parseCodeList(value: unknown): string[] | undefined {
+  const raw: string[] = [];
+  if (Array.isArray(value)) {
+    for (const v of value) {
+      if (typeof v === 'string') raw.push(v);
+    }
+  } else if (typeof value === 'string') {
+    raw.push(value);
   }
 
-  // 扁平化数据结构以匹配前端期望
-  const flattenedData = {
-    // 股票基本信息
-    code: stockDetails.stock.code,
-    name: stockDetails.stock.name,
-    exchange: stockDetails.stock.exchange,
-    industry: stockDetails.stock.industry,
+  const list = raw
+    .flatMap((v) => v.split(','))
+    .map((v) => v.trim())
+    .filter(Boolean);
 
-    // 实时行情数据
-    current_price: stockDetails.realtimeQuote?.close,
-    pre_close: stockDetails.realtimeQuote?.pre_close,
-    open: stockDetails.realtimeQuote?.open,
-    high: stockDetails.realtimeQuote?.high,
-    low: stockDetails.realtimeQuote?.low,
-    volume: stockDetails.realtimeQuote?.vol,
-    amount: stockDetails.realtimeQuote?.amount,
-    change_percent: stockDetails.realtimeQuote?.change_percent,
-    change_amount: stockDetails.realtimeQuote?.change_amount,
+  if (list.length === 0) return undefined;
+  return Array.from(new Set(list));
+}
 
-    // 估值指标（从 daily_basic 或计算得出）
-    pe_ratio: null, // 待补充
-    pb_ratio: null, // 待补充
-    total_market_cap: null, // 待补充
-    circulating_market_cap: null, // 待补充
+// Get all stocks
+router.get('/', asyncHandler(async (req, res) => {
+  const search = firstOptionalString(req.query.search);
+  const codes = parseCodeList(req.query.codes);
+  const stocks = (search || codes)
+    ? await stockRepo.findAllFiltered(search, codes)
+    : await stockRepo.findAll();
 
-    // 保留原始嵌套数据供高级使用
-    _raw: stockDetails
-  };
-
-  sendSuccess(res, flattenedData);
+  sendPaginatedSuccess(res, stocks, stocks.length);
 }));
 
 // Search stocks
@@ -100,6 +82,56 @@ router.get('/search/:query', asyncHandler(async (req, res) => {
   sendSuccess(res, stocks.slice(0, 20));
 }));
 
+// Get stock by code
+router.get('/:code', asyncHandler(async (req, res) => {
+  const code = firstString(req.params.code);
+  const stockDetails = await stockRepo.findDetailsByCode(code);
+
+  if (!stockDetails) {
+    throw new StockNotFoundError(code);
+  }
+
+  const today = new Date().toISOString().split('T')[0];
+  const realtimeDate = stockDetails.realtimeQuote?.updated_at
+    ? new Date(stockDetails.realtimeQuote.updated_at).toISOString().split('T')[0]
+    : undefined;
+  const realtimeIsToday = realtimeDate === today;
+  const latestKline = Array.isArray(stockDetails.klines) ? stockDetails.klines[0] : undefined;
+
+  // 扁平化数据结构以匹配前端期望
+  const flattenedData = {
+    // 股票基本信息
+    code: stockDetails.stock.code,
+    name: stockDetails.stock.name,
+    exchange: stockDetails.stock.exchange,
+    industry: stockDetails.stock.industry,
+
+    // 实时行情数据
+    current_price: realtimeIsToday ? stockDetails.realtimeQuote?.close : latestKline?.close,
+    pre_close: realtimeIsToday ? stockDetails.realtimeQuote?.pre_close : null,
+    open: realtimeIsToday ? stockDetails.realtimeQuote?.open : latestKline?.open,
+    high: realtimeIsToday ? stockDetails.realtimeQuote?.high : latestKline?.high,
+    low: realtimeIsToday ? stockDetails.realtimeQuote?.low : latestKline?.low,
+    volume: realtimeIsToday ? stockDetails.realtimeQuote?.vol : latestKline?.volume,
+    amount: realtimeIsToday ? stockDetails.realtimeQuote?.amount : latestKline?.amount,
+    change_percent: realtimeIsToday
+      ? stockDetails.realtimeQuote?.change_percent
+      : (latestKline && latestKline.open ? ((latestKline.close - latestKline.open) / latestKline.open) * 100 : null),
+    change_amount: realtimeIsToday ? stockDetails.realtimeQuote?.change_amount : (latestKline ? latestKline.close - latestKline.open : null),
+
+    // 估值指标（从 daily_basic 或计算得出）
+    pe_ratio: null, // 待补充
+    pb_ratio: null, // 待补充
+    total_market_cap: null, // 待补充
+    circulating_market_cap: null, // 待补充
+
+    // 保留原始嵌套数据供高级使用
+    _raw: stockDetails
+  };
+
+  sendSuccess(res, flattenedData);
+}));
+
 // Get stocks by date (历史行情查询)
 router.get('/history/date/:date(*)', asyncHandler(async (req, res) => {
   const date = firstString(req.params.date);
@@ -109,7 +141,11 @@ router.get('/history/date/:date(*)', asyncHandler(async (req, res) => {
     throw new InvalidParameterError('Invalid date format. Use YYYY-MM-DD', { date });
   }
 
-  const stocks = await stockRepo.findByDate(date);
+  const search = firstOptionalString(req.query.search);
+  const codes = parseCodeList(req.query.codes);
+  const stocks = (search || codes)
+    ? await stockRepo.findByDateFiltered(date, search, codes)
+    : await stockRepo.findByDate(date);
 
   // 使用自定义响应格式，包含日期信息
   res.json({

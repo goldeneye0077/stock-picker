@@ -8,7 +8,6 @@ import type { ColumnsType } from 'antd/es/table';
 import {
   collectAuctionSnapshot,
   fetchAuctionSuperMainForce,
-  fetchPreviousTradeDate,
   type AuctionSuperMainForceItem,
   type AuctionSuperMainForceData
 } from '../services/analysisService';
@@ -44,16 +43,6 @@ const buildRecentWeekdays = (days: number) => {
     dates.push(d.format('YYYY-MM-DD'));
   }
   return dates;
-};
-
-const fallbackPreviousWeekday = (baseDate: string) => {
-  let d = dayjs(baseDate).subtract(1, 'day');
-  for (let i = 0; i < 60; i += 1) {
-    const weekday = d.day();
-    if (weekday !== 0 && weekday !== 6) return d.format('YYYY-MM-DD');
-    d = d.subtract(1, 'day');
-  }
-  return dayjs(baseDate).subtract(1, 'day').format('YYYY-MM-DD');
 };
 
 async function mapWithConcurrency<T, R>(
@@ -127,13 +116,7 @@ const Home: React.FC = () => {
       setSampleLoading(true);
       setSampleError(null);
       try {
-        const baseDate = dayjs().format('YYYY-MM-DD');
-        let targetTradeDate = baseDate;
-        try {
-          targetTradeDate = await fetchPreviousTradeDate(baseDate);
-        } catch {
-          targetTradeDate = fallbackPreviousWeekday(baseDate);
-        }
+        const targetTradeDate = '2026-01-27';
 
         const first = await fetchAuctionSuperMainForce(10, targetTradeDate, true, 0.25, false);
         if (cancelled) return;
@@ -410,7 +393,10 @@ const Home: React.FC = () => {
         key: 'closeChangePercent',
         width: 110,
         render: (val: number | undefined) => {
-          const v = Number(val || 0);
+          const v = Number(val);
+          if (!Number.isFinite(v)) {
+            return <span style={{ color: '#aaa' }}>-</span>;
+          }
           const color = v >= 0 ? '#cf1322' : '#3f8600';
           return <span style={{ color }}>{v.toFixed(2)}%</span>;
         },
@@ -420,7 +406,10 @@ const Home: React.FC = () => {
         key: 'dailyProfit',
         width: 110,
         render: (_: any, record: AuctionSuperMainForceItem) => {
-          const day = Number(record.changePercent || 0);
+          const day = Number(record.changePercent);
+          if (!Number.isFinite(day)) {
+            return <span style={{ color: '#aaa' }}>-</span>;
+          }
           const gap = Number(record.gapPercent || 0);
           const v = day - gap;
           const color = v >= 0 ? '#cf1322' : '#3f8600';
@@ -796,7 +785,7 @@ const Home: React.FC = () => {
                 <Table
                   loading={sampleLoading}
                   columns={sampleColumns}
-                  dataSource={(sample?.items || []).slice(0, 8)}
+                  dataSource={(sample?.items || []).slice(0, 10)}
                   rowKey={(r: AuctionSuperMainForceItem) => `${r.stock}-${r.rank}`}
                   pagination={false}
                   size="small"

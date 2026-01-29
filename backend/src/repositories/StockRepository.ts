@@ -13,23 +13,54 @@ export class StockRepository extends BaseRepository {
   async findAll(): Promise<Stock[]> {
     const sql = `
       SELECT s.*,
-             COALESCE(rq.close, k.close) as current_price,
-             rq.pre_close as pre_close,
-             COALESCE(rq.open, k.open) as open,
-             COALESCE(rq.high, k.high) as high,
-             COALESCE(rq.low, k.low) as low,
-             COALESCE(rq.vol, k.volume) as volume,
-             COALESCE(rq.amount, k.amount) as amount,
-             COALESCE(rq.change_percent, ((k.close - k.open) / k.open * 100)) as change_percent,
-             COALESCE(rq.change_amount, (k.close - k.open)) as change_amount,
-             rq.updated_at as quote_time,
+             CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
+               THEN rq.close
+               ELSE k.close
+             END as current_price,
+             CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
+               THEN rq.pre_close
+               ELSE NULL
+             END as pre_close,
+             CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
+               THEN rq.open
+               ELSE k.open
+             END as open,
+             CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
+               THEN rq.high
+               ELSE k.high
+             END as high,
+             CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
+               THEN rq.low
+               ELSE k.low
+             END as low,
+             CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
+               THEN rq.vol
+               ELSE k.volume
+             END as volume,
+             CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
+               THEN rq.amount
+               ELSE k.amount
+             END as amount,
+             CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
+               THEN rq.change_percent
+               ELSE ((k.close - k.open) / k.open * 100)
+             END as change_percent,
+             CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
+               THEN rq.change_amount
+               ELSE (k.close - k.open)
+             END as change_amount,
+             CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
+               THEN rq.updated_at
+               ELSE k.date
+             END as quote_time,
+             k.date as quote_date,
              va.volume_ratio,
              va.is_volume_surge,
              bs.signal_type as latest_signal
       FROM stocks s
       LEFT JOIN realtime_quotes rq ON s.code = rq.stock_code
       LEFT JOIN (
-        SELECT stock_code, close, volume, open, high, low, amount,
+        SELECT stock_code, date, close, volume, open, high, low, amount,
                ROW_NUMBER() OVER (PARTITION BY stock_code ORDER BY date DESC) as rn
         FROM klines
       ) k ON s.code = k.stock_code AND k.rn = 1
@@ -47,6 +78,94 @@ export class StockRepository extends BaseRepository {
     `;
 
     return this.query<Stock>(sql);
+  }
+
+  async findAllFiltered(search?: string, codes?: string[]): Promise<Stock[]> {
+    if (Array.isArray(codes) && codes.length === 0) return [];
+
+    const whereParts: string[] = [];
+    const params: any[] = [];
+
+    if (codes && codes.length > 0) {
+      whereParts.push(`s.code IN (${codes.map(() => '?').join(', ')})`);
+      params.push(...codes);
+    }
+    if (search) {
+      whereParts.push(`(s.code LIKE ? OR s.name LIKE ?)`);
+      const pattern = `%${search}%`;
+      params.push(pattern, pattern);
+    }
+
+    const whereClause = whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : '';
+
+    const sql = `
+      SELECT s.*,
+             CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
+               THEN rq.close
+               ELSE k.close
+             END as current_price,
+             CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
+               THEN rq.pre_close
+               ELSE NULL
+             END as pre_close,
+             CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
+               THEN rq.open
+               ELSE k.open
+             END as open,
+             CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
+               THEN rq.high
+               ELSE k.high
+             END as high,
+             CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
+               THEN rq.low
+               ELSE k.low
+             END as low,
+             CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
+               THEN rq.vol
+               ELSE k.volume
+             END as volume,
+             CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
+               THEN rq.amount
+               ELSE k.amount
+             END as amount,
+             CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
+               THEN rq.change_percent
+               ELSE ((k.close - k.open) / k.open * 100)
+             END as change_percent,
+             CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
+               THEN rq.change_amount
+               ELSE (k.close - k.open)
+             END as change_amount,
+             CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
+               THEN rq.updated_at
+               ELSE k.date
+             END as quote_time,
+             k.date as quote_date,
+             va.volume_ratio,
+             va.is_volume_surge,
+             bs.signal_type as latest_signal
+      FROM stocks s
+      LEFT JOIN realtime_quotes rq ON s.code = rq.stock_code
+      LEFT JOIN (
+        SELECT stock_code, date, close, volume, open, high, low, amount,
+               ROW_NUMBER() OVER (PARTITION BY stock_code ORDER BY date DESC) as rn
+        FROM klines
+      ) k ON s.code = k.stock_code AND k.rn = 1
+      LEFT JOIN (
+        SELECT stock_code, volume_ratio, is_volume_surge,
+               ROW_NUMBER() OVER (PARTITION BY stock_code ORDER BY date DESC) as rn
+        FROM volume_analysis
+      ) va ON s.code = va.stock_code AND va.rn = 1
+      LEFT JOIN (
+        SELECT stock_code, signal_type,
+               ROW_NUMBER() OVER (PARTITION BY stock_code ORDER BY created_at DESC) as rn
+        FROM buy_signals
+      ) bs ON s.code = bs.stock_code AND bs.rn = 1
+      ${whereClause}
+      ORDER BY s.code
+    `;
+
+    return this.query<Stock>(sql, params);
   }
 
   /**
@@ -113,23 +232,54 @@ export class StockRepository extends BaseRepository {
   async search(query: string, limit: number = 20): Promise<Stock[]> {
     const sql = `
       SELECT s.*,
-             COALESCE(rq.close, k.close) as current_price,
-             rq.pre_close as pre_close,
-             COALESCE(rq.open, k.open) as open,
-             COALESCE(rq.high, k.high) as high,
-             COALESCE(rq.low, k.low) as low,
-             COALESCE(rq.vol, k.volume) as volume,
-             COALESCE(rq.amount, k.amount) as amount,
-             COALESCE(rq.change_percent, ((k.close - k.open) / k.open * 100)) as change_percent,
-             COALESCE(rq.change_amount, (k.close - k.open)) as change_amount,
-             rq.updated_at as quote_time,
+             CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
+               THEN rq.close
+               ELSE k.close
+             END as current_price,
+             CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
+               THEN rq.pre_close
+               ELSE NULL
+             END as pre_close,
+             CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
+               THEN rq.open
+               ELSE k.open
+             END as open,
+             CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
+               THEN rq.high
+               ELSE k.high
+             END as high,
+             CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
+               THEN rq.low
+               ELSE k.low
+             END as low,
+             CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
+               THEN rq.vol
+               ELSE k.volume
+             END as volume,
+             CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
+               THEN rq.amount
+               ELSE k.amount
+             END as amount,
+             CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
+               THEN rq.change_percent
+               ELSE ((k.close - k.open) / k.open * 100)
+             END as change_percent,
+             CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
+               THEN rq.change_amount
+               ELSE (k.close - k.open)
+             END as change_amount,
+             CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
+               THEN rq.updated_at
+               ELSE k.date
+             END as quote_time,
+             k.date as quote_date,
              va.volume_ratio,
              va.is_volume_surge,
              bs.signal_type as latest_signal
       FROM stocks s
       LEFT JOIN realtime_quotes rq ON s.code = rq.stock_code
       LEFT JOIN (
-        SELECT stock_code, close, volume, open, high, low, amount,
+        SELECT stock_code, date, close, volume, open, high, low, amount,
                ROW_NUMBER() OVER (PARTITION BY stock_code ORDER BY date DESC) as rn
         FROM klines
       ) k ON s.code = k.stock_code AND k.rn = 1
@@ -144,6 +294,7 @@ export class StockRepository extends BaseRepository {
         FROM buy_signals
       ) bs ON s.code = bs.stock_code AND bs.rn = 1
       WHERE s.code LIKE ? OR s.name LIKE ?
+      ORDER BY s.code
       LIMIT ?
     `;
 
@@ -187,6 +338,55 @@ export class StockRepository extends BaseRepository {
     `;
 
     return this.query<Stock>(sql, [date, date, date]);
+  }
+
+  async findByDateFiltered(date: string, search?: string, codes?: string[]): Promise<Stock[]> {
+    if (!this.validateDateFormat(date)) {
+      throw new Error('Invalid date format. Use YYYY-MM-DD');
+    }
+    if (Array.isArray(codes) && codes.length === 0) return [];
+
+    const whereParts: string[] = ['k.close IS NOT NULL'];
+    const params: any[] = [date, date, date];
+
+    if (codes && codes.length > 0) {
+      whereParts.push(`s.code IN (${codes.map(() => '?').join(', ')})`);
+      params.push(...codes);
+    }
+    if (search) {
+      whereParts.push(`(s.code LIKE ? OR s.name LIKE ?)`);
+      const pattern = `%${search}%`;
+      params.push(pattern, pattern);
+    }
+
+    const sql = `
+      SELECT s.*,
+             k.close as current_price,
+             k.open as open,
+             k.high as high,
+             k.low as low,
+             k.volume as volume,
+             k.amount as amount,
+             k.date as quote_date,
+             ((k.close - k.open) / k.open * 100) as change_percent,
+             (k.close - k.open) as change_amount,
+             va.volume_ratio,
+             va.is_volume_surge,
+             bs.signal_type as latest_signal
+      FROM stocks s
+      LEFT JOIN klines k ON s.code = k.stock_code AND k.date = ?
+      LEFT JOIN volume_analysis va ON s.code = va.stock_code AND va.date = ?
+      LEFT JOIN (
+        SELECT stock_code, signal_type,
+               ROW_NUMBER() OVER (PARTITION BY stock_code ORDER BY created_at DESC) as rn
+        FROM buy_signals
+        WHERE date(created_at) = ?
+      ) bs ON s.code = bs.stock_code AND bs.rn = 1
+      WHERE ${whereParts.join(' AND ')}
+      ORDER BY s.code
+    `;
+
+    return this.query<Stock>(sql, params);
   }
 
   /**

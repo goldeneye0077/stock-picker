@@ -8,6 +8,7 @@ import { API_BASE_URL, API_ENDPOINTS } from '../config/api';
 export interface StockListParams {
   date?: string;
   search?: string;
+  codes?: string[];
 }
 
 export interface StockItem {
@@ -36,9 +37,24 @@ export interface StockAnalysisParams {
  * 获取股票列表
  */
 export async function fetchStockList(params: StockListParams = {}) {
-  const url = params.date
+  if (Array.isArray(params.codes) && params.codes.length === 0) {
+    return [];
+  }
+
+  const baseUrl = params.date
     ? `${API_BASE_URL}${API_ENDPOINTS.STOCKS}/history/date/${params.date}`
     : `${API_BASE_URL}${API_ENDPOINTS.STOCKS}`;
+
+  const searchParams = new URLSearchParams();
+  if (params.search) searchParams.set('search', params.search);
+  if (params.codes) {
+    for (const c of params.codes) {
+      if (c) searchParams.append('codes', c);
+    }
+  }
+
+  const qs = searchParams.toString();
+  const url = qs ? `${baseUrl}?${qs}` : baseUrl;
 
   const response = await fetch(url);
 
@@ -159,7 +175,7 @@ export async function searchStocks(query: string) {
   }
 
   const response = await fetch(
-    `${API_BASE_URL}${API_ENDPOINTS.STOCKS}/search?q=${encodeURIComponent(query)}`
+    `${API_BASE_URL}${API_ENDPOINTS.STOCKS}/search/${encodeURIComponent(query)}`
   );
 
   if (!response.ok) {

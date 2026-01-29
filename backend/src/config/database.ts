@@ -315,6 +315,17 @@ export async function initDatabase(): Promise<void> {
       FOREIGN KEY (user_id) REFERENCES users(id)
     )
   `);
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS user_watchlists (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      stock_code TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(user_id, stock_code),
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      FOREIGN KEY (stock_code) REFERENCES stocks(code)
+    )
+  `);
   await db.run('CREATE INDEX IF NOT EXISTS idx_realtime_stock_code ON realtime_quotes(stock_code)');
   await db.run('CREATE INDEX IF NOT EXISTS idx_realtime_updated_at ON realtime_quotes(updated_at)');
   await db.run('CREATE INDEX IF NOT EXISTS idx_history_stock_code ON quote_history(stock_code)');
@@ -330,6 +341,8 @@ export async function initDatabase(): Promise<void> {
   await db.run('CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)');
   await db.run('CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)');
   await db.run('CREATE INDEX IF NOT EXISTS idx_user_permissions_user_id ON user_permissions(user_id)');
+  await db.run('CREATE INDEX IF NOT EXISTS idx_user_watchlists_user_id ON user_watchlists(user_id)');
+  await db.run('CREATE INDEX IF NOT EXISTS idx_user_watchlists_stock_code ON user_watchlists(stock_code)');
 
   const adminUsername = process.env.ADMIN_USERNAME || 'admin';
   const adminPassword = process.env.ADMIN_PASSWORD;
@@ -361,6 +374,7 @@ export async function initDatabase(): Promise<void> {
     '/super-main-force',
     '/smart-selection',
     '/stocks',
+    '/watchlist',
     '/settings',
     '/user-management'
   ];
@@ -370,6 +384,12 @@ export async function initDatabase(): Promise<void> {
       await db.run('INSERT OR IGNORE INTO user_permissions (user_id, path) VALUES (?, ?)', [adminRow.id, p]);
     }
   }
+
+  await db.run(
+    `INSERT OR IGNORE INTO user_permissions (user_id, path)
+     SELECT user_id, ? FROM user_permissions WHERE path = ?`,
+    ['/watchlist', '/stocks']
+  );
 
   console.log('Database tables created successfully');
 }

@@ -5,8 +5,8 @@
  */
 
 import React, { useMemo } from 'react';
-import { Table, Tag, Typography } from 'antd';
-import { LineChartOutlined, BarChartOutlined } from '@ant-design/icons';
+import { Button, Table, Tag, Typography, Tooltip } from 'antd';
+import { LineChartOutlined, BarChartOutlined, StarOutlined, StarFilled } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { StockItem } from '../../services/stockService';
 
@@ -18,6 +18,10 @@ interface StockTableProps {
   onRowClick: (record: StockItem) => void;
   onAnalysisClick: (record: StockItem) => void;
   onFundamentalClick: (record: StockItem) => void;
+  watchlistMode?: boolean;
+  watchlistCodes?: Set<string>;
+  watchlistPendingCodes?: Set<string>;
+  onToggleWatchlist?: (record: StockItem, action: 'add' | 'remove') => void;
 }
 
 // 提取数值用于排序
@@ -36,7 +40,11 @@ const StockTableComponent: React.FC<StockTableProps> = ({
   loading,
   onRowClick,
   onAnalysisClick,
-  onFundamentalClick
+  onFundamentalClick,
+  watchlistMode,
+  watchlistCodes,
+  watchlistPendingCodes,
+  onToggleWatchlist
 }) => {
   // 使用 useMemo 缓存列定义，避免每次渲染都重新创建
   const columns: ColumnsType<StockItem> = useMemo(() => [
@@ -207,10 +215,47 @@ const StockTableComponent: React.FC<StockTableProps> = ({
             <BarChartOutlined style={{ marginRight: 4 }} />
             基本面分析
           </a>
+          <Tooltip
+            title={
+              watchlistPendingCodes?.has(record.code)
+                ? (watchlistMode ? '正在移除...' : '正在加入...')
+                : (!watchlistMode && watchlistCodes?.has(record.code))
+                  ? '已在自选'
+                  : undefined
+            }
+          >
+            <Button
+              type="link"
+              size="small"
+              loading={!!watchlistPendingCodes?.has(record.code)}
+              disabled={
+                !onToggleWatchlist ||
+                !!watchlistPendingCodes?.has(record.code) ||
+                (!watchlistMode && !!watchlistCodes?.has(record.code))
+              }
+              icon={watchlistMode || watchlistCodes?.has(record.code) ? <StarFilled /> : <StarOutlined />}
+              onClick={(e) => {
+                e.stopPropagation();
+                const inWatchlist = !!watchlistCodes?.has(record.code);
+                if (!onToggleWatchlist) return;
+                if (watchlistPendingCodes?.has(record.code)) return;
+                if (watchlistMode) {
+                  onToggleWatchlist(record, 'remove');
+                  return;
+                }
+                if (!inWatchlist) {
+                  onToggleWatchlist(record, 'add');
+                }
+              }}
+              style={{ padding: 0, height: 20, color: 'var(--sq-text-secondary)' }}
+            >
+              {watchlistMode ? '移除自选' : watchlistCodes?.has(record.code) ? '已自选' : '加入自选'}
+            </Button>
+          </Tooltip>
         </div>
       )
     }
-  ], [onRowClick, onAnalysisClick, onFundamentalClick]); // 依赖项：回调函数变化时重新创建列定义
+  ], [onRowClick, onAnalysisClick, onFundamentalClick, onToggleWatchlist, watchlistCodes, watchlistPendingCodes, watchlistMode]); // 依赖项：回调函数变化时重新创建列定义
 
   return (
     <Table

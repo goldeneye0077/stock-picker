@@ -6,6 +6,7 @@ import { ConfigProvider } from 'antd';
 import SuperMainForce from './SuperMainForce';
 import * as analysisService from '../services/analysisService';
 import * as stockService from '../services/stockService';
+import { AuthProvider } from '../context/AuthContext';
 
 vi.mock('antd', async () => {
   const actual = await vi.importActual<typeof import('antd')>('antd');
@@ -42,7 +43,11 @@ vi.mock('../services/stockService', async () => {
 });
 
 const renderWithConfig = (ui: React.ReactElement) => {
-  return render(<ConfigProvider>{ui}</ConfigProvider>);
+  return render(
+    <ConfigProvider>
+      <AuthProvider>{ui}</AuthProvider>
+    </ConfigProvider>
+  );
 };
 
 describe('SuperMainForce', () => {
@@ -120,7 +125,7 @@ describe('SuperMainForce', () => {
       expect(stockService.fetchStockHistoryForRealtime).toHaveBeenCalledWith('000001');
       expect(screen.getByText('kline:1')).toBeInTheDocument();
       expect(screen.getByText('MA5')).toBeInTheDocument();
-      expect(screen.getByText('1.00')).toBeInTheDocument();
+      expect(screen.getAllByText('1.00').length).toBeGreaterThan(0);
     });
   }, 15000);
 });

@@ -1301,34 +1301,50 @@ async def get_auction_super_main_force(
                 placeholders_ci = ",".join(["?"] * len(stock_codes))
                 cursor = await db.execute(
                     f"""
-                    SELECT
-                        q.stock_code as stock,
-                        COALESCE(db0.close, k.close, q.close) as close_price
-                    FROM quote_history q
-                    LEFT JOIN daily_basic db0
-                        ON db0.stock_code = q.stock_code
-                       AND REPLACE(db0.trade_date, '-', '') = REPLACE(?, '-', '')
-                    LEFT JOIN klines k
-                        ON k.stock_code = q.stock_code
-                       AND k.date = (
-                           SELECT MAX(date)
-                           FROM klines
-                           WHERE stock_code = q.stock_code
-                             AND date <= ?
-                       )
-                    WHERE q.snapshot_time = ?
-                      AND q.stock_code IN ({placeholders_ci})
+                    SELECT stock_code as stock, close as close_price
+                    FROM daily_basic
+                    WHERE trade_date = ?
+                      AND close IS NOT NULL
+                      AND close > 0
+                      AND stock_code IN ({placeholders_ci})
                     """,
-                    (trade_date_ret, trade_date_ret, snapshot_time, *stock_codes),
+                    (trade_date_ret, *stock_codes),
                 )
                 ci_rows = await cursor.fetchall()
                 for row in ci_rows:
                     stock = str(row["stock"] or "")
                     if not stock:
                         continue
+                    if row["close_price"] is None:
+                        continue
                     closing_info_map[stock] = {
-                        "close_price": float(row["close_price"] or 0.0),
+                        "close_price": float(row["close_price"]),
                     }
+
+                missing_codes = [c for c in stock_codes if c not in closing_info_map]
+                if missing_codes:
+                    placeholders_ci2 = ",".join(["?"] * len(missing_codes))
+                    cursor = await db.execute(
+                        f"""
+                        SELECT stock_code as stock, close as close_price
+                        FROM klines
+                        WHERE date = ?
+                          AND close IS NOT NULL
+                          AND close > 0
+                          AND stock_code IN ({placeholders_ci2})
+                        """,
+                        (trade_date_ret, *missing_codes),
+                    )
+                    ci_rows = await cursor.fetchall()
+                    for row in ci_rows:
+                        stock = str(row["stock"] or "")
+                        if not stock:
+                            continue
+                        if row["close_price"] is None:
+                            continue
+                        closing_info_map[stock] = {
+                            "close_price": float(row["close_price"]),
+                        }
 
             if theme_alpha > 0:
                 cursor = await db.execute(
@@ -1511,9 +1527,10 @@ async def get_auction_super_main_force(
             pe_ttm_value = daily_basic.get("pe_ttm")
 
             closing_info = closing_info_map.get(stock_code, {})
-            close_price = float(closing_info.get("close_price") or 0.0)
-            change_percent_close = 0.0
-            if pre_close > 0 and close_price > 0:
+            close_price_raw = closing_info.get("close_price")
+            close_price = float(close_price_raw) if close_price_raw is not None else None
+            change_percent_close = None
+            if pre_close > 0 and close_price is not None and close_price > 0:
                 change_percent_close = (close_price - pre_close) / pre_close * 100.0
 
             gap_percent = 0.0
@@ -1660,7 +1677,7 @@ async def get_auction_super_main_force(
                 theme_code = ""
                 theme_name = industry_name
 
-            pool.append({
+            item = {
                 "stock": stock_code,
                 "tsCode": ts_code,
                 "name": info.get("name") or "",
@@ -1668,8 +1685,6 @@ async def get_auction_super_main_force(
                 "price": round(price, 3),
                 "preClose": round(pre_close, 3),
                 "gapPercent": round(gap_percent, 2),
-                "close": round(close_price, 3),
-                "changePercent": round(change_percent_close, 2),
                 "vol": vol,
                 "amount": round(amount, 2),
                 "turnoverRate": round(turnover_rate, 3),
@@ -1686,7 +1701,11 @@ async def get_auction_super_main_force(
                 "_gapProcessed": gap_ratio_processed,
                 "_fundStrengthProcessed": fund_strength,
                 "_volumeDensityProcessed": volume_density,
-            })
+            }
+            if change_percent_close is not None:
+                item["close"] = round(float(close_price or 0.0), 3)
+                item["changePercent"] = round(float(change_percent_close), 2)
+            pool.append(item)
 
         if not pool:
             return {

@@ -12,8 +12,12 @@ import { useStockList, useStockDetail } from '../hooks/useStockList';
 import FundamentalDetailModal from '../components/Fundamental/FundamentalDetailModal';
 import TechnicalAnalysisModal from '../components/TechnicalAnalysisModal';
 import type { StockItem } from '../services/stockService';
+import { useAuth } from '../context/AuthContext';
+import { addToWatchlist, ApiError, getWatchlist, removeFromWatchlist } from '../services/authService';
 
-const StockList: React.FC = () => {
+const StockList: React.FC<{ mode?: 'all' | 'watchlist' }> = ({ mode = 'all' }) => {
+  const { token } = useAuth();
+
   // 使用自定义 Hooks
   const {
     data,
@@ -25,9 +29,9 @@ const StockList: React.FC = () => {
     updateParams,
     handleSearch,
     setSearchQuery,
-  } = useStockList();
+  } = useStockList(mode === 'watchlist' ? { codes: [] } : {});
 
-  const { detail, loading: detailLoading, fetchDetail, reset: resetDetail } = useStockDetail();
+  const { detail, loading: detailLoading, reset: resetDetail } = useStockDetail();
   const location = useLocation();
 
   // 本地状态
@@ -35,6 +39,36 @@ const StockList: React.FC = () => {
   const [isAnalysisModalVisible, setIsAnalysisModalVisible] = useState(false);
   const [isFundamentalModalVisible, setIsFundamentalModalVisible] = useState(false);
   const [currentStock, setCurrentStock] = useState<StockItem | null>(null);
+  const [watchlistCodes, setWatchlistCodes] = useState<string[]>([]);
+  const [watchlistPendingCodes, setWatchlistPendingCodes] = useState<Set<string>>(() => new Set());
+
+  const refreshWatchlist = useCallback(async () => {
+    if (!token) return;
+    const res = await getWatchlist(token);
+    setWatchlistCodes(res.data.codes || []);
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) {
+      setWatchlistCodes([]);
+      setWatchlistPendingCodes(new Set());
+      return;
+    }
+    refreshWatchlist().catch(() => {});
+  }, [refreshWatchlist, token]);
+
+  useEffect(() => {
+    if (mode !== 'watchlist') return;
+    refreshWatchlist();
+  }, [mode, refreshWatchlist]);
+
+  useEffect(() => {
+    if (mode !== 'watchlist') {
+      updateParams({ codes: undefined });
+      return;
+    }
+    updateParams({ codes: watchlistCodes });
+  }, [mode, updateParams, watchlistCodes]);
 
   useEffect(() => {
     const q = new URLSearchParams(location.search).get('search');
@@ -44,16 +78,97 @@ const StockList: React.FC = () => {
     if (query === searchQuery) return;
     setSearchQuery(query);
     handleSearch(query);
+    updateParams({ search: query });
     message.info(`已定位到搜索：${query}`);
-  }, [handleSearch, location.search, searchQuery, setSearchQuery]);
+  }, [handleSearch, location.search, searchQuery, setSearchQuery, updateParams]);
 
   // 处理搜索 - 使用 useCallback 优化
   const handleSearchSubmit = useCallback((value: string) => {
-    if (value) {
-      message.info(`搜索: ${value}`);
-      // 可以在这里添加搜索逻辑
+    const q = (value || '').trim();
+    if (!q) {
+      updateParams({ search: undefined });
+      message.info('已清除搜索条件');
+      return;
     }
-  }, []);
+    updateParams({ search: q });
+    message.info(`搜索: ${q}`);
+  }, [updateParams]);
+
+  const handleSearchChange = useCallback((value: string) => {
+    handleSearch(value);
+    const q = (value || '').trim();
+    if (!q) updateParams({ search: undefined });
+  }, [handleSearch, updateParams]);
+
+  const watchlistCodeSet = React.useMemo(() => new Set(watchlistCodes), [watchlistCodes]);
+
+  const handleToggleWatchlist = useCallback(async (record: StockItem, action: 'add' | 'remove') => {
+    if (!token) {
+      message.warning('请先登录');
+      return;
+    }
+    const code = String(record.code || '').trim();
+    if (!code) return;
+    if (watchlistPendingCodes.has(code)) return;
+
+    const key = `watchlist-${action}-${code}`;
+    const setPending = (pending: boolean) => {
+      setWatchlistPendingCodes((prev) => {
+        const next = new Set(prev);
+        if (pending) next.add(code);
+        else next.delete(code);
+        return next;
+      });
+    };
+
+    if (action === 'add' && watchlistCodeSet.has(code)) {
+      message.info({ content: '已在自选', key, duration: 1.2 });
+      return;
+    }
+    setPending(true);
+    message.loading({ content: action === 'add' ? '正在加入自选...' : '正在移除自选...', key, duration: 0 });
+
+    if (action === 'add') {
+      setWatchlistCodes((prev) => (prev.includes(code) ? prev : [...prev, code]));
+    } else {
+      setWatchlistCodes((prev) => prev.filter((c) => c !== code));
+    }
+
+    try {
+      if (action === 'add') {
+        await addToWatchlist(token, code);
+        message.success({ content: '已加入自选', key, duration: 1.2 });
+      } else {
+        await removeFromWatchlist(token, code);
+        message.success({ content: '已移除自选', key, duration: 1.2 });
+      }
+    } catch (err) {
+      if (err instanceof ApiError) {
+        if (action === 'add' && err.status === 409) {
+          message.info({ content: '已在自选', key, duration: 1.2 });
+        } else if (action === 'remove' && err.status === 404) {
+          message.info({ content: '已移除自选', key, duration: 1.2 });
+        } else {
+          message.error({ content: err.message || '操作失败', key, duration: 1.6 });
+          if (action === 'add') {
+            setWatchlistCodes((prev) => prev.filter((c) => c !== code));
+          } else {
+            setWatchlistCodes((prev) => (prev.includes(code) ? prev : [...prev, code]));
+          }
+        }
+      } else {
+        message.error({ content: '操作失败', key, duration: 1.6 });
+        if (action === 'add') {
+          setWatchlistCodes((prev) => prev.filter((c) => c !== code));
+        } else {
+          setWatchlistCodes((prev) => (prev.includes(code) ? prev : [...prev, code]));
+        }
+      }
+    } finally {
+      setPending(false);
+      refreshWatchlist().catch(() => {});
+    }
+  }, [refreshWatchlist, token, watchlistCodeSet, watchlistPendingCodes]);
 
   // 处理日期变化 - 使用 useCallback 优化
   const handleDateChange = useCallback((date: any, dateString: string | string[]) => {
@@ -120,7 +235,7 @@ const StockList: React.FC = () => {
       )}
 
       <Card
-        title="股票列表"
+        title={mode === 'watchlist' ? '自选股' : '股票列表'}
         extra={
           <StockSearchBar
             searchQuery={searchQuery}
@@ -128,7 +243,7 @@ const StockList: React.FC = () => {
             selectedDate={params.date || null}
             loading={loading}
             onSearch={handleSearchSubmit}
-            onSearchChange={handleSearch}
+            onSearchChange={handleSearchChange}
             onDateChange={handleDateChange}
             onReset={handleResetDate}
             onRefresh={fetchData}
@@ -143,6 +258,10 @@ const StockList: React.FC = () => {
             onRowClick={showDetailModal}
             onAnalysisClick={showAnalysisModal}
             onFundamentalClick={showFundamentalModal}
+            watchlistMode={mode === 'watchlist'}
+            watchlistCodes={watchlistCodeSet}
+            watchlistPendingCodes={watchlistPendingCodes}
+            onToggleWatchlist={handleToggleWatchlist}
           />
         </div>
       </Card>

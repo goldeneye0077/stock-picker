@@ -100,6 +100,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       '/super-main-force',
       '/smart-selection',
       '/stocks',
+      '/watchlist',
       '/settings',
     ];
     for (const p of preferred) {
