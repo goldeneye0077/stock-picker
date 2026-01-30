@@ -256,7 +256,7 @@ const SiteAnalytics: React.FC = () => {
             dataIndex: 'last_active',
             key: 'last_active',
             width: 180,
-            render: (v: string) => v ? new Date(v).toLocaleString('zh-CN') : '-',
+            render: (v: string) => v ? new Date(v.includes('T') ? v : v.replace(' ', 'T') + 'Z').toLocaleString('zh-CN') : '-',
         },
     ];
 
@@ -266,7 +266,7 @@ const SiteAnalytics: React.FC = () => {
             dataIndex: 'created_at',
             key: 'created_at',
             width: 180,
-            render: (v: string) => new Date(v).toLocaleString('zh-CN'),
+            render: (v: string) => new Date(v.includes('T') ? v : v.replace(' ', 'T') + 'Z').toLocaleString('zh-CN'),
         },
         {
             title: '页面',

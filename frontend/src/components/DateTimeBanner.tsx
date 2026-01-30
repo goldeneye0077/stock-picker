@@ -14,10 +14,12 @@ const { Text, Link } = Typography;
 type TopBannerProps = {
   themeMode: 'dark' | 'light';
   onToggleThemeMode: () => void;
+  isGrayscale: boolean;
+  onToggleGrayscale: () => void;
   routeLabels: Record<string, string>;
 };
 
-const TopBanner: React.FC<TopBannerProps> = ({ themeMode, onToggleThemeMode, routeLabels }) => {
+const TopBanner: React.FC<TopBannerProps> = ({ themeMode, onToggleThemeMode, isGrayscale, onToggleGrayscale, routeLabels }) => {
   const [currentTime, setCurrentTime] = useState(dayjs());
   const navigate = useNavigate();
   const location = useLocation();
@@ -48,9 +50,13 @@ const TopBanner: React.FC<TopBannerProps> = ({ themeMode, onToggleThemeMode, rou
       key: 'toggle-theme',
       label: themeMode === 'dark' ? '切换到亮色模式' : '切换到深色模式',
     });
+    items.push({
+      key: 'toggle-grayscale',
+      label: isGrayscale ? '关闭灰度模式' : '开启灰度模式',
+    });
     items.push({ key: 'logout', label: '退出登录' });
     return items;
-  }, [themeMode, user]);
+  }, [themeMode, isGrayscale, user]);
 
   const breadcrumbItems = useMemo(() => {
     const pathname = location.pathname;
@@ -302,6 +308,10 @@ const TopBanner: React.FC<TopBannerProps> = ({ themeMode, onToggleThemeMode, rou
                 }
                 if (key === 'toggle-theme') {
                   onToggleThemeMode();
+                  return;
+                }
+                if (key === 'toggle-grayscale') {
+                  onToggleGrayscale();
                   return;
                 }
                 if (key === 'logout') {

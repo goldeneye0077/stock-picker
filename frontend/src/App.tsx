@@ -282,10 +282,19 @@ function App() {
     return raw === 'light' ? 'light' : 'dark';
   });
 
+  const [isGrayscale, setIsGrayscale] = useState<boolean>(() => {
+    return window.localStorage.getItem('sq_grayscale_mode') === 'true';
+  });
+
   useEffect(() => {
     window.localStorage.setItem('sq_theme_mode', themeMode);
     document.documentElement.setAttribute('data-theme', themeMode);
   }, [themeMode]);
+
+  useEffect(() => {
+    window.localStorage.setItem('sq_grayscale_mode', isGrayscale.toString());
+    document.documentElement.setAttribute('data-grayscale', isGrayscale.toString());
+  }, [isGrayscale]);
 
   const routeLabels = useMemo(() => {
     const map: Record<string, string> = {
@@ -385,6 +394,8 @@ function App() {
             <TopBanner
               themeMode={themeMode}
               onToggleThemeMode={() => setThemeMode((m) => (m === 'dark' ? 'light' : 'dark'))}
+              isGrayscale={isGrayscale}
+              onToggleGrayscale={() => setIsGrayscale((v) => !v)}
               routeLabels={routeLabels}
             />
             <div style={{ height: '100%', paddingTop: 48, boxSizing: 'border-box', overflow: 'auto' }}>

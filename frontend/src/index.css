@@ -63,6 +63,7 @@ a {
   color: var(--sq-primary);
   text-decoration: none;
 }
+
 a:hover {
   text-decoration: underline;
 }
@@ -107,7 +108,7 @@ body {
 }
 
 .ant-menu-dark .ant-menu-item-selected,
-.ant-menu-dark .ant-menu-submenu-selected > .ant-menu-submenu-title {
+.ant-menu-dark .ant-menu-submenu-selected>.ant-menu-submenu-title {
   background: color-mix(in srgb, var(--sq-primary) 20%, transparent 80%) !important;
 }
 
@@ -141,25 +142,23 @@ body {
   background: color-mix(in srgb, var(--sq-bg-container) 70%, transparent 30%);
 }
 
-.ant-table-wrapper .ant-table-thead > tr > th {
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--sq-bg-container) 85%, var(--sq-neon-purple) 15%),
-    color-mix(in srgb, var(--sq-bg-container) 85%, var(--sq-neon-blue) 15%)
-  );
+.ant-table-wrapper .ant-table-thead>tr>th {
+  background: linear-gradient(90deg,
+      color-mix(in srgb, var(--sq-bg-container) 85%, var(--sq-neon-purple) 15%),
+      color-mix(in srgb, var(--sq-bg-container) 85%, var(--sq-neon-blue) 15%));
   color: var(--sq-text-secondary);
   border-bottom: 1px solid color-mix(in srgb, var(--sq-border) 70%, var(--sq-neon-blue) 30%);
 }
 
-.ant-table-wrapper .ant-table-tbody > tr > td {
+.ant-table-wrapper .ant-table-tbody>tr>td {
   border-bottom: 1px solid color-mix(in srgb, var(--sq-border) 70%, transparent 30%);
 }
 
-.ant-table-wrapper .ant-table-tbody > tr:nth-child(even) > td {
+.ant-table-wrapper .ant-table-tbody>tr:nth-child(even)>td {
   background: color-mix(in srgb, var(--sq-bg-container) 74%, #000 26%);
 }
 
-.ant-table-wrapper .ant-table-tbody > tr:hover > td {
+.ant-table-wrapper .ant-table-tbody>tr:hover>td {
   background: color-mix(in srgb, var(--sq-bg-elevated) 70%, var(--sq-neon-blue) 30%) !important;
 }
 
@@ -223,18 +222,22 @@ body {
     transform: translate3d(0, 0, 0);
     text-shadow: 0 0 10px rgba(0, 210, 255, 0.22), 0 0 12px rgba(176, 76, 255, 0.20);
   }
+
   2% {
     transform: translate3d(-0.5px, 0.3px, 0);
     text-shadow: 2px 0 rgba(0, 210, 255, 0.34), -2px 0 rgba(255, 43, 214, 0.22);
   }
+
   4% {
     transform: translate3d(0.6px, -0.2px, 0);
     text-shadow: -2px 0 rgba(0, 245, 160, 0.22), 2px 0 rgba(176, 76, 255, 0.32);
   }
+
   6% {
     transform: translate3d(0, 0, 0);
     text-shadow: 0 0 12px rgba(0, 210, 255, 0.22), 0 0 14px rgba(176, 76, 255, 0.20);
   }
+
   100% {
     transform: translate3d(0, 0, 0);
     text-shadow: 0 0 10px rgba(0, 210, 255, 0.22), 0 0 12px rgba(176, 76, 255, 0.20);
@@ -257,4 +260,8 @@ body {
 
 .sq-neutral {
   color: var(--sq-neutral);
+}
+
+[data-grayscale='true'] {
+  filter: grayscale(100%) !important;
 }
