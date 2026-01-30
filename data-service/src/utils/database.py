@@ -1036,5 +1036,22 @@ async def init_database():
         await db.execute("CREATE INDEX IF NOT EXISTS idx_api_calls_status ON api_calls(status_code)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_api_calls_user ON api_calls(user_id)")
 
+        # ==================== 用户自选股表 ====================
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS user_favorites (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                stock_code TEXT NOT NULL,
+                stock_name TEXT,
+                tags TEXT,  -- 自定义标签，逗号分隔
+                notes TEXT, -- 备注
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                UNIQUE(user_id, stock_code)
+            )
+        """)
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_user_favorites_user ON user_favorites(user_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_user_favorites_stock ON user_favorites(stock_code)")
+
         await db.commit()
         logger.info("Database initialized successfully")

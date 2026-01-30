@@ -27,6 +27,15 @@ jest.mock('../../src/repositories', () => {
         sessionStore.set(token, { userId });
         return { token, expiresAt: new Date(Date.now() + 3600_000).toISOString() };
       }),
+      createRefreshToken: jest.fn(async (userId: number) => {
+        const token = `r${tokenSeq++}`;
+        return { token, expiresAt: new Date(Date.now() + 7 * 24 * 3600_000).toISOString() };
+      }),
+      verifyRefreshToken: jest.fn(async (token: string) => {
+        return { userId: 1, expiresAt: new Date(Date.now() + 3600_000).toISOString() };
+      }),
+      deleteRefreshToken: jest.fn(async (token: string) => { }),
+      deleteAllRefreshTokens: jest.fn(async (userId: number) => { }),
       getSession: jest.fn(async (token: string) => sessionStore.get(token) || null),
       deleteSession: jest.fn(async (token: string) => {
         sessionStore.delete(token);
@@ -37,10 +46,10 @@ jest.mock('../../src/repositories', () => {
       setPermissions: jest.fn(async (userId: number, paths: string[]) => {
         permissionsStore.set(userId, paths);
       }),
-      updateUser: jest.fn(async () => {}),
+      updateUser: jest.fn(async () => { }),
       getWatchlist: jest.fn(async () => []),
-      addToWatchlist: jest.fn(async () => {}),
-      removeFromWatchlist: jest.fn(async () => {}),
+      addToWatchlist: jest.fn(async () => { }),
+      removeFromWatchlist: jest.fn(async () => { }),
     })),
   };
 });

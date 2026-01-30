@@ -184,8 +184,13 @@ export class UserRepository extends BaseRepository {
   }
 
   async createSession(userId: number, ttlHours: number = 24 * 7): Promise<{ token: string; expiresAt: string }> {
+    // AccessToken 缩短为 15 分钟 (仅作为示例，如果仍然依赖数据库验证，时长不宜太短以免频繁查库/刷新，
+    // 但通常 AccessToken 短效 + RefreshToken 长效是标准。
+    // 这里为了兼容现有逻辑不做大改，保持原逻辑，或者改为较短时间配合 RefreshToken 使用。)
+    // 假设我们将 Session Token 视为 Short-lived Access Token (e.g. 1 hour)
+    const ttl = 1; // 1 hour
     const token = crypto.randomBytes(32).toString('hex');
-    const expires = new Date(Date.now() + ttlHours * 3600 * 1000);
+    const expires = new Date(Date.now() + ttl * 3600 * 1000);
     const sql = `INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)`;
     await this.execute(sql, [token, userId, expires.toISOString()]);
     return { token, expiresAt: expires.toISOString() };
@@ -205,4 +210,36 @@ export class UserRepository extends BaseRepository {
   async deleteSession(token: string): Promise<void> {
     await this.execute(`DELETE FROM sessions WHERE token = ?`, [token]);
   }
+
+  // Refresh Token Methods
+  async createRefreshToken(userId: number, ttlDays: number = 7): Promise<{ token: string; expiresAt: string }> {
+    const token = crypto.randomBytes(40).toString('hex');
+    const expires = new Date(Date.now() + ttlDays * 24 * 3600 * 1000);
+    const sql = `INSERT INTO refresh_tokens (token, user_id, expires_at) VALUES (?, ?, ?)`;
+    await this.execute(sql, [token, userId, expires.toISOString()]);
+    return { token, expiresAt: expires.toISOString() };
+  }
+
+  async verifyRefreshToken(token: string): Promise<{ userId: number; expiresAt: string } | null> {
+    const sql = `SELECT user_id, expires_at FROM refresh_tokens WHERE token = ?`;
+    const row = await this.queryOne<{ user_id: number; expires_at: string }>(sql, [token]);
+    if (!row) return null;
+
+    // Check expiration
+    if (new Date(row.expires_at).getTime() < Date.now()) {
+      await this.execute(`DELETE FROM refresh_tokens WHERE token = ?`, [token]); // Clean up expired
+      return null;
+    }
+
+    return { userId: row.user_id, expiresAt: row.expires_at };
+  }
+
+  async deleteRefreshToken(token: string): Promise<void> {
+    await this.execute(`DELETE FROM refresh_tokens WHERE token = ?`, [token]);
+  }
+
+  async deleteAllRefreshTokens(userId: number): Promise<void> {
+    await this.execute(`DELETE FROM refresh_tokens WHERE user_id = ?`, [userId]);
+  }
 }
+

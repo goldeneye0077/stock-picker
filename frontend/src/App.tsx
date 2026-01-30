@@ -20,6 +20,8 @@ import SuperMainForce from './pages/SuperMainForce';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import UserManagement from './pages/UserManagement';
+import UserAgreement from './pages/UserAgreement';
+import PrivacyPolicy from './pages/PrivacyPolicy';
 import SiteAnalytics from './pages/SiteAnalytics';
 import TopBanner from './components/DateTimeBanner';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -74,6 +76,10 @@ function RequireAuth({ path, children }: { path: string; children: React.ReactNo
   const location = useLocation();
   const { loading, user, canAccess } = useAuth();
 
+  if (path === '/home' || path === '/') {
+    return <>{children}</>;
+  }
+
   if (loading) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -90,10 +96,6 @@ function RequireAuth({ path, children }: { path: string; children: React.ReactNo
     return <Navigate to="/forbidden" replace />;
   }
 
-  if (path === '/home') {
-    return <>{children}</>;
-  }
-
   if (!canAccess(path)) {
     return <Navigate to="/forbidden" replace />;
   }
@@ -105,7 +107,7 @@ function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, firstAllowedPath, canAccess, loading } = useAuth();
-  const isHomePage = location.pathname === '/home';
+  const isHomePage = location.pathname === '/home' || location.pathname === '/';
 
   // 页面访问追踪
   usePageTracking();
@@ -118,7 +120,7 @@ function AppLayout() {
     );
   }
 
-  if (!user) {
+  if (!user && !isHomePage) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }
 
@@ -129,7 +131,7 @@ function AppLayout() {
   });
   const menuItemsWithAdminGuard = visibleMenuItems.filter((item) => {
     if (!item.path) return false;
-    if (item.path === '/user-management' || item.path === '/site-analytics') return user.isAdmin;
+    if (item.path === '/user-management' || item.path === '/site-analytics') return user?.isAdmin;
     return true;
   });
 
@@ -137,7 +139,7 @@ function AppLayout() {
     <ProLayout
       style={{ height: '100%' }}
       title={false}
-      logo={<img src="/logo(1).png" alt="logo" style={{ height: '32px' }} />}
+      logo={<img src="/logo.png" alt="logo" style={{ height: '32px' }} />}
       onMenuHeaderClick={() => navigate('/home')}
       route={{
         routes: menuItemsWithAdminGuard,
@@ -185,7 +187,6 @@ function AppLayout() {
       )}
     >
       <Routes>
-        <Route path="/" element={<Navigate to={firstAllowedPath()} replace />} />
         <Route
           path="/home"
           element={
@@ -388,8 +389,11 @@ function App() {
             />
             <div style={{ height: '100%', paddingTop: 48, boxSizing: 'border-box', overflow: 'auto' }}>
               <Routes>
+                <Route path="/" element={<Navigate to="/home" replace />} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />
+                <Route path="/user-agreement" element={<UserAgreement />} />
+                <Route path="/privacy-policy" element={<PrivacyPolicy />} />
                 <Route path="/*" element={<AppLayout />} />
               </Routes>
             </div>

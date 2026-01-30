@@ -32,6 +32,7 @@ try:
         auth,
         user_management,
         analytics,
+        favorites,
     )
     from .scheduler import start_scheduler, stop_scheduler, get_scheduler_status
 except ImportError:
@@ -56,6 +57,7 @@ except ImportError:
         auth,
         user_management,
         analytics,
+        favorites,
     )
     from scheduler import start_scheduler, stop_scheduler, get_scheduler_status
 
@@ -167,6 +169,7 @@ app.include_router(simple_selection.router, prefix="/api/simple-selection", tags
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(user_management.router, prefix="/api/admin", tags=["user-management"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["analytics"])
+app.include_router(favorites.router, prefix="/api/favorites", tags=["favorites"])
 
 # ==================== API 调用统计中间件 ====================
 

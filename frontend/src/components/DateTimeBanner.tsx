@@ -225,7 +225,7 @@ const TopBanner: React.FC<TopBannerProps> = ({ themeMode, onToggleThemeMode, rou
         style={{ color: 'inherit', textDecoration: 'none', cursor: 'pointer' }}
       >
         <Space size={10} align="center" style={{ minWidth: 220 }}>
-          <img src="/logo(1).png" alt="logo" style={{ height: 28, filter: 'saturate(1.05)' }} />
+          <img src="/logo.png" alt="logo" style={{ height: 28, filter: 'saturate(1.05)' }} />
           <Text style={{ color: 'var(--sq-text)', fontSize: 18, fontWeight: 650, letterSpacing: 0.2 }}>
             量鲸 QuantWhale
           </Text>

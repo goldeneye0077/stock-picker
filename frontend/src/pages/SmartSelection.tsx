@@ -69,6 +69,9 @@ import {
 } from '../services/advancedSelectionService';
 import FundamentalDetailModal from '../components/Fundamental/FundamentalDetailModal';
 import TechnicalAnalysisModal from '../components/TechnicalAnalysisModal';
+import { addToWatchlist, removeFromWatchlist, getWatchlist, ApiError } from '../services/authService';
+import { useAuth } from '../context/AuthContext';
+import { message } from 'antd';
 
 const { Title, Text, Paragraph } = Typography;
 const { Option } = Select;
@@ -104,6 +107,7 @@ const saveCachedSelectionResults = (results: SmartSelectionResult[]) => {
 };
 
 const SmartSelection: React.FC = () => {
+  const { token } = useAuth();
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<SmartSelectionResult[]>([]);
   const [strategies, setStrategies] = useState<SelectionStrategy[]>([]);
@@ -143,6 +147,8 @@ const SmartSelection: React.FC = () => {
   const [currentFundamentalStock, setCurrentFundamentalStock] = useState<SmartSelectionResult | null>(null);
   const [analysisModalVisible, setAnalysisModalVisible] = useState<boolean>(false);
   const [currentAnalysisStock, setCurrentAnalysisStock] = useState<SmartSelectionResult | null>(null);
+  const [watchlistCodes, setWatchlistCodes] = useState<Set<string>>(new Set());
+  const [watchlistPendingCodes, setWatchlistPendingCodes] = useState<Set<string>>(new Set());
 
   const getConceptCategory = (industry?: string | null): string => {
     if (!industry || industry.trim() === '') {
@@ -826,7 +832,7 @@ const SmartSelection: React.FC = () => {
     }
   };
 
-  
+
 
   const handleCloseBacktestModal = () => {
     setBacktestModalVisible(false);
@@ -850,6 +856,75 @@ const SmartSelection: React.FC = () => {
   const handleCloseAnalysisModal = () => {
     setAnalysisModalVisible(false);
     setCurrentAnalysisStock(null);
+  };
+
+  const refreshWatchlist = useCallback(async () => {
+    if (!token) {
+      setWatchlistCodes(new Set());
+      return;
+    }
+    try {
+      const res = await getWatchlist(token);
+      setWatchlistCodes(new Set(res.data.codes));
+    } catch (e) {
+      console.error('Fetch watchlist failed', e);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    refreshWatchlist();
+  }, [refreshWatchlist]);
+
+  const handleToggleWatchlist = async (record: SmartSelectionResult) => {
+    if (!token) {
+      message.warning('请先登录');
+      return;
+    }
+    const code = record.stock_code;
+    if (watchlistPendingCodes.has(code)) return;
+
+    const isFav = watchlistCodes.has(code);
+
+    // Set pending
+    setWatchlistPendingCodes(prev => {
+      const next = new Set(prev);
+      next.add(code);
+      return next;
+    });
+
+    // Optimistic update
+    setWatchlistCodes(prev => {
+      const next = new Set(prev);
+      if (isFav) next.delete(code);
+      else next.add(code);
+      return next;
+    });
+
+    try {
+      if (isFav) {
+        await removeFromWatchlist(token, code);
+        message.success(`已移出自选: ${record.stock_name}`);
+      } else {
+        await addToWatchlist(token, code);
+        message.success(`已加入自选: ${record.stock_name}`);
+      }
+    } catch (e) {
+      // Revert on error
+      setWatchlistCodes(prev => {
+        const next = new Set(prev);
+        if (isFav) next.add(code);
+        else next.delete(code);
+        return next;
+      });
+      message.error(isFav ? '移出自选失败' : '加入自选失败');
+    } finally {
+      setWatchlistPendingCodes(prev => {
+        const next = new Set(prev);
+        next.delete(code);
+        return next;
+      });
+      refreshWatchlist().catch(() => { });
+    }
   };
 
   const columns: any[] = [
@@ -1091,7 +1166,15 @@ const SmartSelection: React.FC = () => {
         <Space>
           <Button type="link" size="small" onClick={() => handleShowFundamentalModal(record)}>详情</Button>
           <Button type="link" size="small" onClick={() => handleShowAnalysisModal(record)}>技术分析</Button>
-          <Button type="link" size="small">加入自选</Button>
+          <Button
+            type="link"
+            size="small"
+            loading={watchlistPendingCodes.has(record.stock_code)}
+            danger={watchlistCodes.has(record.stock_code)}
+            onClick={() => handleToggleWatchlist(record)}
+          >
+            {watchlistCodes.has(record.stock_code) ? '取消自选' : '加入自选'}
+          </Button>
         </Space>
       ),
     },
@@ -1174,11 +1257,11 @@ const SmartSelection: React.FC = () => {
                 </Select>
               </Form.Item>
 
-                  {selectedStrategyData && (
-                    <Card size="small" style={{ marginBottom: 16 }}>
-                      <Title level={5} style={{ marginBottom: 12 }}>
-                        {algorithmType === 'basic' ? '策略权重分布' : '算法配置'}
-                      </Title>
+              {selectedStrategyData && (
+                <Card size="small" style={{ marginBottom: 16 }}>
+                  <Title level={5} style={{ marginBottom: 12 }}>
+                    {algorithmType === 'basic' ? '策略权重分布' : '算法配置'}
+                  </Title>
 
                   {algorithmType === 'basic' ? (
                     // 基础算法权重分布 - 显示实际策略配置
@@ -1233,15 +1316,15 @@ const SmartSelection: React.FC = () => {
                         <Text>{selectedStrategyData.description}</Text>
                       </div>
                     </>
-                    ) : (
-                      // 高级算法配置 - 显示实际策略配置
-                      <>
-                        <div style={{ marginBottom: 12 }}>
-                          <Text strong style={{ fontSize: 12 }}>多因子动量模型</Text>
-                          <Paragraph style={{ fontSize: 11, color: '#666', marginTop: 4 }}>
+                  ) : (
+                    // 高级算法配置 - 显示实际策略配置
+                    <>
+                      <div style={{ marginBottom: 12 }}>
+                        <Text strong style={{ fontSize: 12 }}>多因子动量模型</Text>
+                        <Paragraph style={{ fontSize: 11, color: '#666', marginTop: 4 }}>
                           {getAdvancedWeightsDescription(selectedStrategyData)}
-                          </Paragraph>
-                        </div>
+                        </Paragraph>
+                      </div>
                       <div style={{ marginBottom: 8 }}>
                         <Space>
                           <Text type="secondary" style={{ fontSize: 12 }}>最低评分: </Text>
@@ -1519,7 +1602,7 @@ const SmartSelection: React.FC = () => {
             </ProCard>
           )}
 
-          
+
 
           <Modal
             open={chartModalVisible}
@@ -1657,8 +1740,8 @@ const SmartSelection: React.FC = () => {
                                 job.status === 'completed'
                                   ? 'success'
                                   : job.status === 'failed'
-                                  ? 'exception'
-                                  : 'active'
+                                    ? 'exception'
+                                    : 'active'
                               }
                             />
                           ),
@@ -2174,7 +2257,7 @@ const SmartSelection: React.FC = () => {
                     precision={2}
                     valueStyle={{
                       color: backtestResult.sharpe_ratio >= 1.5 ? '#52c41a' :
-                             backtestResult.sharpe_ratio >= 1.0 ? '#faad14' : '#ff4d4f'
+                        backtestResult.sharpe_ratio >= 1.0 ? '#faad14' : '#ff4d4f'
                     }}
                   />
                 </Col>
@@ -2305,7 +2388,7 @@ const SmartSelection: React.FC = () => {
                     suffix="%"
                     valueStyle={{
                       color: backtestResult.win_rate >= 60 ? '#52c41a' :
-                             backtestResult.win_rate >= 50 ? '#faad14' : '#ff4d4f'
+                        backtestResult.win_rate >= 50 ? '#faad14' : '#ff4d4f'
                     }}
                   />
                 </Col>
@@ -2435,7 +2518,7 @@ const SmartSelection: React.FC = () => {
                     precision={2}
                     valueStyle={{
                       color: backtestResult.profit_factor >= 2.0 ? '#52c41a' :
-                             backtestResult.profit_factor >= 1.5 ? '#faad14' : '#ff4d4f'
+                        backtestResult.profit_factor >= 1.5 ? '#faad14' : '#ff4d4f'
                     }}
                   />
                 </Col>

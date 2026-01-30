@@ -12,6 +12,7 @@ import stockRoutes from './routes/stocks';
 import analysisRoutes from './routes/analysis';
 import quotesRoutes from './routes/quotes';
 import smartSelectionRoutes from './routes/smartSelection';
+import analyticsRoutes from './routes/analytics';
 import { authRoutes, adminRoutes } from './routes/auth';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 
@@ -50,6 +51,10 @@ app.use(morgan('combined'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Analytics logging middleware (must be after body parsing)
+import { apiLoggerMiddleware } from './middleware/analyticsLogger';
+app.use(apiLoggerMiddleware);
+
 if (enableSwagger) {
   app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
     customCss: '.swagger-ui .topbar { display: none }',
@@ -69,6 +74,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/quotes', quotesRoutes);
 app.use('/api/smart-selection', smartSelectionRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 // Health check
 app.get('/health', (req, res) => {

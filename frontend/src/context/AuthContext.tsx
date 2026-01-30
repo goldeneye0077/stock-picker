@@ -1,13 +1,22 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { AuthUser } from '../services/authService';
-import { getStoredToken, login, me, logout, register, setStoredToken } from '../services/authService';
+import {
+  getStoredToken,
+  getStoredRefreshToken,
+  setStoredRefreshToken,
+  login,
+  me,
+  logout,
+  register,
+  setStoredToken
+} from '../services/authService';
 
 type AuthState = {
   user: AuthUser | null;
   token: string | null;
   loading: boolean;
   refreshMe: () => Promise<void>;
-  doLogin: (username: string, password: string) => Promise<void>;
+  doLogin: (username: string, password: string, captcha?: string) => Promise<void>;
   doRegister: (username: string, password: string) => Promise<void>;
   doLogout: () => Promise<void>;
   canAccess: (path: string) => boolean;
@@ -44,11 +53,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     refreshMe();
   }, [refreshMe]);
 
-  const doLogin = useCallback(async (username: string, password: string) => {
+  const doLogin = useCallback(async (username: string, password: string, captcha?: string) => {
     setLoading(true);
     try {
-      const res = await login(username, password);
+      const res = await login(username, password, captcha);
       setStoredToken(res.data.token);
+      if (res.data.refreshToken) {
+        setStoredRefreshToken(res.data.refreshToken);
+      }
       setToken(res.data.token);
       setUser(res.data.user);
     } finally {
@@ -61,6 +73,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await register(username, password);
       setStoredToken(res.data.token);
+      if (res.data.refreshToken) {
+        setStoredRefreshToken(res.data.refreshToken);
+      }
       setToken(res.data.token);
       setUser(res.data.user);
     } finally {
@@ -80,6 +95,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await logout(token);
     } finally {
       setStoredToken(null);
+      setStoredRefreshToken(null);
       setToken(null);
       setUser(null);
     }
@@ -93,7 +109,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [user]);
 
   const firstAllowedPath = useCallback(() => {
-    if (!user) return '/login';
+    if (!user) return '/home';
     if (user.isAdmin) return '/super-main-force';
     const permissions = user.permissions || [];
     const preferred = [

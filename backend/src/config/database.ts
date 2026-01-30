@@ -36,7 +36,7 @@ export class Database {
 
   async run(sql: string, params: any[] = []): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.db.run(sql, params, function(err) {
+      this.db.run(sql, params, function (err) {
         if (err) {
           reject(err);
         } else {
@@ -326,6 +326,46 @@ export async function initDatabase(): Promise<void> {
       FOREIGN KEY (stock_code) REFERENCES stocks(code)
     )
   `);
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS refresh_tokens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      token TEXT UNIQUE NOT NULL,
+      expires_at DATETIME NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `);
+
+  // 页面访问记录表（用于网站统计）
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS page_views (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      page_path TEXT NOT NULL,
+      user_id INTEGER,
+      ip_address TEXT,
+      user_agent TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `);
+
+  // API 调用日志表（用于网站统计）
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS api_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      endpoint TEXT NOT NULL,
+      method TEXT NOT NULL,
+      status_code INTEGER,
+      response_time_ms INTEGER,
+      user_id INTEGER,
+      ip_address TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `);
+
   await db.run('CREATE INDEX IF NOT EXISTS idx_realtime_stock_code ON realtime_quotes(stock_code)');
   await db.run('CREATE INDEX IF NOT EXISTS idx_realtime_updated_at ON realtime_quotes(updated_at)');
   await db.run('CREATE INDEX IF NOT EXISTS idx_history_stock_code ON quote_history(stock_code)');
@@ -343,6 +383,14 @@ export async function initDatabase(): Promise<void> {
   await db.run('CREATE INDEX IF NOT EXISTS idx_user_permissions_user_id ON user_permissions(user_id)');
   await db.run('CREATE INDEX IF NOT EXISTS idx_user_watchlists_user_id ON user_watchlists(user_id)');
   await db.run('CREATE INDEX IF NOT EXISTS idx_user_watchlists_stock_code ON user_watchlists(stock_code)');
+  await db.run('CREATE INDEX IF NOT EXISTS idx_refresh_tokens_token ON refresh_tokens(token)');
+  // 网站统计表索引
+  await db.run('CREATE INDEX IF NOT EXISTS idx_page_views_created_at ON page_views(created_at)');
+  await db.run('CREATE INDEX IF NOT EXISTS idx_page_views_user_id ON page_views(user_id)');
+  await db.run('CREATE INDEX IF NOT EXISTS idx_page_views_page_path ON page_views(page_path)');
+  await db.run('CREATE INDEX IF NOT EXISTS idx_api_logs_created_at ON api_logs(created_at)');
+  await db.run('CREATE INDEX IF NOT EXISTS idx_api_logs_endpoint ON api_logs(endpoint)');
+  await db.run('CREATE INDEX IF NOT EXISTS idx_api_logs_user_id ON api_logs(user_id)');
 
   const adminUsername = process.env.ADMIN_USERNAME || 'admin';
   const adminPassword = process.env.ADMIN_PASSWORD;

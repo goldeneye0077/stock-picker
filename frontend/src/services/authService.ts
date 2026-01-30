@@ -24,6 +24,7 @@ export type AuthResponse = {
   success: boolean;
   data: {
     token: string;
+    refreshToken: string;
     expiresAt: string;
     user: AuthUser;
   };
@@ -51,9 +52,14 @@ export type PagesResponse = {
 };
 
 const TOKEN_KEY = 'authToken';
+const REFRESH_TOKEN_KEY = 'refreshToken';
 
 export function getStoredToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
+}
+
+export function getStoredRefreshToken(): string | null {
+  return localStorage.getItem(REFRESH_TOKEN_KEY);
 }
 
 export function setStoredToken(token: string | null) {
@@ -61,12 +67,38 @@ export function setStoredToken(token: string | null) {
   else localStorage.setItem(TOKEN_KEY, token);
 }
 
+export function setStoredRefreshToken(token: string | null) {
+  if (!token) localStorage.removeItem(REFRESH_TOKEN_KEY);
+  else localStorage.setItem(REFRESH_TOKEN_KEY, token);
+}
+
+export function getAuthHeader(): Record<string, string> | null {
+  const token = getStoredToken();
+  if (!token) return null;
+  return { Authorization: `Bearer ${token}` };
+}
+
+let isRefreshing = false;
+let failedQueue: any[] = [];
+
+const processQueue = (error: any, token: string | null = null) => {
+  failedQueue.forEach(prom => {
+    if (error) {
+      prom.reject(error);
+    } else {
+      prom.resolve(token);
+    }
+  });
+  failedQueue = [];
+};
+
 async function request<T>(endpoint: string, options: RequestInit = {}, token?: string): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
 
-  if (token) headers.Authorization = `Bearer ${token}`;
+  const authToken = token || getStoredToken();
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
 
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
     ...options,
@@ -77,6 +109,53 @@ async function request<T>(endpoint: string, options: RequestInit = {}, token?: s
   });
 
   const data = await response.json().catch(() => null);
+
+  // Handle 401 unauthorized - Try to refresh token
+  if (response.status === 401 && !endpoint.includes('/login') && !endpoint.includes('/refresh-token')) {
+    if (isRefreshing) {
+      return new Promise(function (resolve, reject) {
+        failedQueue.push({ resolve, reject });
+      }).then(token => {
+        return request<T>(endpoint, options, token as string);
+      });
+    }
+
+    const refreshToken = getStoredRefreshToken();
+    if (refreshToken) {
+      isRefreshing = true;
+
+      try {
+        const refreshRes = await fetch(`${API_BASE_URL}/api/auth/refresh-token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken }),
+        });
+
+        const refreshData = await refreshRes.json();
+
+        if (refreshRes.ok && refreshData.success) {
+          const { token: newToken, refreshToken: newRefreshToken } = refreshData.data;
+          setStoredToken(newToken);
+          if (newRefreshToken) setStoredRefreshToken(newRefreshToken);
+
+          processQueue(null, newToken);
+          isRefreshing = false;
+
+          return request<T>(endpoint, options, newToken);
+        } else {
+          // Refresh failed
+          processQueue(refreshData); // Fail all queued
+          isRefreshing = false;
+          // Clear tokens logic should be handled by caller or context, 
+          // but here we can at least throw
+        }
+      } catch (err) {
+        processQueue(err);
+        isRefreshing = false;
+      }
+    }
+  }
+
   if (!response.ok) {
     const message = data?.detail || data?.message || `HTTP ${response.status}`;
     throw new ApiError(response.status, message, data);
@@ -91,15 +170,25 @@ export async function register(username: string, password: string): Promise<Auth
   });
 }
 
-export async function login(username: string, password: string): Promise<AuthResponse> {
+// 获取验证码
+export async function getCaptcha(): Promise<{ captcha: string; message: string; expiresIn: number }> {
+  return request<{ captcha: string; message: string; expiresIn: number }>('/api/auth/captcha', { method: 'GET' });
+}
+
+export async function login(username: string, password: string, captcha?: string): Promise<AuthResponse> {
   return request<AuthResponse>('/api/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({ username, password, captcha }),
   });
 }
 
 export async function logout(token: string): Promise<{ success: boolean }> {
-  return request<{ success: boolean }>('/api/auth/logout', { method: 'POST' }, token);
+  const refreshToken = getStoredRefreshToken();
+  setStoredRefreshToken(null); // Clear locally immediately
+  return request<{ success: boolean }>('/api/auth/logout', {
+    method: 'POST',
+    body: JSON.stringify({ refreshToken })
+  }, token);
 }
 
 export async function me(token: string): Promise<MeResponse> {
