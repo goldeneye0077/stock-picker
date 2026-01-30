@@ -21,6 +21,7 @@ ALL_PAGES = [
     "/stocks",
     "/settings",
     "/user-management",
+    "/site-analytics",
 ]
 
 DEFAULT_PAGES = [

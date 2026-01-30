@@ -620,7 +620,7 @@ const Home: React.FC = () => {
   return (
     <div style={{ padding: 24 }}>
       <Row gutter={[16, 16]}>
-        {/* 顶部大横幅：AI智能选股引擎介绍 */}
+        {/* 顶部大横幅：量鲸 QuantWhale 介绍 */}
         <Col span={24}>
           <Card
             style={{
@@ -635,7 +635,7 @@ const Home: React.FC = () => {
                   <Space>
                     <ThunderboltOutlined style={{ fontSize: 28, color: '#fff' }} />
                     <Typography.Title level={2} style={{ margin: 0, color: '#fff' }}>
-                      AI智能选股引擎
+                      量鲸 QuantWhale
                     </Typography.Title>
                   </Space>
                   <Typography.Paragraph style={{ marginBottom: 16, color: 'rgba(255,255,255,0.9)', fontSize: 16 }}>

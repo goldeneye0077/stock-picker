@@ -10,6 +10,7 @@ import {
   TeamOutlined,
   HomeOutlined,
   StarOutlined,
+  AreaChartOutlined,
 } from '@ant-design/icons';
 import Home from './pages/Home';
 import StockList from './pages/StockList';
@@ -19,8 +20,10 @@ import SuperMainForce from './pages/SuperMainForce';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import UserManagement from './pages/UserManagement';
+import SiteAnalytics from './pages/SiteAnalytics';
 import TopBanner from './components/DateTimeBanner';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { usePageTracking } from './hooks/usePageTracking';
 
 const { darkAlgorithm, defaultAlgorithm } = theme;
 
@@ -59,6 +62,11 @@ const menuItems = [
     path: '/user-management',
     name: '用户管理',
     icon: <TeamOutlined />,
+  },
+  {
+    path: '/site-analytics',
+    name: '网站统计',
+    icon: <AreaChartOutlined />,
   },
 ];
 
@@ -99,6 +107,9 @@ function AppLayout() {
   const { user, firstAllowedPath, canAccess, loading } = useAuth();
   const isHomePage = location.pathname === '/home';
 
+  // 页面访问追踪
+  usePageTracking();
+
   if (loading) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -118,15 +129,16 @@ function AppLayout() {
   });
   const menuItemsWithAdminGuard = visibleMenuItems.filter((item) => {
     if (!item.path) return false;
-    if (item.path === '/user-management') return user.isAdmin;
+    if (item.path === '/user-management' || item.path === '/site-analytics') return user.isAdmin;
     return true;
   });
 
   return (
     <ProLayout
       style={{ height: '100%' }}
-      title="AI智能选股引擎"
+      title={false}
       logo={<img src="/logo(1).png" alt="logo" style={{ height: '32px' }} />}
+      onMenuHeaderClick={() => navigate('/home')}
       route={{
         routes: menuItemsWithAdminGuard,
       }}
@@ -227,6 +239,14 @@ function AppLayout() {
           element={
             <RequireAuth path="/user-management">
               <UserManagement />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/site-analytics"
+          element={
+            <RequireAuth path="/site-analytics">
+              <SiteAnalytics />
             </RequireAuth>
           }
         />

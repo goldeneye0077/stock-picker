@@ -115,3 +115,54 @@ async def require_admin(user: dict = Depends(require_user)) -> dict:
         raise HTTPException(status_code=403, detail="Admin required")
     return user
 
+
+async def get_optional_user(authorization: str | None = Header(None)) -> dict | None:
+    """
+    尝试获取当前用户，但不强制要求登录
+    返回 None 表示未登录或 token 无效
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+
+    token = authorization.removeprefix("Bearer ").strip()
+    if not token:
+        return None
+
+    try:
+        async with get_database() as db:
+            cursor = await db.execute(
+                """
+                SELECT s.token, s.user_id, s.expires_at, u.username, u.is_admin, u.is_active
+                FROM user_sessions s
+                JOIN users u ON u.id = s.user_id
+                WHERE s.token = ?
+                """,
+                (token,),
+            )
+            row = await cursor.fetchone()
+
+            if not row or not row["is_active"]:
+                return None
+
+            expires_at = _from_iso(row["expires_at"])
+            if expires_at < _now_utc():
+                return None
+
+        permissions = await get_user_permissions(row["user_id"])
+        return {
+            "id": row["user_id"],
+            "username": row["username"],
+            "isAdmin": bool(row["is_admin"]),
+            "isActive": bool(row["is_active"]),
+            "token": token,
+            "permissions": permissions,
+        }
+    except Exception:
+        return None
+
+
+# Aliases for routes that use different naming conventions
+get_current_user = require_user
+get_admin_user = require_admin
+
+

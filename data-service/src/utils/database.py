@@ -992,5 +992,49 @@ async def init_database():
                 ('alert_enabled', 'true', '报警启用')
         """)
 
+        # ==================== 网站统计表 ====================
+
+        # 页面访问记录表
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS page_views (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                page_path TEXT NOT NULL,
+                user_id INTEGER,
+                session_id TEXT,
+                ip_address TEXT,
+                user_agent TEXT,
+                referrer TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL
+            )
+        """)
+
+        # API 调用统计表
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS api_calls (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                endpoint TEXT NOT NULL,
+                method TEXT NOT NULL,
+                user_id INTEGER,
+                status_code INTEGER,
+                response_time_ms INTEGER,
+                request_size INTEGER,
+                response_size INTEGER,
+                error_message TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL
+            )
+        """)
+
+        # 网站统计索引
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_page_views_path ON page_views(page_path)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_page_views_user ON page_views(user_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_page_views_time ON page_views(created_at)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_page_views_session ON page_views(session_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_api_calls_endpoint ON api_calls(endpoint)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_api_calls_time ON api_calls(created_at)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_api_calls_status ON api_calls(status_code)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_api_calls_user ON api_calls(user_id)")
+
         await db.commit()
         logger.info("Database initialized successfully")

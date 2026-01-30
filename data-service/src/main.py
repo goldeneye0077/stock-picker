@@ -1,9 +1,11 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from contextlib import asynccontextmanager
 import uvicorn
 from loguru import logger
 import os
+import time
 from pathlib import Path
 from dotenv import load_dotenv
 import asyncio
@@ -29,6 +31,7 @@ try:
         simple_selection,
         auth,
         user_management,
+        analytics,
     )
     from .scheduler import start_scheduler, stop_scheduler, get_scheduler_status
 except ImportError:
@@ -52,6 +55,7 @@ except ImportError:
         simple_selection,
         auth,
         user_management,
+        analytics,
     )
     from scheduler import start_scheduler, stop_scheduler, get_scheduler_status
 
@@ -162,6 +166,69 @@ app.include_router(advanced_selection.router, prefix="/api/advanced-selection", 
 app.include_router(simple_selection.router, prefix="/api/simple-selection", tags=["simple-selection"])
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(user_management.router, prefix="/api/admin", tags=["user-management"])
+app.include_router(analytics.router, prefix="/api/analytics", tags=["analytics"])
+
+# ==================== API 调用统计中间件 ====================
+
+class APITrackingMiddleware(BaseHTTPMiddleware):
+    """
+    自动记录所有 /api/* 请求的耗时与状态码到 api_calls 表
+    排除 analytics 相关端点避免递归
+    """
+    async def dispatch(self, request: Request, call_next):
+        # 只追踪 /api/ 路径，排除 analytics 端点自身
+        path = request.url.path
+        if not path.startswith("/api/") or path.startswith("/api/analytics/"):
+            return await call_next(request)
+
+        start_time = time.time()
+        response = await call_next(request)
+        elapsed_ms = int((time.time() - start_time) * 1000)
+
+        # 异步记录到数据库（fire-and-forget）
+        try:
+            from .utils.database import get_database
+        except ImportError:
+            from utils.database import get_database
+
+        # 获取用户 ID（如果有）
+        user_id = None
+        try:
+            auth_header = request.headers.get("authorization", "")
+            if auth_header.startswith("Bearer "):
+                token = auth_header[7:].strip()
+                if token:
+                    async with get_database() as db:
+                        cursor = await db.execute(
+                            "SELECT user_id FROM user_sessions WHERE token = ?",
+                            (token,)
+                        )
+                        row = await cursor.fetchone()
+                        if row:
+                            user_id = row["user_id"]
+        except Exception:
+            pass
+
+        # 记录 API 调用
+        try:
+            async with get_database() as db:
+                await db.execute(
+                    """
+                    INSERT INTO api_calls (endpoint, method, user_id, status_code, response_time_ms)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (path, request.method, user_id, response.status_code, elapsed_ms)
+                )
+                await db.commit()
+        except Exception as e:
+            logger.warning(f"Failed to record API call: {e}")
+
+        return response
+
+
+# 注册中间件
+app.add_middleware(APITrackingMiddleware)
+
 
 @app.get("/")
 async def root():
