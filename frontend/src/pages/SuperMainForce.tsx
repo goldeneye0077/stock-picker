@@ -234,8 +234,18 @@ const SuperMainForce: React.FC = () => {
       key: 'dailyProfit',
       width: 110,
       render: (_: unknown, record: AuctionSuperMainForceItem) => {
-        const closeChangePercent = Number(record.changePercent);
-        if (!Number.isFinite(closeChangePercent)) {
+        const rawChangePercent = Number(record.changePercent);
+        const derivedChangePercent = (() => {
+          const close = Number(record.close);
+          const preClose = Number(record.preClose);
+          if (!Number.isFinite(close) || !Number.isFinite(preClose) || preClose === 0) return undefined;
+          return ((close - preClose) / preClose) * 100;
+        })();
+
+        const closeChangePercent = Number.isFinite(rawChangePercent)
+          ? rawChangePercent
+          : (typeof derivedChangePercent === 'number' && Number.isFinite(derivedChangePercent) ? derivedChangePercent : undefined);
+        if (closeChangePercent === undefined) {
           return <span className="sq-neutral sq-mono">-</span>;
         }
         const v = closeChangePercent - Number(record.gapPercent || 0);

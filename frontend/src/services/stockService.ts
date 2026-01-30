@@ -192,59 +192,6 @@ export async function searchStocks(query: string) {
 }
 
 /**
- * 获取实时行情数据
- */
-export async function fetchRealtimeQuote(stockCode: string) {
-  const response = await fetch(
-    `${API_BASE_URL}${API_ENDPOINTS.QUOTES}/realtime?ts_code=${encodeURIComponent(stockCode)}`
-  );
-
-  if (!response.ok) {
-    throw new Error('获取实时行情失败');
-  }
-
-  const result = await response.json();
-
-  if (!result.success) {
-    throw new Error(result.message || '获取K线数据失败');
-  }
-
-  return result.data;
-}
-
-export async function fetchRealtimeQuotesBatch(
-  tsCodes: string[],
-  params: { maxAgeSeconds?: number; force?: boolean } = {}
-) {
-  const searchParams = new URLSearchParams();
-  for (const c of tsCodes) {
-    if (c) searchParams.append('ts_codes', c);
-  }
-  if (typeof params.maxAgeSeconds === 'number') {
-    searchParams.set('max_age_seconds', String(params.maxAgeSeconds));
-  }
-  if (params.force !== undefined) {
-    searchParams.set('force', params.force ? 'true' : 'false');
-  }
-
-  const response = await fetch(
-    `${API_BASE_URL}${API_ENDPOINTS.QUOTES}/realtime-batch?${searchParams.toString()}`
-  );
-
-  if (!response.ok) {
-    throw new Error('获取实时行情失败');
-  }
-
-  const result = await response.json();
-
-  if (!result.success) {
-    throw new Error(result.message || '获取实时行情失败');
-  }
-
-  return result.data;
-}
-
-/**
  * 获取股票历史K线数据（1年）
  */
 export async function fetchStockHistoryForRealtime(stockCode: string) {

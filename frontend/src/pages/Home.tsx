@@ -12,6 +12,7 @@ import {
   type AuctionSuperMainForceData
 } from '../services/analysisService';
 import { fetchSelectionStrategies, type SelectionStrategy } from '../services/smartSelectionService';
+import MonthlyPerformanceCard from '../components/Home/MonthlyPerformanceCard';
 
 type MonthlyLimitUpRecord = {
   tradeDate: string;
@@ -66,30 +67,68 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
-const buildMockEquitySeries = (days: number) => {
-  const dates: string[] = [];
-  const portfolio: number[] = [];
-  const hs300: number[] = [];
+// 基于真实涨停数据计算收益曲线
+type DailyPerformance = {
+  date: string;
+  selectedCount: number;      // 当日入选数量
+  limitUpCount: number;       // 当日涨停数量
+  avgProfit: number;          // 当日平均盈亏
+  cumulativeReturn: number;   // 累计收益率
+};
 
-  let p = 1;
-  let h = 1;
-
-  for (let i = days - 1; i >= 0; i -= 1) {
-    const d = dayjs().subtract(i, 'day').format('YYYY-MM-DD');
-    dates.push(d);
-
-    const t = days - 1 - i;
-    const pDaily = 0.0014 + Math.sin(t / 6) * 0.001 + Math.sin(t / 17) * 0.0006;
-    const hDaily = 0.0006 + Math.sin(t / 9) * 0.0007 + Math.sin(t / 23) * 0.0004;
-
-    p *= 1 + pDaily;
-    h *= 1 + hDaily;
-
-    portfolio.push(Number(p.toFixed(4)));
-    hs300.push(Number(h.toFixed(4)));
+const buildRealEquitySeries = (monthStats: MonthlySuperMainForceStats | null) => {
+  if (!monthStats || !monthStats.records || monthStats.records.length === 0) {
+    return { dates: [], portfolio: [], dailyReturns: [], hasData: false };
   }
 
-  return { dates, portfolio, hs300 };
+  // 按日期分组统计
+  const dailyMap = new Map<string, { profits: number[]; count: number; limitUpCount: number }>();
+
+  // 从 monthStats.records 获取每日数据
+  for (const record of monthStats.records) {
+    const date = record.tradeDate;
+    if (!dailyMap.has(date)) {
+      dailyMap.set(date, { profits: [], count: 0, limitUpCount: 0 });
+    }
+    const day = dailyMap.get(date)!;
+    day.profits.push(record.profitPercent);
+    day.count += 1;
+    day.limitUpCount += 1; // 只有涨停的才在 records 里
+  }
+
+  // 按日期排序
+  const sortedDates = Array.from(dailyMap.keys()).sort();
+
+  const dates: string[] = [];
+  const portfolio: number[] = [];
+  const dailyReturns: DailyPerformance[] = [];
+
+  let cumulativeReturn = 1; // 初始净值为1
+
+  for (const date of sortedDates) {
+    const dayData = dailyMap.get(date)!;
+
+    // 计算当日平均收益（假设等仓位分配）
+    const avgProfit = dayData.profits.length > 0
+      ? dayData.profits.reduce((a, b) => a + b, 0) / dayData.profits.length
+      : 0;
+
+    // 假设只有 30% 的仓位参与（保守估计）
+    const dailyReturn = avgProfit * 0.3 / 100;
+    cumulativeReturn *= (1 + dailyReturn);
+
+    dates.push(date);
+    portfolio.push(Number(cumulativeReturn.toFixed(4)));
+    dailyReturns.push({
+      date,
+      selectedCount: dayData.count,
+      limitUpCount: dayData.limitUpCount,
+      avgProfit: avgProfit,
+      cumulativeReturn: (cumulativeReturn - 1) * 100,
+    });
+  }
+
+  return { dates, portfolio, dailyReturns, hasData: true };
 };
 
 const Home: React.FC = () => {
@@ -475,47 +514,108 @@ const Home: React.FC = () => {
     return cols;
   }, []);
 
-  const chart = useMemo(() => buildMockEquitySeries(60), []);
+  // 基于真实数据的收益曲线
+  const equityData = useMemo(() => buildRealEquitySeries(monthStats), [monthStats]);
+
   const chartOption = useMemo(() => {
+    if (!equityData.hasData) {
+      return {
+        backgroundColor: 'transparent',
+        title: {
+          text: '暂无数据',
+          left: 'center',
+          top: 'center',
+          textStyle: { color: '#666', fontSize: 14 },
+        },
+      };
+    }
+
+    // 计算累计收益率用于显示
+    const totalReturn = equityData.portfolio.length > 0
+      ? ((equityData.portfolio[equityData.portfolio.length - 1] - 1) * 100).toFixed(2)
+      : '0';
+
     return {
       backgroundColor: 'transparent',
-      tooltip: { trigger: 'axis' },
+      tooltip: {
+        trigger: 'axis',
+        formatter: (params: any) => {
+          if (!params || params.length === 0) return '';
+          const data = params[0];
+          const dayInfo = equityData.dailyReturns?.find(d => d.date === data.axisValue);
+          if (!dayInfo) return `${data.axisValue}<br/>净值: ${data.value}`;
+          return `<strong>${data.axisValue}</strong><br/>
+                  净值: <span style="color:#1890ff;font-weight:bold">${data.value}</span><br/>
+                  累计收益: <span style="color:${dayInfo.cumulativeReturn >= 0 ? '#cf1322' : '#3f8600'}">${dayInfo.cumulativeReturn >= 0 ? '+' : ''}${dayInfo.cumulativeReturn.toFixed(2)}%</span><br/>
+                  当日涨停: <span style="color:#faad14">${dayInfo.limitUpCount}只</span><br/>
+                  平均盈利: <span style="color:${dayInfo.avgProfit >= 0 ? '#cf1322' : '#3f8600'}">${dayInfo.avgProfit >= 0 ? '+' : ''}${dayInfo.avgProfit.toFixed(2)}%</span>`;
+        },
+      },
       legend: {
-        data: ['组合净值(示例)', '沪深300(示例)'],
+        data: [`超强主力组合 (${totalReturn}%)`],
         textStyle: { color: '#d9d9d9' },
       },
-      grid: { left: 40, right: 16, top: 40, bottom: 30 },
+      grid: { left: 50, right: 20, top: 45, bottom: 30 },
       xAxis: {
         type: 'category',
-        data: chart.dates,
-        axisLabel: { color: '#aaa' },
+        data: equityData.dates,
+        axisLabel: {
+          color: '#aaa',
+          rotate: 30,
+          fontSize: 10,
+        },
         axisLine: { lineStyle: { color: '#303030' } },
       },
       yAxis: {
         type: 'value',
-        axisLabel: { color: '#aaa' },
+        name: '净值',
+        nameTextStyle: { color: '#aaa' },
+        axisLabel: {
+          color: '#aaa',
+          formatter: (value: number) => value.toFixed(3),
+        },
         splitLine: { lineStyle: { color: '#1f1f1f' } },
+        min: (value: { min: number }) => Math.max(0.95, Math.floor(value.min * 100) / 100),
       },
       series: [
         {
-          name: '组合净值(示例)',
+          name: `超强主力组合 (${totalReturn}%)`,
           type: 'line',
-          showSymbol: false,
+          showSymbol: true,
+          symbolSize: 6,
           smooth: true,
-          data: chart.portfolio,
-          lineStyle: { width: 2, color: '#1890ff' },
-        },
-        {
-          name: '沪深300(示例)',
-          type: 'line',
-          showSymbol: false,
-          smooth: true,
-          data: chart.hs300,
-          lineStyle: { width: 2, color: '#52c41a' },
+          data: equityData.portfolio,
+          lineStyle: {
+            width: 3,
+            color: {
+              type: 'linear',
+              x: 0, y: 0, x2: 1, y2: 0,
+              colorStops: [
+                { offset: 0, color: '#1890ff' },
+                { offset: 1, color: '#722ed1' },
+              ],
+            },
+          },
+          itemStyle: { color: '#1890ff' },
+          areaStyle: {
+            color: {
+              type: 'linear',
+              x: 0, y: 0, x2: 0, y2: 1,
+              colorStops: [
+                { offset: 0, color: 'rgba(24, 144, 255, 0.3)' },
+                { offset: 1, color: 'rgba(24, 144, 255, 0.05)' },
+              ],
+            },
+          },
+          markLine: {
+            silent: true,
+            lineStyle: { color: '#52c41a', type: 'dashed' },
+            data: [{ yAxis: 1, label: { show: true, formatter: '初始净值', color: '#52c41a' } }],
+          },
         },
       ],
     };
-  }, [chart]);
+  }, [equityData]);
 
   return (
     <div style={{ padding: 24 }}>
@@ -523,7 +623,7 @@ const Home: React.FC = () => {
         {/* 顶部大横幅：AI智能选股引擎介绍 */}
         <Col span={24}>
           <Card
-            style={{ 
+            style={{
               background: 'linear-gradient(135deg, #1890ff 0%, #722ed1 100%)',
               border: 'none'
             }}
@@ -543,26 +643,25 @@ const Home: React.FC = () => {
                     帮你在开盘前更快锁定候选标的，并通过策略回测与收益曲线对比做决策校验。
                   </Typography.Paragraph>
                   <Space wrap>
-                    <Button 
-                      type="primary" 
+                    <Button
                       size="large"
-                      icon={<ThunderboltOutlined />} 
+                      icon={<ThunderboltOutlined />}
                       onClick={() => navigate('/super-main-force')}
-                      style={{ background: '#fff', color: '#1890ff', borderColor: '#fff' }}
+                      style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', borderColor: 'rgba(255,255,255,0.5)' }}
                     >
                       超强主力
                     </Button>
-                    <Button 
+                    <Button
                       size="large"
-                      icon={<CalculatorOutlined />} 
+                      icon={<CalculatorOutlined />}
                       onClick={() => navigate('/smart-selection')}
                       style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', borderColor: 'rgba(255,255,255,0.5)' }}
                     >
                       精算智选
                     </Button>
-                    <Button 
-                      type="link" 
-                      icon={<RightOutlined />} 
+                    <Button
+                      type="link"
+                      icon={<RightOutlined />}
                       onClick={() => navigate('/stocks')}
                       style={{ color: '#fff' }}
                     >
@@ -574,34 +673,34 @@ const Home: React.FC = () => {
               <Col xs={24} md={10}>
                 <Row gutter={[16, 16]}>
                   <Col span={12}>
-                    <Statistic 
-                      title={<span style={{ color: 'rgba(255,255,255,0.8)' }}>近月入选</span>} 
-                      value={monthStats?.totalSelected || 0} 
+                    <Statistic
+                      title={<span style={{ color: 'rgba(255,255,255,0.8)' }}>近月入选</span>}
+                      value={monthStats?.totalSelected || 0}
                       suffix="只"
                       valueStyle={{ color: '#fff', fontSize: 28 }}
                     />
                   </Col>
                   <Col span={12}>
-                    <Statistic 
-                      title={<span style={{ color: 'rgba(255,255,255,0.8)' }}>收盘涨停</span>} 
-                      value={monthStats?.totalCloseLimitUp || 0} 
+                    <Statistic
+                      title={<span style={{ color: 'rgba(255,255,255,0.8)' }}>收盘涨停</span>}
+                      value={monthStats?.totalCloseLimitUp || 0}
                       suffix="只"
                       valueStyle={{ color: '#faad14', fontSize: 28 }}
                     />
                   </Col>
                   <Col span={12}>
-                    <Statistic 
-                      title={<span style={{ color: 'rgba(255,255,255,0.8)' }}>涨停率</span>} 
-                      value={monthStats?.closeLimitUpRate || 0} 
+                    <Statistic
+                      title={<span style={{ color: 'rgba(255,255,255,0.8)' }}>涨停率</span>}
+                      value={monthStats?.closeLimitUpRate || 0}
                       precision={1}
                       suffix="%"
                       valueStyle={{ color: '#52c41a', fontSize: 28 }}
                     />
                   </Col>
                   <Col span={12}>
-                    <Statistic 
-                      title={<span style={{ color: 'rgba(255,255,255,0.8)' }}>策略数量</span>} 
-                      value={strategies?.length || 0} 
+                    <Statistic
+                      title={<span style={{ color: 'rgba(255,255,255,0.8)' }}>策略数量</span>}
+                      value={strategies?.length || 0}
                       suffix="个"
                       valueStyle={{ color: '#fff', fontSize: 28 }}
                     />
@@ -614,7 +713,7 @@ const Home: React.FC = () => {
 
         {/* 市场概览区域 */}
         <Col xs={24} lg={12}>
-          <Card 
+          <Card
             title={
               <Space>
                 <BarChartOutlined style={{ color: '#1890ff' }} />
@@ -626,9 +725,9 @@ const Home: React.FC = () => {
               <Col span={24}>
                 <Row gutter={16}>
                   <Col span={8}>
-                    <Statistic 
-                      title="上证指数" 
-                      value={3145.68} 
+                    <Statistic
+                      title="上证指数"
+                      value={3145.68}
                       precision={2}
                       valueStyle={{ color: '#cf1322', fontSize: 20 }}
                       suffix={
@@ -639,9 +738,9 @@ const Home: React.FC = () => {
                     />
                   </Col>
                   <Col span={8}>
-                    <Statistic 
-                      title="深证成指" 
-                      value={9852.32} 
+                    <Statistic
+                      title="深证成指"
+                      value={9852.32}
                       precision={2}
                       valueStyle={{ color: '#3f8600', fontSize: 20 }}
                       suffix={
@@ -652,9 +751,9 @@ const Home: React.FC = () => {
                     />
                   </Col>
                   <Col span={8}>
-                    <Statistic 
-                      title="创业板指" 
-                      value={1967.85} 
+                    <Statistic
+                      title="创业板指"
+                      value={1967.85}
                       precision={2}
                       valueStyle={{ color: '#cf1322', fontSize: 20 }}
                       suffix={
@@ -684,7 +783,7 @@ const Home: React.FC = () => {
 
         {/* 核心功能区域 */}
         <Col xs={24} lg={12}>
-          <Card 
+          <Card
             title={
               <Space>
                 <CalculatorOutlined style={{ color: '#722ed1' }} />
@@ -794,64 +893,13 @@ const Home: React.FC = () => {
             </Col>
 
             <Col xs={24} lg={10}>
-              <Card
-                style={{ height: '100%' }}
-                title={
-                  <Space>
-                    <BarChartOutlined style={{ color: '#52c41a' }} />
-                    <span>近月涨停表现</span>
-                  </Space>
-                }
-                extra={
-                  <Button size="small" onClick={() => navigate('/super-main-force')}>
-                    去验证
-                  </Button>
-                }
-              >
-                {monthError ? <Alert type="error" message={monthError} /> : null}
-                {monthLoading ? (
-                  <div>
-                    <div style={{ marginBottom: 8, color: '#aaa', fontSize: 12 }}>
-                      正在汇总近月数据：{monthProgress.done}/{monthProgress.total}
-                    </div>
-                    <Progress percent={monthProgress.total ? (monthProgress.done / monthProgress.total) * 100 : 0} />
-                  </div>
-                ) : null}
-
-                <Row gutter={[16, 16]} style={{ marginTop: 8 }}>
-                  <Col span={12}>
-                    <Statistic title="统计区间" value={monthStats ? `${monthStats.fromDate} ~ ${monthStats.toDate}` : '-'} valueStyle={{ fontSize: 12 }} />
-                  </Col>
-                  <Col span={12}>
-                    <Statistic 
-                      title="收盘涨停率" 
-                      value={monthStats?.closeLimitUpRate || 0} 
-                      precision={1} 
-                      suffix="%"
-                      valueStyle={{ color: '#52c41a', fontSize: 20 }}
-                    />
-                  </Col>
-                </Row>
-
-                <div style={{ marginTop: 12 }}>
-                  {!monthLoading && !monthError && monthStats && monthStats.coveredDays < monthStats.requestedDays ? (
-                    <Alert
-                      type="warning"
-                      message={`近月仅覆盖 ${monthStats.coveredDays}/${monthStats.requestedDays} 个交易日`}
-                      showIcon
-                      style={{ marginBottom: 12 }}
-                    />
-                  ) : null}
-                  <Table
-                    loading={monthLoading}
-                    columns={monthColumns}
-                    dataSource={(monthStats?.records || []).slice(0, 8)}
-                    rowKey={(r: MonthlyLimitUpRecord) => `${r.tradeDate}-${r.stock}`}
-                    pagination={false}
-                    size="small"
-                  />
-                </div>
-              </Card>
+              <MonthlyPerformanceCard
+                stats={monthStats}
+                loading={monthLoading}
+                progress={monthProgress}
+                error={monthError}
+                onNavigate={() => navigate('/super-main-force')}
+              />
             </Col>
           </Row>
         </Col>
@@ -876,8 +924,8 @@ const Home: React.FC = () => {
             <Row gutter={[16, 16]}>
               {(strategies || []).map((s) => (
                 <Col key={s.id} xs={24} md={12} lg={8} xl={6}>
-                  <Card 
-                    size="small" 
+                  <Card
+                    size="small"
                     title={
                       <Space>
                         <span>{s.strategy_name}</span>
@@ -974,14 +1022,28 @@ const Home: React.FC = () => {
             title={
               <Space>
                 <BarChartOutlined style={{ color: '#1890ff' }} />
-                <span>收益曲线对比（虚拟示例）</span>
+                <span>超强主力模拟收益曲线</span>
+                {monthLoading && <span style={{ fontSize: 12, color: '#aaa' }}>加载中...</span>}
               </Space>
+            }
+            extra={
+              monthStats && equityData.hasData ? (
+                <Space>
+                  <span style={{ fontSize: 12, color: '#aaa' }}>
+                    {monthStats.fromDate} ~ {monthStats.toDate}
+                  </span>
+                </Space>
+              ) : null
             }
           >
             <ReactECharts option={chartOption} style={{ height: 280 }} notMerge lazyUpdate />
-            <Alert 
-              type="info" 
-              message="提示：此处为演示用虚拟曲线，用于对比展示布局与指标含义；实际回测曲线以「精算智选→回测」为准。" 
+            <Alert
+              type="success"
+              message={
+                equityData.hasData
+                  ? `基于近月 ${monthStats?.coveredDays || 0} 个交易日的涨停数据，假设30%仓位参与计算的模拟净值曲线。`
+                  : '等待数据加载...'
+              }
               style={{ marginTop: 12 }}
             />
           </Card>
@@ -1077,9 +1139,9 @@ const Home: React.FC = () => {
           <Card title="快捷入口" size="small">
             <Row gutter={[16, 16]}>
               <Col xs={24} sm={12} md={6}>
-                <Button 
-                  type="primary" 
-                  block 
+                <Button
+                  type="primary"
+                  block
                   size="large"
                   icon={<ThunderboltOutlined />}
                   onClick={() => navigate('/super-main-force')}
@@ -1088,8 +1150,8 @@ const Home: React.FC = () => {
                 </Button>
               </Col>
               <Col xs={24} sm={12} md={6}>
-                <Button 
-                  block 
+                <Button
+                  block
                   size="large"
                   icon={<CalculatorOutlined />}
                   onClick={() => navigate('/smart-selection')}
@@ -1098,8 +1160,8 @@ const Home: React.FC = () => {
                 </Button>
               </Col>
               <Col xs={24} sm={12} md={6}>
-                <Button 
-                  block 
+                <Button
+                  block
                   size="large"
                   icon={<BarChartOutlined />}
                   onClick={() => navigate('/backtest-analysis')}
@@ -1108,8 +1170,8 @@ const Home: React.FC = () => {
                 </Button>
               </Col>
               <Col xs={24} sm={12} md={6}>
-                <Button 
-                  block 
+                <Button
+                  block
                   size="large"
                   icon={<RightOutlined />}
                   onClick={() => navigate('/stocks')}

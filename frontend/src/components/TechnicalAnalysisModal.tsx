@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Descriptions, Modal, Space, Tabs, Tag, Typography, Statistic, Row, Col, message } from 'antd';
-import { CopyOutlined, LineChartOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import { CopyOutlined, LineChartOutlined, PlusOutlined } from '@ant-design/icons';
 import { useStockDetail } from '../hooks/useStockList';
-import { fetchStockHistoryForRealtime, fetchRealtimeQuote } from '../services/stockService';
+import { fetchStockHistoryForRealtime } from '../services/stockService';
 import KLineChart from './KLineChart';
 import { useAuth } from '../context/AuthContext';
 import { addToWatchlist } from '../services/authService';
@@ -83,47 +83,12 @@ export default function TechnicalAnalysisModal({
   const { detail, analysis, loading, fetchDetail, fetchAnalysisData, reset } = useStockDetail();
   const [klineData, setKlineData] = useState<any[]>([]);
   const [klineError, setKlineError] = useState<string | null>(null);
-  const [realtimeData, setRealtimeData] = useState<any>(null);
-  const [realtimeLoading, setRealtimeLoading] = useState(false);
-  const [realtimeError, setRealtimeError] = useState<string | null>(null);
-
-  // 获取实时行情数据
-  const fetchRealtimeData = useCallback(async () => {
-    if (!stockCode) return;
-    setRealtimeLoading(true);
-    setRealtimeError(null);
-    try {
-      const inferredSuffix = String(stockCode).startsWith('6') ? 'SH' : 'SZ';
-      const tsCode = stockCode.includes('.') ? stockCode : `${stockCode}.${inferredSuffix}`;
-      const data = await fetchRealtimeQuote(tsCode);
-      setRealtimeData(data);
-    } catch (err) {
-      setRealtimeError('实时行情加载失败');
-      console.error('获取实时行情失败:', err);
-    } finally {
-      setRealtimeLoading(false);
-    }
-  }, [stockCode]);
 
   useEffect(() => {
     if (!open || !stockCode) return;
     fetchDetail(stockCode);
     fetchAnalysisData(stockCode, { date: analysisDate ?? undefined });
-    fetchRealtimeData();
-  }, [analysisDate, fetchAnalysisData, fetchDetail, fetchRealtimeData, open, stockCode]);
-
-  // 5秒自动刷新实时行情
-  useEffect(() => {
-    if (!open || !stockCode) return;
-
-    const timer = setInterval(() => {
-      fetchRealtimeData();
-    }, 5000); // 5秒刷新
-
-    return () => {
-      clearInterval(timer);
-    };
-  }, [open, stockCode, fetchRealtimeData]);
+  }, [analysisDate, fetchAnalysisData, fetchDetail, open, stockCode]);
 
   useEffect(() => {
     if (!open || !stockCode) return;
@@ -168,35 +133,11 @@ export default function TechnicalAnalysisModal({
   }, [analysisDate, klineData]);
 
   const klineDate = selectedKline?.date ? String(selectedKline.date) : undefined;
-  const realtimeUpdatedAt = realtimeData?.updated_at ? String(realtimeData.updated_at) : undefined;
-  const realtimeDate = useMemo(() => {
-    if (!realtimeUpdatedAt) return undefined;
-    const d = new Date(realtimeUpdatedAt);
-    if (Number.isNaN(d.getTime())) return undefined;
-    return d.toISOString().split('T')[0];
-  }, [realtimeUpdatedAt]);
-
-  const useRealtime = !!realtimeDate && !analysisDate && (!klineDate || realtimeDate >= klineDate);
-
-  const currentPrice = useRealtime
-    ? realtimeData?.close
-    : (selectedKline?.close ?? resolvedDetail?.current_price ?? resolvedDetail?.stock?.current_price);
-
-  const openPrice = useRealtime
-    ? realtimeData?.open
-    : (selectedKline?.open ?? resolvedDetail?.open ?? 0);
-
-  const highPrice = useRealtime
-    ? realtimeData?.high
-    : (selectedKline?.high ?? resolvedDetail?.high ?? 0);
-
-  const lowPrice = useRealtime
-    ? realtimeData?.low
-    : (selectedKline?.low ?? resolvedDetail?.low ?? 0);
-
-  const volume = useRealtime
-    ? realtimeData?.vol
-    : (selectedKline?.volume ?? resolvedDetail?.volume ?? 0);
+  const currentPrice = selectedKline?.close ?? resolvedDetail?.current_price ?? resolvedDetail?.stock?.current_price;
+  const openPrice = selectedKline?.open ?? resolvedDetail?.open ?? 0;
+  const highPrice = selectedKline?.high ?? resolvedDetail?.high ?? 0;
+  const lowPrice = selectedKline?.low ?? resolvedDetail?.low ?? 0;
+  const volume = selectedKline?.volume ?? resolvedDetail?.volume ?? 0;
 
   const klinePreClose = previousKline?.close;
   const derivedChangeAmount = (() => {
@@ -212,27 +153,24 @@ export default function TechnicalAnalysisModal({
     return undefined;
   })();
 
-  const changeAmount = useRealtime
-    ? (realtimeData?.change_amount ?? 0)
-    : (derivedChangeAmount ?? 0);
+  const fallbackChangeAmount = Number(resolvedDetail?.change_amount ?? resolvedDetail?.stock?.change_amount);
+  const changeAmount = typeof derivedChangeAmount === 'number' && Number.isFinite(derivedChangeAmount)
+    ? derivedChangeAmount
+    : (Number.isFinite(fallbackChangeAmount) ? fallbackChangeAmount : 0);
 
-  const changePercent = useRealtime
-    ? realtimeData?.change_percent
-    : derivedChangePercent;
+  const fallbackChangePercent = Number(resolvedDetail?.change_percent ?? resolvedDetail?.stock?.change_percent);
+  const changePercent = typeof derivedChangePercent === 'number' && Number.isFinite(derivedChangePercent)
+    ? derivedChangePercent
+    : (Number.isFinite(fallbackChangePercent) ? fallbackChangePercent : undefined);
 
   const updatedAtText = useMemo(() => {
-    if (useRealtime && realtimeUpdatedAt) {
-      const d = new Date(realtimeUpdatedAt);
-      if (Number.isNaN(d.getTime())) return undefined;
-      return d.toLocaleString('zh-CN');
-    }
     if (klineDate) {
       const d = new Date(klineDate);
       if (Number.isNaN(d.getTime())) return klineDate;
       return d.toLocaleDateString('zh-CN');
     }
     return undefined;
-  }, [klineDate, realtimeUpdatedAt, useRealtime]);
+  }, [klineDate]);
 
   const priceText = useMemo(() => {
     const p = Number(currentPrice);
@@ -246,6 +184,8 @@ export default function TechnicalAnalysisModal({
     const prefix = cp > 0 ? '+' : '';
     return `${prefix}${cp.toFixed(2)}%`;
   }, [changePercent]);
+
+  const changePercentForColor = Number.isFinite(Number(changePercent)) ? Number(changePercent) : 0;
 
   const changeAmountText = useMemo(() => {
     const ca = Number(changeAmount);
@@ -292,9 +232,6 @@ export default function TechnicalAnalysisModal({
           >
             复制代码
           </Button>
-          <Button size="small" icon={<ReloadOutlined />} onClick={fetchRealtimeData} loading={realtimeLoading}>
-            刷新行情
-          </Button>
           <Button
             size="small"
             icon={<PlusOutlined />}
@@ -321,7 +258,7 @@ export default function TechnicalAnalysisModal({
             title="当前价" 
             value={priceText} 
             precision={2} 
-            valueStyle={{ color: changePercent > 0 ? '#cf1322' : changePercent < 0 ? '#3f8600' : '#666', fontSize: 20, fontWeight: 650 }}
+            valueStyle={{ color: changePercentForColor > 0 ? '#cf1322' : changePercentForColor < 0 ? '#3f8600' : '#666', fontSize: 20, fontWeight: 650 }}
             suffix="元"
           />
         </Col>
@@ -338,7 +275,7 @@ export default function TechnicalAnalysisModal({
           <Statistic 
             title="涨跌幅" 
             value={changeText} 
-            valueStyle={{ color: changePercent > 0 ? '#cf1322' : changePercent < 0 ? '#3f8600' : '#666', fontSize: 16 }}
+            valueStyle={{ color: changePercentForColor > 0 ? '#cf1322' : changePercentForColor < 0 ? '#3f8600' : '#666', fontSize: 16 }}
           />
         </Col>
         <Col span={3}>
@@ -358,10 +295,6 @@ export default function TechnicalAnalysisModal({
           <div style={{ fontSize: 14, fontWeight: 500 }}>{volumeText}</div>
         </Col>
       </Row>
-      
-      {realtimeError && (
-        <Alert type="warning" message={realtimeError} showIcon style={{ marginTop: 8 }} />
-      )}
       
       {updatedAtText && (
         <div style={{ fontSize: 12, color: 'var(--sq-text-tertiary)', marginTop: 4 }}>

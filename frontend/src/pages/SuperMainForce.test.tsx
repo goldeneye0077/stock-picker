@@ -37,8 +37,6 @@ vi.mock('../services/stockService', async () => {
     fetchStockDetail: vi.fn(),
     fetchStockAnalysis: vi.fn(),
     fetchStockHistoryForRealtime: vi.fn(),
-    fetchRealtimeQuote: vi.fn(),
-    fetchRealtimeQuotesBatch: vi.fn(),
   };
 });
 
@@ -101,16 +99,6 @@ describe('SuperMainForce', () => {
     vi.mocked(stockService.fetchStockHistoryForRealtime).mockResolvedValue({
       klines: [{ date: '2026-01-01', open: 1, close: 2, low: 0.5, high: 2.5, volume: 10 }],
     } as any);
-
-    vi.mocked(stockService.fetchRealtimeQuote).mockResolvedValue({
-      stock_code: '000001',
-      ts_code: '000001.SZ',
-      close: 10.12,
-      pre_close: 9.98,
-      updated_at: '2026-01-02 09:31:00',
-    } as any);
-
-    vi.mocked(stockService.fetchRealtimeQuotesBatch).mockResolvedValue([] as any);
 
     renderWithConfig(<SuperMainForce />);
 
