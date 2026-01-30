@@ -1,27 +1,54 @@
 :root {
-  --sq-bg: #070812;
-  --sq-bg-container: #0c1024;
-  --sq-bg-elevated: #12183a;
-  --sq-border: rgba(180, 110, 255, 0.22);
-  --sq-text: rgba(255, 255, 255, 0.94);
-  --sq-text-secondary: rgba(255, 255, 255, 0.68);
-  --sq-text-tertiary: rgba(255, 255, 255, 0.48);
-  --sq-primary: #00d2ff;
-  --sq-rise: #ff2bd6;
-  --sq-fall: #00f5a0;
-  --sq-warning: #ffb020;
-  --sq-neutral: rgba(255, 255, 255, 0.55);
-  --sq-neon-purple: #b04cff;
-  --sq-neon-blue: #00d2ff;
-  --sq-neon-red: #ff375f;
-  --sq-glass-bg: rgba(18, 24, 58, 0.55);
-  --sq-glass-bg-strong: rgba(18, 24, 58, 0.78);
-  --sq-glass-border: rgba(255, 255, 255, 0.12);
-  --sq-glow-primary: 0 0 16px rgba(0, 210, 255, 0.35);
-  --sq-glow-purple: 0 0 18px rgba(176, 76, 255, 0.35);
-  --sq-bg-gradient: radial-gradient(1200px 800px at 20% -10%, rgba(176, 76, 255, 0.22), transparent 55%),
-    radial-gradient(900px 600px at 90% 10%, rgba(0, 210, 255, 0.20), transparent 50%),
-    radial-gradient(800px 700px at 60% 110%, rgba(255, 43, 214, 0.14), transparent 55%),
+  /* Updated Palette based on Figma Design */
+  --sq-bg: #0B0F19;
+  /* Deep Navy Background */
+  --sq-bg-container: #101524;
+  /* Slightly lighter for containers */
+  --sq-bg-elevated: #161b2e;
+  /* Elevated surfaces */
+
+  /* Borders */
+  --sq-border: rgba(148, 163, 184, 0.15);
+  /* Subtle slate border */
+
+  /* Text */
+  --sq-text: #FFFFFF;
+  --sq-text-secondary: #94A3B8;
+  /* Slate-400 equivalent */
+  --sq-text-tertiary: #64748B;
+  /* Slate-500 equivalent */
+
+  /* Accents */
+  --sq-primary: #1D61FF;
+  /* Electric Blue */
+  --sq-rise: #10B981;
+  /* Emerald Green for gains */
+  --sq-fall: #EF4444;
+  /* Coral Red for losses */
+  --sq-warning: #F59E0B;
+  /* Amber for warnings */
+  --sq-neutral: #94A3B8;
+
+  /* Neon Accents (Adapted) */
+  --sq-neon-purple: #7C3AED;
+  /* Violet-600 */
+  --sq-neon-blue: #1D61FF;
+  /* Electric Blue */
+  --sq-neon-red: #EF4444;
+  /* Red-500 */
+
+  /* Glass Effects */
+  --sq-glass-bg: rgba(11, 15, 25, 0.7);
+  --sq-glass-bg-strong: rgba(11, 15, 25, 0.9);
+  --sq-glass-border: rgba(148, 163, 184, 0.1);
+
+  /* Glows */
+  --sq-glow-primary: 0 0 20px rgba(29, 97, 255, 0.4);
+  --sq-glow-purple: 0 0 20px rgba(124, 58, 237, 0.4);
+
+  /* Background Gradient - Subtle glow */
+  --sq-bg-gradient: radial-gradient(1000px 600px at 50% -10%, rgba(29, 97, 255, 0.15), transparent 60%),
+    radial-gradient(800px 600px at 85% 20%, rgba(124, 58, 237, 0.1), transparent 50%),
     var(--sq-bg);
 
   color-scheme: dark;
@@ -143,11 +170,10 @@ body {
 }
 
 .ant-table-wrapper .ant-table-thead>tr>th {
-  background: linear-gradient(90deg,
-      color-mix(in srgb, var(--sq-bg-container) 85%, var(--sq-neon-purple) 15%),
-      color-mix(in srgb, var(--sq-bg-container) 85%, var(--sq-neon-blue) 15%));
+  background: var(--sq-bg-elevated) !important;
   color: var(--sq-text-secondary);
-  border-bottom: 1px solid color-mix(in srgb, var(--sq-border) 70%, var(--sq-neon-blue) 30%);
+  border-bottom: 1px solid var(--sq-border);
+  font-weight: 600;
 }
 
 .ant-table-wrapper .ant-table-tbody>tr>td {
@@ -213,34 +239,34 @@ body {
 .sq-glitch {
   position: relative;
   display: inline-block;
-  text-shadow: 0 0 10px rgba(0, 210, 255, 0.25), 0 0 12px rgba(176, 76, 255, 0.22);
+  text-shadow: 0 0 10px rgba(29, 97, 255, 0.25), 0 0 12px rgba(124, 58, 237, 0.22);
   animation: sq-glitch 2.8s infinite linear;
 }
 
 @keyframes sq-glitch {
   0% {
     transform: translate3d(0, 0, 0);
-    text-shadow: 0 0 10px rgba(0, 210, 255, 0.22), 0 0 12px rgba(176, 76, 255, 0.20);
+    text-shadow: 0 0 10px rgba(29, 97, 255, 0.22), 0 0 12px rgba(124, 58, 237, 0.20);
   }
 
   2% {
     transform: translate3d(-0.5px, 0.3px, 0);
-    text-shadow: 2px 0 rgba(0, 210, 255, 0.34), -2px 0 rgba(255, 43, 214, 0.22);
+    text-shadow: 2px 0 rgba(29, 97, 255, 0.34), -2px 0 rgba(239, 68, 68, 0.22);
   }
 
   4% {
     transform: translate3d(0.6px, -0.2px, 0);
-    text-shadow: -2px 0 rgba(0, 245, 160, 0.22), 2px 0 rgba(176, 76, 255, 0.32);
+    text-shadow: -2px 0 rgba(16, 185, 129, 0.22), 2px 0 rgba(124, 58, 237, 0.32);
   }
 
   6% {
     transform: translate3d(0, 0, 0);
-    text-shadow: 0 0 12px rgba(0, 210, 255, 0.22), 0 0 14px rgba(176, 76, 255, 0.20);
+    text-shadow: 0 0 12px rgba(29, 97, 255, 0.22), 0 0 14px rgba(124, 58, 237, 0.20);
   }
 
   100% {
     transform: translate3d(0, 0, 0);
-    text-shadow: 0 0 10px rgba(0, 210, 255, 0.22), 0 0 12px rgba(176, 76, 255, 0.20);
+    text-shadow: 0 0 10px rgba(29, 97, 255, 0.22), 0 0 12px rgba(124, 58, 237, 0.20);
   }
 }
 

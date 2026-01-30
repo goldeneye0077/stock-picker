@@ -17,12 +17,7 @@ COPY src ./src
 COPY tests ./tests
 RUN pytest -q
 ENV NODE_OPTIONS=--max-old-space-size=4096
-RUN set -eux; \
-    if ! getent group 1000 >/dev/null; then groupadd -g 1000 app; fi; \
-    if ! id -u 1000 >/dev/null 2>&1; then useradd -m -u 1000 -g 1000 app; fi; \
-    mkdir -p /data /seed; \
-    chown -R 1000:1000 /app /data /seed
-USER 1000:1000
+
 # Expose port
 EXPOSE 8001
 

@@ -624,8 +624,9 @@ const Home: React.FC = () => {
         <Col span={24}>
           <Card
             style={{
-              background: 'linear-gradient(135deg, #1890ff 0%, #722ed1 100%)',
-              border: 'none'
+              background: 'linear-gradient(135deg, rgba(29, 97, 255, 0.15) 0%, rgba(124, 58, 237, 0.05) 100%)',
+              border: '1px solid var(--sq-border)',
+              backdropFilter: 'blur(10px)'
             }}
             styles={{ body: { padding: '32px' } }}
           >
@@ -729,9 +730,9 @@ const Home: React.FC = () => {
                       title="上证指数"
                       value={3145.68}
                       precision={2}
-                      valueStyle={{ color: '#cf1322', fontSize: 20 }}
+                      valueStyle={{ color: '#EF4444', fontSize: 20 }}
                       suffix={
-                        <span style={{ fontSize: 12, color: '#cf1322', marginLeft: 4 }}>
+                        <span style={{ fontSize: 12, color: '#EF4444', marginLeft: 4 }}>
                           +0.45%
                         </span>
                       }
@@ -742,9 +743,9 @@ const Home: React.FC = () => {
                       title="深证成指"
                       value={9852.32}
                       precision={2}
-                      valueStyle={{ color: '#3f8600', fontSize: 20 }}
+                      valueStyle={{ color: '#10B981', fontSize: 20 }}
                       suffix={
-                        <span style={{ fontSize: 12, color: '#3f8600', marginLeft: 4 }}>
+                        <span style={{ fontSize: 12, color: '#10B981', marginLeft: 4 }}>
                           -0.32%
                         </span>
                       }
@@ -755,9 +756,9 @@ const Home: React.FC = () => {
                       title="创业板指"
                       value={1967.85}
                       precision={2}
-                      valueStyle={{ color: '#cf1322', fontSize: 20 }}
+                      valueStyle={{ color: '#EF4444', fontSize: 20 }}
                       suffix={
-                        <span style={{ fontSize: 12, color: '#cf1322', marginLeft: 4 }}>
+                        <span style={{ fontSize: 12, color: '#EF4444', marginLeft: 4 }}>
                           +0.68%
                         </span>
                       }

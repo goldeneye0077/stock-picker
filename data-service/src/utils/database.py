@@ -1009,6 +1009,12 @@ async def init_database():
             )
         """)
 
+        # Migration: Ensure session_id column exists
+        try:
+            await db.execute("ALTER TABLE page_views ADD COLUMN session_id TEXT")
+        except Exception:
+            pass
+
         # API 调用统计表
         await db.execute("""
             CREATE TABLE IF NOT EXISTS api_calls (
