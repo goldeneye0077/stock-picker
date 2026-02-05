@@ -5,7 +5,7 @@
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
-import { Card, Modal, Descriptions, Alert, Button, Space, Tag, message } from 'antd';
+import { Modal, Descriptions, Alert, Button, Space, Tag, message } from 'antd';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { DownloadOutlined, StarOutlined, StockOutlined } from '@ant-design/icons';
 import { StockSearchBar, StockTable } from '../components/StockList';
@@ -16,6 +16,8 @@ import type { StockItem } from '../services/stockService';
 import { useAuth } from '../context/AuthContext';
 import { addToWatchlist, ApiError, getWatchlist, removeFromWatchlist } from '../services/authService';
 import FigmaPageHero from '../components/FigmaPageHero';
+import FigmaCard from '../components/FigmaCard';
+import { FigmaBorderRadius } from '../styles/FigmaDesignTokens';
 
 const StockList: React.FC<{ mode?: 'all' | 'watchlist' }> = ({ mode = 'all' }) => {
   const { token } = useAuth();
@@ -284,11 +286,11 @@ const StockList: React.FC<{ mode?: 'all' | 'watchlist' }> = ({ mode = 'all' }) =
           actions={
             <>
               {mode === 'watchlist' ? (
-                <Button type="primary" onClick={() => navigate('/smart-selection')} style={{ borderRadius: 10 }}>
+                <Button type="primary" onClick={() => navigate('/smart-selection')} style={{ borderRadius: FigmaBorderRadius.lg }}>
                   智能筛选
                 </Button>
               ) : null}
-              <Button icon={<DownloadOutlined />} onClick={handleExport} style={{ borderRadius: 10 }}>
+              <Button icon={<DownloadOutlined />} onClick={handleExport} style={{ borderRadius: FigmaBorderRadius.lg }}>
                 导出数据
               </Button>
             </>
@@ -301,16 +303,16 @@ const StockList: React.FC<{ mode?: 'all' | 'watchlist' }> = ({ mode = 'all' }) =
             type="info"
             closable
             onClose={handleResetDate}
-            style={{ marginBottom: 16, borderRadius: 12 }}
+            style={{ marginBottom: 24, borderRadius: FigmaBorderRadius.lg }}
             action={
-              <Button size="small" onClick={handleResetDate} style={{ borderRadius: 10 }}>
+              <Button size="small" onClick={handleResetDate} style={{ borderRadius: FigmaBorderRadius.lg }}>
                 返回实时数据
               </Button>
             }
           />
         ) : null}
 
-        <Card styles={{ body: { padding: 0 } }} style={{ borderRadius: 14, overflow: 'hidden' }}>
+        <FigmaCard style={{ padding: 0, overflow: 'hidden' }}>
           <div
             style={{
               padding: 16,
@@ -323,11 +325,11 @@ const StockList: React.FC<{ mode?: 'all' | 'watchlist' }> = ({ mode = 'all' }) =
             }}
           >
             <Space size={10} wrap>
-              <Tag color={loading ? 'default' : 'green'} style={{ borderRadius: 999, marginInlineEnd: 0 }}>
+              <Tag color={loading ? 'default' : 'green'} style={{ borderRadius: FigmaBorderRadius.full, marginInlineEnd: 0 }}>
                 {loading ? '正在刷新数据' : '行情数据就绪'}
               </Tag>
               {mode === 'watchlist' ? (
-                <Tag style={{ borderRadius: 999, marginInlineEnd: 0 }}>我的自选：{watchlistCodes.length}</Tag>
+                <Tag style={{ borderRadius: FigmaBorderRadius.full, marginInlineEnd: 0 }}>我的自选：{watchlistCodes.length}</Tag>
               ) : null}
             </Space>
 
@@ -357,7 +359,7 @@ const StockList: React.FC<{ mode?: 'all' | 'watchlist' }> = ({ mode = 'all' }) =
               onToggleWatchlist={handleToggleWatchlist}
             />
           </div>
-        </Card>
+        </FigmaCard>
 
       {/* 股票详情模态框 */}
       <Modal

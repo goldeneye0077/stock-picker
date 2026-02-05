@@ -13,7 +13,7 @@ describe('Home', () => {
       <MemoryRouter initialEntries={['/home']}>
         <Routes>
           <Route path="/home" element={<Home />} />
-          <Route path="/smart-selection" element={<div>smart-selection</div>} />
+          <Route path="/super-main-force" element={<div>super-main-force</div>} />
           <Route path="*" element={<div>not-found</div>} />
         </Routes>
       </MemoryRouter>
@@ -22,9 +22,11 @@ describe('Home', () => {
     expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
     expect(screen.getByText('今日入选')).toBeInTheDocument();
     expect(screen.getByText('昨日策略胜率')).toBeInTheDocument();
+    expect(screen.getByText('超强主力 · 近月战绩')).toBeInTheDocument();
+    expect(screen.getAllByText('涨停命中率').length).toBeGreaterThan(0);
     expect(screen.getByRole('table')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: '配置我的策略' }));
-    expect(screen.getByText('smart-selection')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '查看详情' }));
+    expect(screen.getByText('super-main-force')).toBeInTheDocument();
   });
 });

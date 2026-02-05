@@ -148,7 +148,7 @@ function AppLayout() {
     <ProLayout
       style={{ height: '100%' }}
       title={false}
-      logo={<img src="/logo.png" alt="logo" style={{ height: '32px' }} />}
+      logo={null}
       onMenuHeaderClick={() => navigate('/home')}
       route={{
         routes: menuItemsWithAdminGuard,

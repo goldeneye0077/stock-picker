@@ -5,7 +5,6 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
-  ProCard,
   ProTable,
 } from '@ant-design/pro-components';
 import {
@@ -69,6 +68,8 @@ import {
 import FundamentalDetailModal from '../components/Fundamental/FundamentalDetailModal';
 import TechnicalAnalysisModal from '../components/TechnicalAnalysisModal';
 import FigmaPageHero from '../components/FigmaPageHero';
+import FigmaCard from '../components/FigmaCard';
+import { FigmaBorderRadius, FigmaColors } from '../styles/FigmaDesignTokens';
 import { removeFromWatchlist, getWatchlist } from '../services/authService';
 import { useAuth } from '../context/AuthContext';
 import { message } from 'antd';
@@ -1172,8 +1173,8 @@ const SmartSelection: React.FC = () => {
       render: (_: any, record: SmartSelectionResult) => (
         <div>
           <div style={{ marginBottom: 8 }}>
-            <Tag color={getRiskColor(record.risk_level || '中')}>{record.risk_level || '中'}风险</Tag>
-            <Tag color={getHoldingPeriodColor(record.holding_period || '中线')}>{record.holding_period || '中线'}</Tag>
+            <Tag color={getRiskColor(record.risk_level || '中')} style={{ borderRadius: FigmaBorderRadius.full }}>{record.risk_level || '中'}风险</Tag>
+            <Tag color={getHoldingPeriodColor(record.holding_period || '中线')} style={{ borderRadius: FigmaBorderRadius.full }}>{record.holding_period || '中线'}</Tag>
           </div>
           <div>
             <Text type="secondary" style={{ fontSize: 12 }}>目标价: </Text>
@@ -1205,14 +1206,15 @@ const SmartSelection: React.FC = () => {
       width: 180,
       render: (_: any, record: SmartSelectionResult) => (
         <Space>
-          <Button type="link" size="small" onClick={() => handleShowFundamentalModal(record)}>详情</Button>
-          <Button type="link" size="small" onClick={() => handleShowAnalysisModal(record)}>技术分析</Button>
+          <Button type="link" size="small" onClick={() => handleShowFundamentalModal(record)} style={{ borderRadius: FigmaBorderRadius.lg }}>详情</Button>
+          <Button type="link" size="small" onClick={() => handleShowAnalysisModal(record)} style={{ borderRadius: FigmaBorderRadius.lg }}>技术分析</Button>
           <Button
             type="link"
             size="small"
             loading={watchlistPendingCodes.has(record.stock_code)}
             danger={watchlistCodes.has(record.stock_code)}
             onClick={() => handleToggleWatchlist(record)}
+            style={{ borderRadius: FigmaBorderRadius.lg }}
           >
             {watchlistCodes.has(record.stock_code) ? '取消自选' : '加入自选'}
           </Button>
@@ -1233,7 +1235,7 @@ const SmartSelection: React.FC = () => {
           title={
             <Space size={10} align="center">
               <span>精算智选</span>
-              <Tag color={algorithmType === 'advanced' ? 'purple' : 'blue'} style={{ borderRadius: 999 }}>
+              <Tag color={algorithmType === 'advanced' ? 'purple' : 'blue'} style={{ borderRadius: FigmaBorderRadius.full }}>
                 {algorithmType === 'advanced' ? '高级算法' : '基础算法'}
               </Tag>
             </Space>
@@ -1245,19 +1247,22 @@ const SmartSelection: React.FC = () => {
           }
           actions={
             <>
-              <Button icon={<ClockCircleOutlined />} onClick={handleViewHistory} style={{ borderRadius: 10 }}>
+              <Button icon={<ClockCircleOutlined />} onClick={handleViewHistory} style={{ borderRadius: FigmaBorderRadius.lg }}>
                 历史选股
               </Button>
-              <Button type="primary" icon={<BarChartOutlined />} onClick={handleExport} style={{ borderRadius: 10 }}>
+              <Button type="primary" icon={<BarChartOutlined />} onClick={handleExport} style={{ borderRadius: FigmaBorderRadius.lg }}>
                 导出结果
               </Button>
             </>
           }
         />
-      <Row gutter={[16, 16]}>
+      <Row gutter={[24, 24]}>
         {/* 左侧：策略配置 */}
         <Col span={6}>
-          <ProCard title="选股策略配置" headerBordered>
+          <FigmaCard gradient purpleGlow>
+            <Typography.Title level={5} style={{ marginBottom: 16, color: FigmaColors.text }}>
+              选股策略配置
+            </Typography.Title>
             <Form
               form={form}
               layout="vertical"
@@ -1273,6 +1278,7 @@ const SmartSelection: React.FC = () => {
                   listHeight={420}
                   onChange={handleStrategyChange}
                   optionLabelProp="label"
+                  style={{ borderRadius: FigmaBorderRadius.lg }}
                   filterOption={(input, option) =>
                     String(option?.label ?? '')
                       .toLowerCase()
@@ -1290,7 +1296,7 @@ const SmartSelection: React.FC = () => {
                           <div style={{ fontWeight: 'bold' }}>{strategy.strategy_name}</div>
                           <Tag
                             color={strategy.algorithm_type === 'advanced' ? 'purple' : 'blue'}
-                            style={{ marginLeft: 8 }}
+                            style={{ marginLeft: 8, borderRadius: FigmaBorderRadius.full }}
                           >
                             {strategy.algorithm_type === 'advanced' ? '高级算法' : '基础算法'}
                           </Tag>
@@ -1447,7 +1453,7 @@ const SmartSelection: React.FC = () => {
                   max={100}
                   value={maxResults}
                   onChange={(value) => value && setMaxResults(value)}
-                  style={{ width: '100%' }}
+                  style={{ width: '100%', borderRadius: FigmaBorderRadius.lg }}
                 />
               </Form.Item>
 
@@ -1459,6 +1465,7 @@ const SmartSelection: React.FC = () => {
                   loading={loading}
                   block
                   size="large"
+                  style={{ borderRadius: FigmaBorderRadius.lg }}
                 >
                   {algorithmType === 'basic' ? '运行智能选股' : '运行高级选股'}
                 </Button>
@@ -1497,26 +1504,27 @@ const SmartSelection: React.FC = () => {
               type={algorithmType === 'basic' ? "info" : "success"}
               showIcon
             />
-          </ProCard>
+          </FigmaCard>
         </Col>
 
         {/* 右侧：选股结果 */}
         <Col span={18}>
-          <ProCard
-            title={
+          <FigmaCard>
+            <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <Space>
                 {algorithmType === 'basic' ? <RocketOutlined /> : <ExperimentOutlined />}
-                <span>{algorithmType === 'basic' ? '智能选股结果' : '高级选股结果'}</span>
-                <Tag color="blue">{results.length} 只股票</Tag>
-                <Tag color="green">平均评分: {results.length > 0 ? (results.reduce((sum, r) => sum + (r.composite_score || r.overall_score || 0), 0) / results.length).toFixed(1) : 0}</Tag>
+                <Typography.Title level={5} style={{ margin: 0, color: FigmaColors.text }}>
+                  {algorithmType === 'basic' ? '智能选股结果' : '高级选股结果'}
+                </Typography.Title>
+                <Tag color="blue" style={{ borderRadius: FigmaBorderRadius.full }}>{results.length} 只股票</Tag>
+                <Tag color="green" style={{ borderRadius: FigmaBorderRadius.full }}>平均评分: {results.length > 0 ? (results.reduce((sum, r) => sum + (r.composite_score || r.overall_score || 0), 0) / results.length).toFixed(1) : 0}</Tag>
               </Space>
-            }
-            extra={
               <Space>
                 <Button
                   icon={<BarChartOutlined />}
                   disabled={results.length === 0}
                   onClick={() => setChartModalVisible(true)}
+                  style={{ borderRadius: FigmaBorderRadius.lg }}
                 >
                   图表分析
                 </Button>
@@ -1524,13 +1532,12 @@ const SmartSelection: React.FC = () => {
                   icon={<PieChartOutlined />}
                   disabled={results.length === 0}
                   onClick={() => setIndustryModalVisible(true)}
+                  style={{ borderRadius: FigmaBorderRadius.lg }}
                 >
                   概念分布
                 </Button>
               </Space>
-            }
-            headerBordered
-          >
+            </div>
             {error ? (
               <Alert
                 message="错误"
@@ -1538,7 +1545,7 @@ const SmartSelection: React.FC = () => {
                 type="error"
                 showIcon
                 action={
-                  <Button size="small" onClick={loadResults}>
+                  <Button size="small" onClick={loadResults} style={{ borderRadius: FigmaBorderRadius.lg }}>
                     重试
                   </Button>
                 }
@@ -1590,12 +1597,15 @@ const SmartSelection: React.FC = () => {
                 dateFormatter="string"
               />
             )}
-          </ProCard>
+          </FigmaCard>
 
           {/* 统计信息 */}
           {results.length > 0 && (
-            <ProCard title="统计概览" style={{ marginTop: 16 }} headerBordered>
-              <Row gutter={[16, 16]}>
+            <FigmaCard style={{ marginTop: 24 }}>
+              <Typography.Title level={5} style={{ marginBottom: 16, color: FigmaColors.text }}>
+                统计概览
+              </Typography.Title>
+              <Row gutter={[24, 24]}>
                 <Col span={6}>
                   <Card size="small">
                     <Statistic
@@ -1644,7 +1654,7 @@ const SmartSelection: React.FC = () => {
                   </Card>
                 </Col>
               </Row>
-            </ProCard>
+            </FigmaCard>
           )}
 
 
@@ -1655,7 +1665,7 @@ const SmartSelection: React.FC = () => {
             width={1000}
             onCancel={() => setChartModalVisible(false)}
             footer={[
-              <Button key="close" onClick={() => setChartModalVisible(false)}>
+              <Button key="close" onClick={() => setChartModalVisible(false)} style={{ borderRadius: FigmaBorderRadius.lg }}>
                 关闭
               </Button>,
             ]}
@@ -1675,7 +1685,7 @@ const SmartSelection: React.FC = () => {
             width={900}
             onCancel={() => setIndustryModalVisible(false)}
             footer={[
-              <Button key="close" onClick={() => setIndustryModalVisible(false)}>
+              <Button key="close" onClick={() => setIndustryModalVisible(false)} style={{ borderRadius: FigmaBorderRadius.lg }}>
                 关闭
               </Button>,
             ]}
@@ -1695,7 +1705,7 @@ const SmartSelection: React.FC = () => {
             width={1000}
             onCancel={() => setHistoryVisible(false)}
             footer={[
-              <Button key="close" onClick={() => setHistoryVisible(false)}>
+              <Button key="close" onClick={() => setHistoryVisible(false)} style={{ borderRadius: FigmaBorderRadius.lg }}>
                 关闭
               </Button>,
             ]}
@@ -1704,7 +1714,7 @@ const SmartSelection: React.FC = () => {
               <Select
                 allowClear
                 placeholder="按策略筛选"
-                style={{ width: 200 }}
+                style={{ width: 200, borderRadius: FigmaBorderRadius.lg }}
                 value={historyStrategyId}
                 onChange={(value) => setHistoryStrategyId(value)}
               >
@@ -1724,7 +1734,7 @@ const SmartSelection: React.FC = () => {
                   setHistoryEndDate(ds[1] || undefined);
                 }}
               />
-              <Button type="primary" onClick={handleViewHistory}>
+              <Button type="primary" onClick={handleViewHistory} style={{ borderRadius: FigmaBorderRadius.lg }}>
                 查询
               </Button>
               <Button
@@ -1734,6 +1744,7 @@ const SmartSelection: React.FC = () => {
                   setHistoryEndDate(undefined);
                   handleViewHistory();
                 }}
+                style={{ borderRadius: FigmaBorderRadius.lg }}
               >
                 重置
               </Button>
@@ -1771,7 +1782,7 @@ const SmartSelection: React.FC = () => {
                             if (status === 'running') color = 'processing';
                             else if (status === 'completed') color = 'success';
                             else if (status === 'failed') color = 'error';
-                            return <Tag color={color}>{status}</Tag>;
+                            return <Tag color={color} style={{ borderRadius: FigmaBorderRadius.full }}>{status}</Tag>;
                           },
                         },
                         {
@@ -1833,6 +1844,7 @@ const SmartSelection: React.FC = () => {
                                     setHistoryVisible(false);
                                   }
                                 }}
+                                style={{ borderRadius: FigmaBorderRadius.lg }}
                               >
                                 查看结果
                               </Button>
@@ -1899,6 +1911,7 @@ const SmartSelection: React.FC = () => {
                             danger
                             disabled={historySelectedKeys.length === 0}
                             loading={historyDeleting}
+                            style={{ borderRadius: FigmaBorderRadius.lg }}
                           >
                             批量删除
                           </Button>
@@ -1990,6 +2003,7 @@ const SmartSelection: React.FC = () => {
                                   danger
                                   size="small"
                                   loading={historyDeleting}
+                                  style={{ borderRadius: FigmaBorderRadius.lg }}
                                 >
                                   删除
                                 </Button>
@@ -2050,8 +2064,11 @@ const SmartSelection: React.FC = () => {
 
           {/* 高级算法统计信息（仅当有统计信息且使用高级算法时显示） */}
           {advancedStatistics && algorithmType === 'advanced' && (
-            <ProCard title="高级算法统计" style={{ marginTop: 16 }} headerBordered>
-              <Row gutter={[16, 16]}>
+            <FigmaCard style={{ marginTop: 24 }}>
+              <Typography.Title level={5} style={{ marginBottom: 16, color: FigmaColors.text }}>
+                高级算法统计
+              </Typography.Title>
+              <Row gutter={[24, 24]}>
                 <Col span={6}>
                   <Card size="small">
                     <Statistic
@@ -2102,7 +2119,7 @@ const SmartSelection: React.FC = () => {
               <Title level={5}>参考算法:</Title>
               <div style={{ marginBottom: 16 }}>
                 {advancedStatistics.reference_algorithms.map((algo: string, index: number) => (
-                  <Tag key={index} color="blue" style={{ marginRight: 8, marginBottom: 8 }}>
+                  <Tag key={index} color="blue" style={{ marginRight: 8, marginBottom: 8, borderRadius: FigmaBorderRadius.full }}>
                     {algo}
                   </Tag>
                 ))}
@@ -2113,7 +2130,7 @@ const SmartSelection: React.FC = () => {
                   <li key={index} style={{ marginBottom: 8, fontSize: 13 }}>{feature}</li>
                 ))}
               </ul>
-            </ProCard>
+            </FigmaCard>
           )}
         </Col>
       </Row>
@@ -2125,7 +2142,7 @@ const SmartSelection: React.FC = () => {
         onCancel={handleCloseBacktestModal}
         width={1000}
         footer={[
-          <Button key="close" onClick={handleCloseBacktestModal}>
+          <Button key="close" onClick={handleCloseBacktestModal} style={{ borderRadius: FigmaBorderRadius.lg }}>
             关闭
           </Button>,
         ]}
@@ -2186,6 +2203,7 @@ const SmartSelection: React.FC = () => {
                         size="small"
                         loading={backtestLoading}
                         onClick={handleRunBacktest}
+                        style={{ borderRadius: FigmaBorderRadius.lg }}
                       >
                         重新回测
                       </Button>
@@ -2207,7 +2225,7 @@ const SmartSelection: React.FC = () => {
                 <Col span={12}>
                   <div>
                     <Text type="secondary">回测状态: </Text>
-                    <Tag color={backtestResult.backtest_completed ? 'success' : 'error'}>
+                    <Tag color={backtestResult.backtest_completed ? 'success' : 'error'} style={{ borderRadius: FigmaBorderRadius.full }}>
                       {backtestResult.backtest_completed ? '已完成' : '失败'}
                     </Tag>
                   </div>
@@ -2242,7 +2260,7 @@ const SmartSelection: React.FC = () => {
                     <Text type="secondary">选择查看策略:</Text>
                     <Select
                       size="small"
-                      style={{ width: 200 }}
+                      style={{ width: 200, borderRadius: FigmaBorderRadius.lg }}
                       value={activeBacktestStrategyId ?? selectedStrategy}
                       onChange={(value) => {
                         const item = backtestCompareResults.find(r => r.strategyId === value);

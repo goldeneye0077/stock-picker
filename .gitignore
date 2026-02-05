@@ -114,3 +114,18 @@ nul
 /test_*.py
 populate_sample_data.py
 data/
+
+# AI / IDE helper directories
+.agent/
+.claude/
+.codebuddy/
+.codex/
+.continue/
+.cursor/
+.gemini/
+.kiro/
+.opencode/
+.qoder/
+.roo/
+.windsurf/
+.github/prompts/

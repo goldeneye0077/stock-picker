@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Card, Table, Space, Statistic, Row, Col, Tag, Button, Typography, DatePicker, Switch, message, InputNumber, Tooltip } from 'antd';
+import { Table, Space, Statistic, Row, Col, Tag, Button, Typography, DatePicker, Switch, message, InputNumber, Tooltip } from 'antd';
 import { ThunderboltOutlined, SyncOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import {
   collectAuctionSnapshot,
@@ -11,6 +11,8 @@ import dayjs, { Dayjs } from 'dayjs';
 import type { ColumnsType } from 'antd/es/table';
 import TechnicalAnalysisModal from '../components/TechnicalAnalysisModal';
 import FigmaPageHero from '../components/FigmaPageHero';
+import FigmaCard from '../components/FigmaCard';
+import { FigmaBorderRadius } from '../styles/FigmaDesignTokens';
 
 const SuperMainForce: React.FC = () => {
   const [data, setData] = useState<AuctionSuperMainForceData | null>(null);
@@ -319,19 +321,28 @@ const SuperMainForce: React.FC = () => {
           icon={<ThunderboltOutlined style={{ fontSize: 18 }} />}
           title="超强主力"
           subTitle="集合竞价强势标的排行，辅助筛选更可能冲板的候选股票"
+          badge={
+            isSelectedDateDataComplete 
+              ? { text: "数据齐全: 量比已就绪", status: "success" }
+              : isNotCollected
+              ? { text: "未采集: 量比可能偏低", status: "error" }
+              : isCollectedNoItems
+              ? { text: "已采集且无候选", status: "warning" }
+              : undefined
+          }
           actions={
             <>
-              <Button icon={<SyncOutlined spin={loading} />} onClick={loadData} loading={loading} style={{ borderRadius: 10 }}>
+              <Button icon={<SyncOutlined spin={loading} />} onClick={loadData} loading={loading} style={{ borderRadius: FigmaBorderRadius.lg }}>
                 刷新
               </Button>
-              <Button onClick={forceRefresh} disabled={loading} style={{ borderRadius: 10 }}>
+              <Button onClick={forceRefresh} disabled={loading} style={{ borderRadius: FigmaBorderRadius.lg }}>
                 强制刷新
               </Button>
             </>
           }
         />
 
-        <Card style={{ marginBottom: 16, borderRadius: 14 }}>
+        <FigmaCard gradient purpleGlow style={{ marginBottom: 24 }}>
           <div
             style={{
               display: 'flex',
@@ -351,11 +362,11 @@ const SuperMainForce: React.FC = () => {
                 allowClear
                 format="YYYY-MM-DD"
                 disabled={loading}
-                style={{ borderRadius: 10 }}
+                style={{ borderRadius: FigmaBorderRadius.lg }}
               />
               {isSelectedDateDataComplete ? (
                 <Space size={6}>
-                  <Tag color="green" style={{ borderRadius: 999 }}>
+                  <Tag color="green" style={{ borderRadius: FigmaBorderRadius.full }}>
                     数据齐全：量比已就绪
                   </Tag>
                   <Tooltip title="量比来源于 daily_basic.volume_ratio。该口径在集合竞价阶段通常已就绪，可直接参考。">
@@ -364,19 +375,19 @@ const SuperMainForce: React.FC = () => {
                 </Space>
               ) : isNotCollected ? (
                 <Space size={6}>
-                  <Tag color="red" style={{ borderRadius: 999 }}>
+                  <Tag color="red" style={{ borderRadius: FigmaBorderRadius.full }}>
                     未采集：量比可能偏低
                   </Tag>
-                  <Tooltip title="集合竞价阶段 daily_basic.volume_ratio 可能未就绪，建议点击“刷新”采集或使用“强制刷新”。如仍偏低，可参考“竞价量比”。">
+                  <Tooltip title='集合竞价阶段 daily_basic.volume_ratio 可能未就绪，建议点击"刷新"采集或使用"强制刷新"。如仍偏低，可参考"竞价量比"。'>
                     <QuestionCircleOutlined style={{ color: 'var(--sq-primary)' }} />
                   </Tooltip>
                 </Space>
               ) : isCollectedNoItems ? (
                 <Space size={6}>
-                  <Tag color="orange" style={{ borderRadius: 999 }}>
+                  <Tag color="orange" style={{ borderRadius: FigmaBorderRadius.full }}>
                     已采集且无候选：量比可能不稳定
                   </Tag>
-                  <Tooltip title="早盘集合竞价数据不完全会导致量比偏低。可尝试“强制刷新”或稍后再试，并结合竞价量比进行判断。">
+                  <Tooltip title='早盘集合竞价数据不完全会导致量比偏低。可尝试"强制刷新"或稍后再试，并结合竞价量比进行判断。'>
                     <QuestionCircleOutlined style={{ color: 'var(--sq-primary)' }} />
                   </Tooltip>
                 </Space>
@@ -399,14 +410,14 @@ const SuperMainForce: React.FC = () => {
                   value={themeAlpha}
                   onChange={(v) => setThemeAlpha(Number(v ?? 0))}
                   disabled={loading}
-                  style={{ width: 96, borderRadius: 10 }}
+                  style={{ width: 96, borderRadius: FigmaBorderRadius.lg }}
                 />
               </Space>
               <Button
                 type={showLowGapOnly ? 'primary' : 'default'}
                 onClick={() => setShowLowGapOnly((v) => !v)}
                 disabled={loading || !hasItems}
-                style={{ borderRadius: 10 }}
+                style={{ borderRadius: FigmaBorderRadius.lg }}
               >
                 {showLowGapOnly ? '显示全部' : '只看涨幅<5%'}
               </Button>
@@ -416,13 +427,13 @@ const SuperMainForce: React.FC = () => {
           <Row gutter={24}>
             <Col xs={24} md={16}>
               <Typography.Paragraph style={{ marginBottom: 8, color: 'var(--sq-text-secondary)' }}>
-                本页功能说明：展示集合竞价阶段的强势标的排行，辅助筛选更可能“冲板”的候选股票。支持选择交易日、设置是否包含竞价涨停，并可调整题材增强系数 α 来放大/减弱题材热度对评分的影响。
+                本页功能说明：展示集合竞价阶段的强势标的排行，辅助筛选更可能"冲板"的候选股票。支持选择交易日、设置是否包含竞价涨停，并可调整题材增强系数 α 来放大/减弱题材热度对评分的影响。
               </Typography.Paragraph>
               <Typography.Paragraph style={{ marginBottom: 0, fontSize: 13, color: 'var(--sq-text-tertiary)' }}>
-                操作说明：点击“刷新”获取数据；当数据缺失时会自动触发采集；点击“强制刷新”会重新采集并刷新当前日期数据。
+                操作说明：点击"刷新"获取数据；当数据缺失时会自动触发采集；点击"强制刷新"会重新采集并刷新当前日期数据。
               </Typography.Paragraph>
               <Typography.Paragraph style={{ marginBottom: 0, fontSize: 13, color: 'var(--sq-text-tertiary)' }}>
-                标记说明：“竞价涨停”表示集合竞价已触及涨停；“冲板优选”为更可能触及涨停的候选提示；“题材×系数”表示题材热度对评分的增强倍数。
+                标记说明："竞价涨停"表示集合竞价已触及涨停；"冲板优选"为更可能触及涨停的候选提示；"题材×系数"表示题材热度对评分的增强倍数。
               </Typography.Paragraph>
             </Col>
             <Col xs={24} md={8}>
@@ -444,9 +455,9 @@ const SuperMainForce: React.FC = () => {
               </Row>
             </Col>
           </Row>
-        </Card>
+        </FigmaCard>
 
-        <Card style={{ borderRadius: 14 }}>
+        <FigmaCard>
           <Table
             loading={loading}
             columns={columns}
@@ -455,7 +466,7 @@ const SuperMainForce: React.FC = () => {
             pagination={false}
             scroll={{ x: 1300 }}
           />
-        </Card>
+        </FigmaCard>
 
         <TechnicalAnalysisModal
           open={isAnalysisModalVisible}

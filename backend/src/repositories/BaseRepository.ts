@@ -22,7 +22,7 @@ export class BaseRepository {
   /**
    * 执行查询，返回单个结果
    */
-  protected async queryOne<T = any>(sql: string, params: any[] = []): Promise<T | undefined> {
+  public async queryOne<T = any>(sql: string, params: any[] = []): Promise<T | undefined> {
     return this.db.get(sql, params) as Promise<T | undefined>;
   }
 

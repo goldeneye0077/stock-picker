@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, Card, Checkbox, Form, Input, Modal, Space, Switch, Table, Tag, Typography, message } from 'antd';
+import { Button, Checkbox, Form, Input, Modal, Space, Switch, Table, Tag, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { PlusOutlined, SearchOutlined, SettingOutlined, TeamOutlined } from '@ant-design/icons';
 import { useAuth } from '../context/AuthContext';
 import type { AuthUser } from '../services/authService';
 import { adminCreateUser, adminListUsers, adminPages, adminUpdatePermissions, adminUpdateUser } from '../services/authService';
 import FigmaPageHero from '../components/FigmaPageHero';
+import FigmaCard from '../components/FigmaCard';
+import { FigmaBorderRadius } from '../styles/FigmaDesignTokens';
 
 const { Text } = Typography;
 
@@ -160,13 +162,13 @@ const UserManagement: React.FC = () => {
           title="用户管理"
           subTitle="管理系统用户权限、角色分配及访问控制"
           actions={
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)} style={{ borderRadius: 10 }}>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)} style={{ borderRadius: FigmaBorderRadius.lg }}>
               新建用户
             </Button>
           }
         />
 
-        <Card styles={{ body: { padding: 0 } }} style={{ borderRadius: 14, overflow: 'hidden' }}>
+        <FigmaCard style={{ padding: 0, overflow: 'hidden' }}>
           <div
             style={{
               padding: 16,
@@ -189,7 +191,7 @@ const UserManagement: React.FC = () => {
               allowClear
               prefix={<SearchOutlined style={{ color: 'var(--sq-text-tertiary)' }} />}
               placeholder="搜索用户..."
-              style={{ width: 320, maxWidth: '100%', borderRadius: 10 }}
+              style={{ width: 320, maxWidth: '100%', borderRadius: FigmaBorderRadius.lg }}
             />
           </div>
 
@@ -200,7 +202,7 @@ const UserManagement: React.FC = () => {
             dataSource={filteredUsers}
             pagination={false}
           />
-        </Card>
+        </FigmaCard>
 
       <Modal
         title={`权限配置 - ${permUser?.username || ''}`}

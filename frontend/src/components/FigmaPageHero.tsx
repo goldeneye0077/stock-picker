@@ -1,5 +1,6 @@
 import React from 'react';
 import { Space, Typography } from 'antd';
+import { FigmaColors, FigmaBorderRadius } from '../styles/FigmaDesignTokens';
 
 const { Title, Text } = Typography;
 
@@ -8,9 +9,16 @@ type FigmaPageHeroProps = {
   title: React.ReactNode;
   subTitle?: React.ReactNode;
   actions?: React.ReactNode;
+  badge?: { text: string; status: 'success' | 'warning' | 'error' };
 };
 
-const FigmaPageHero: React.FC<FigmaPageHeroProps> = ({ icon, title, subTitle, actions }) => {
+const FigmaPageHero: React.FC<FigmaPageHeroProps> = ({ icon, title, subTitle, actions, badge }) => {
+  const badgeColors = {
+    success: { bg: `rgba(0, 245, 160, 0.1)`, text: FigmaColors.success },
+    warning: { bg: `rgba(255, 176, 32, 0.1)`, text: FigmaColors.warning },
+    error: { bg: `rgba(255, 55, 95, 0.1)`, text: FigmaColors.error },
+  };
+
   return (
     <div
       style={{
@@ -30,7 +38,7 @@ const FigmaPageHero: React.FC<FigmaPageHeroProps> = ({ icon, title, subTitle, ac
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            color: '#F1F5F9',
+            color: FigmaColors.text,
             background: 'linear-gradient(135deg, rgba(49, 65, 88, 1) 0%, rgba(29, 41, 61, 1) 100%)',
             border: '1px solid rgba(255, 255, 255, 0.1)',
             boxShadow:
@@ -42,11 +50,30 @@ const FigmaPageHero: React.FC<FigmaPageHeroProps> = ({ icon, title, subTitle, ac
           {icon}
         </div>
         <div style={{ minWidth: 0 }}>
-          <Title level={3} style={{ margin: 0, color: '#F1F5F9', lineHeight: '28px', fontSize: 20 }}>
-            {title}
-          </Title>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Title level={3} style={{ margin: 0, color: FigmaColors.text, lineHeight: '28px', fontSize: 20 }}>
+              {title}
+            </Title>
+            {badge && (
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  padding: '2px 10px',
+                  borderRadius: FigmaBorderRadius.full,
+                  fontSize: 12,
+                  fontWeight: 500,
+                  background: badgeColors[badge.status].bg,
+                  color: badgeColors[badge.status].text,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {badge.text}
+              </span>
+            )}
+          </div>
           {subTitle ? (
-            <Text style={{ color: '#90A1B9', fontSize: 14, lineHeight: '20px' }}>
+            <Text style={{ color: FigmaColors.textSecondary, fontSize: 14, lineHeight: '20px' }}>
               {subTitle}
             </Text>
           ) : null}

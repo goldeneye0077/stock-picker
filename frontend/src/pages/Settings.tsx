@@ -4,6 +4,7 @@ import { SaveOutlined, ReloadOutlined, SyncOutlined, ClockCircleOutlined, Databa
 import axios from 'axios';
 import { DATA_SERVICE_URL } from '../config/api';
 import FigmaPageHero from '../components/FigmaPageHero';
+import { FigmaBorderRadius } from '../styles/FigmaDesignTokens';
 
 const { Option } = Select;
 const { Text } = Typography;
@@ -278,10 +279,10 @@ const Settings: React.FC = () => {
           subTitle="管理数据源、采集任务及系统运行状态"
           actions={
             <>
-              <Button icon={<ReloadOutlined />} onClick={refreshAllStatus} style={{ borderRadius: 10 }}>
+              <Button icon={<ReloadOutlined />} onClick={refreshAllStatus} style={{ borderRadius: FigmaBorderRadius.lg }}>
                 刷新状态
               </Button>
-              <Button type="primary" icon={<SyncOutlined spin={collecting} />} onClick={handleCollectData} loading={collecting} disabled={collecting} style={{ borderRadius: 10 }}>
+              <Button type="primary" icon={<SyncOutlined spin={collecting} />} onClick={handleCollectData} loading={collecting} disabled={collecting} style={{ borderRadius: FigmaBorderRadius.lg }}>
                 立即更新数据
               </Button>
             </>

@@ -13,6 +13,8 @@ import analysisRoutes from './routes/analysis';
 import quotesRoutes from './routes/quotes';
 import smartSelectionRoutes from './routes/smartSelection';
 import analyticsRoutes from './routes/analytics';
+import dashboardRoutes from './routes/dashboard';
+import superMainForceRoutes from './routes/superMainForce';
 import { authRoutes, adminRoutes } from './routes/auth';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 
@@ -75,6 +77,8 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/quotes', quotesRoutes);
 app.use('/api/smart-selection', smartSelectionRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/home', dashboardRoutes);
+app.use('/api/analysis/super-main-force', superMainForceRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
