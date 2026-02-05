@@ -1,12 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, Card, Checkbox, Form, Input, Modal, Space, Switch, Table, Tag, Typography, message } from 'antd';
+import { Button, Checkbox, Form, Input, Modal, Space, Switch, Table, Tag, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { PlusOutlined, SettingOutlined } from '@ant-design/icons';
+import { PlusOutlined, SearchOutlined, SettingOutlined, TeamOutlined } from '@ant-design/icons';
 import { useAuth } from '../context/AuthContext';
 import type { AuthUser } from '../services/authService';
 import { adminCreateUser, adminListUsers, adminPages, adminUpdatePermissions, adminUpdateUser } from '../services/authService';
+import FigmaPageHero from '../components/FigmaPageHero';
+import FigmaCard from '../components/FigmaCard';
+import { FigmaBorderRadius } from '../styles/FigmaDesignTokens';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 type UserRow = AuthUser & { createdAt?: string };
 
@@ -15,6 +18,7 @@ const UserManagement: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [users, setUsers] = useState<UserRow[]>([]);
   const [pages, setPages] = useState<string[]>([]);
+  const [searchText, setSearchText] = useState('');
 
   const [permModalOpen, setPermModalOpen] = useState(false);
   const [permUser, setPermUser] = useState<UserRow | null>(null);
@@ -145,24 +149,60 @@ const UserManagement: React.FC = () => {
     },
   ];
 
+  const filteredUsers = useMemo(() => {
+    const q = searchText.trim().toLowerCase();
+    if (!q) return users;
+    return users.filter((u) => String(u.username || '').toLowerCase().includes(q));
+  }, [searchText, users]);
+
   return (
-    <div style={{ padding: 24 }}>
-      <Card
-        title={<Title level={4} style={{ margin: 0 }}>用户管理</Title>}
-        extra={
-          <Button icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
-            新建用户
-          </Button>
-        }
-      >
-        <Table
-          rowKey="id"
-          loading={loading}
-          columns={columns}
-          dataSource={users}
-          pagination={false}
+    <div className="sq-figma-page">
+        <FigmaPageHero
+          icon={<TeamOutlined style={{ fontSize: 18 }} />}
+          title="用户管理"
+          subTitle="管理系统用户权限、角色分配及访问控制"
+          actions={
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)} style={{ borderRadius: FigmaBorderRadius.lg }}>
+              新建用户
+            </Button>
+          }
         />
-      </Card>
+
+        <FigmaCard style={{ padding: 0, overflow: 'hidden' }}>
+          <div
+            style={{
+              padding: 16,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              flexWrap: 'wrap',
+              borderBottom: '1px solid color-mix(in srgb, var(--sq-border) 60%, transparent)',
+            }}
+          >
+            <Space size={10} align="center">
+              <Text style={{ color: 'var(--sq-text-secondary)' }}>共</Text>
+              <Text style={{ fontSize: 18, fontWeight: 700, color: 'var(--sq-primary)' }}>{filteredUsers.length}</Text>
+              <Text style={{ color: 'var(--sq-text-secondary)' }}>位用户</Text>
+            </Space>
+            <Input
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              allowClear
+              prefix={<SearchOutlined style={{ color: 'var(--sq-text-tertiary)' }} />}
+              placeholder="搜索用户..."
+              style={{ width: 320, maxWidth: '100%', borderRadius: FigmaBorderRadius.lg }}
+            />
+          </div>
+
+          <Table
+            rowKey="id"
+            loading={loading}
+            columns={columns}
+            dataSource={filteredUsers}
+            pagination={false}
+          />
+        </FigmaCard>
 
       <Modal
         title={`权限配置 - ${permUser?.username || ''}`}
@@ -212,4 +252,3 @@ const UserManagement: React.FC = () => {
 };
 
 export default UserManagement;
-

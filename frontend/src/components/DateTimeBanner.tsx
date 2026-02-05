@@ -61,7 +61,8 @@ const TopBanner: React.FC<TopBannerProps> = ({ themeMode, onToggleThemeMode, isG
   const breadcrumbItems = useMemo(() => {
     const pathname = location.pathname;
     const directLabel = routeLabels[pathname];
-    if (directLabel) return ['首页', directLabel].filter(Boolean);
+    if (pathname === '/' || pathname === '/home') return ['首页'];
+    if (directLabel) return directLabel === '首页' ? ['首页'] : ['首页', directLabel].filter(Boolean);
 
     const segments = pathname.split('/').filter(Boolean);
     if (segments.length === 0) return ['首页'];
@@ -233,7 +234,11 @@ const TopBanner: React.FC<TopBannerProps> = ({ themeMode, onToggleThemeMode, isG
         <Space size={10} align="center" style={{ minWidth: 220 }}>
           <img src="/logo.png" alt="logo" style={{ height: 28, filter: 'saturate(1.05)' }} />
           <Text style={{ color: 'var(--sq-text)', fontSize: 18, fontWeight: 650, letterSpacing: 0.2 }}>
-            量鲸 QuantWhale
+            量鲸{' '}
+            <span style={{ color: 'var(--sq-neon-red-deep)' }}>Q</span>
+            uant
+            <span style={{ color: 'var(--sq-neon-red-deep)' }}>W</span>
+            hale
           </Text>
         </Space>
       </a>
@@ -263,6 +268,10 @@ const TopBanner: React.FC<TopBannerProps> = ({ themeMode, onToggleThemeMode, isG
         </Space>
       ) : (
         <Space size={12} align="center" style={{ flex: 1, justifyContent: 'center', minWidth: 0 }}>
+          <Tag color={marketStatus.color} style={{ marginInlineEnd: 0 }}>
+            {marketStatus.label}
+          </Tag>
+          <Text style={{ color: 'var(--sq-text-tertiary)' }}>{marketStatus.countdown}</Text>
           <Space size={10}>
             <CalendarOutlined style={{ color: 'var(--sq-primary)' }} />
             <Text style={{ color: 'var(--sq-text-secondary)' }}>{currentTime.format('YYYY年MM月DD日 dddd')}</Text>

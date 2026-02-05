@@ -44,6 +44,13 @@ package-lock.json
 *.swo
 *~
 
+# Trae
+.trae/
+task_plan.md
+progress.md
+findings.md
+planning-with-files.zip
+
 # OS
 .DS_Store
 .DS_Store?
@@ -107,3 +114,18 @@ nul
 /test_*.py
 populate_sample_data.py
 data/
+
+# AI / IDE helper directories
+.agent/
+.claude/
+.codebuddy/
+.codex/
+.continue/
+.cursor/
+.gemini/
+.kiro/
+.opencode/
+.qoder/
+.roo/
+.windsurf/
+.github/prompts/

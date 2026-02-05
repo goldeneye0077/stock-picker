@@ -5,8 +5,9 @@
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
-import { Card, Modal, Descriptions, Alert, Button, message } from 'antd';
-import { useLocation } from 'react-router-dom';
+import { Modal, Descriptions, Alert, Button, Space, Tag, message } from 'antd';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { DownloadOutlined, StarOutlined, StockOutlined } from '@ant-design/icons';
 import { StockSearchBar, StockTable } from '../components/StockList';
 import { useStockList, useStockDetail } from '../hooks/useStockList';
 import FundamentalDetailModal from '../components/Fundamental/FundamentalDetailModal';
@@ -14,9 +15,13 @@ import TechnicalAnalysisModal from '../components/TechnicalAnalysisModal';
 import type { StockItem } from '../services/stockService';
 import { useAuth } from '../context/AuthContext';
 import { addToWatchlist, ApiError, getWatchlist, removeFromWatchlist } from '../services/authService';
+import FigmaPageHero from '../components/FigmaPageHero';
+import FigmaCard from '../components/FigmaCard';
+import { FigmaBorderRadius } from '../styles/FigmaDesignTokens';
 
 const StockList: React.FC<{ mode?: 'all' | 'watchlist' }> = ({ mode = 'all' }) => {
   const { token } = useAuth();
+  const navigate = useNavigate();
 
   // 使用自定义 Hooks
   const {
@@ -217,54 +222,144 @@ const StockList: React.FC<{ mode?: 'all' | 'watchlist' }> = ({ mode = 'all' }) =
     setCurrentStock(null);
   }, []);
 
+  const handleExport = useCallback(() => {
+    if (!data || data.length === 0) {
+      message.info('暂无可导出的数据');
+      return;
+    }
+
+    const headers = [
+      'code',
+      'name',
+      'price',
+      'change',
+      'changeAmount',
+      'volume',
+      'amount',
+      'quoteTime',
+      'status',
+      'signal',
+    ];
+    const escapeCell = (v: unknown) => {
+      const raw = String(v ?? '');
+      const escaped = raw.replaceAll('"', '""');
+      return `"${escaped}"`;
+    };
+    const rows = data.map((r) => [
+      escapeCell(r.code),
+      escapeCell(r.name),
+      escapeCell(r.price),
+      escapeCell(r.change),
+      escapeCell(r.changeAmount),
+      escapeCell(r.volume),
+      escapeCell(r.amount),
+      escapeCell(r.quoteTime),
+      escapeCell(r.status),
+      escapeCell(r.signal),
+    ]);
+    const csv = ['\ufeff' + headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${mode === 'watchlist' ? 'watchlist' : 'stocks'}-${new Date().toISOString().slice(0, 19).replaceAll(':', '')}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  }, [data, mode]);
+
   return (
-    <div style={{ padding: '24px', maxWidth: '100%', overflow: 'hidden' }}>
-      {params.date && (
-        <Alert
-          message={`正在查看 ${params.date} 的历史数据`}
-          type="info"
-          closable
-          onClose={handleResetDate}
-          style={{ marginBottom: '16px' }}
-          action={
-            <Button size="small" onClick={handleResetDate}>
-              返回实时数据
-            </Button>
+    <div className="sq-figma-page">
+        <FigmaPageHero
+          icon={
+            mode === 'watchlist'
+              ? <StarOutlined style={{ fontSize: 18 }} />
+              : <StockOutlined style={{ fontSize: 18 }} />
+          }
+          title={mode === 'watchlist' ? '自选股管理' : '股票行情列表'}
+          subTitle={
+            mode === 'watchlist'
+              ? '实时监控您的重点关注标的，捕捉交易良机'
+              : '提供全市场股票实时行情、资金流向及技术指标监控'
+          }
+          actions={
+            <>
+              {mode === 'watchlist' ? (
+                <Button type="primary" onClick={() => navigate('/smart-selection')} style={{ borderRadius: FigmaBorderRadius.lg }}>
+                  智能筛选
+                </Button>
+              ) : null}
+              <Button icon={<DownloadOutlined />} onClick={handleExport} style={{ borderRadius: FigmaBorderRadius.lg }}>
+                导出数据
+              </Button>
+            </>
           }
         />
-      )}
 
-      <Card
-        title={mode === 'watchlist' ? '自选股' : '股票列表'}
-        extra={
-          <StockSearchBar
-            searchQuery={searchQuery}
-            searchOptions={searchOptions}
-            selectedDate={params.date || null}
-            loading={loading}
-            onSearch={handleSearchSubmit}
-            onSearchChange={handleSearchChange}
-            onDateChange={handleDateChange}
-            onReset={handleResetDate}
-            onRefresh={fetchData}
+        {params.date ? (
+          <Alert
+            message={`正在查看 ${params.date} 的历史数据`}
+            type="info"
+            closable
+            onClose={handleResetDate}
+            style={{ marginBottom: 24, borderRadius: FigmaBorderRadius.lg }}
+            action={
+              <Button size="small" onClick={handleResetDate} style={{ borderRadius: FigmaBorderRadius.lg }}>
+                返回实时数据
+              </Button>
+            }
           />
-        }
-        styles={{ body: { padding: 0 } }}
-      >
-        <div style={{ overflowX: 'auto', width: '100%' }}>
-          <StockTable
-            data={data}
-            loading={loading}
-            onRowClick={showDetailModal}
-            onAnalysisClick={showAnalysisModal}
-            onFundamentalClick={showFundamentalModal}
-            watchlistMode={mode === 'watchlist'}
-            watchlistCodes={watchlistCodeSet}
-            watchlistPendingCodes={watchlistPendingCodes}
-            onToggleWatchlist={handleToggleWatchlist}
-          />
-        </div>
-      </Card>
+        ) : null}
+
+        <FigmaCard style={{ padding: 0, overflow: 'hidden' }}>
+          <div
+            style={{
+              padding: 16,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              flexWrap: 'wrap',
+              borderBottom: '1px solid color-mix(in srgb, var(--sq-border) 60%, transparent)',
+            }}
+          >
+            <Space size={10} wrap>
+              <Tag color={loading ? 'default' : 'green'} style={{ borderRadius: FigmaBorderRadius.full, marginInlineEnd: 0 }}>
+                {loading ? '正在刷新数据' : '行情数据就绪'}
+              </Tag>
+              {mode === 'watchlist' ? (
+                <Tag style={{ borderRadius: FigmaBorderRadius.full, marginInlineEnd: 0 }}>我的自选：{watchlistCodes.length}</Tag>
+              ) : null}
+            </Space>
+
+            <StockSearchBar
+              searchQuery={searchQuery}
+              searchOptions={searchOptions}
+              selectedDate={params.date || null}
+              loading={loading}
+              onSearch={handleSearchSubmit}
+              onSearchChange={handleSearchChange}
+              onDateChange={handleDateChange}
+              onReset={handleResetDate}
+              onRefresh={fetchData}
+            />
+          </div>
+
+          <div style={{ overflowX: 'auto', width: '100%' }}>
+            <StockTable
+              data={data}
+              loading={loading}
+              onRowClick={showDetailModal}
+              onAnalysisClick={showAnalysisModal}
+              onFundamentalClick={showFundamentalModal}
+              watchlistMode={mode === 'watchlist'}
+              watchlistCodes={watchlistCodeSet}
+              watchlistPendingCodes={watchlistPendingCodes}
+              onToggleWatchlist={handleToggleWatchlist}
+            />
+          </div>
+        </FigmaCard>
 
       {/* 股票详情模态框 */}
       <Modal

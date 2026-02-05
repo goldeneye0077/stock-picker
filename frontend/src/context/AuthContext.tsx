@@ -2,7 +2,6 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import type { AuthUser } from '../services/authService';
 import {
   getStoredToken,
-  getStoredRefreshToken,
   setStoredRefreshToken,
   login,
   me,

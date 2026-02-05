@@ -26,6 +26,7 @@ import SiteAnalytics from './pages/SiteAnalytics';
 import TopBanner from './components/DateTimeBanner';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { usePageTracking } from './hooks/usePageTracking';
+import FigmaShellLayout from './components/FigmaShellLayout';
 
 const { darkAlgorithm, defaultAlgorithm } = theme;
 
@@ -135,11 +136,19 @@ function AppLayout() {
     return true;
   });
 
+  if (location.pathname === '/home' || location.pathname === '/') {
+    return (
+      <RequireAuth path="/home">
+        <Home />
+      </RequireAuth>
+    );
+  }
+
   return (
     <ProLayout
       style={{ height: '100%' }}
       title={false}
-      logo={<img src="/logo.png" alt="logo" style={{ height: '32px' }} />}
+      logo={null}
       onMenuHeaderClick={() => navigate('/home')}
       route={{
         routes: menuItemsWithAdminGuard,
@@ -149,10 +158,8 @@ function AppLayout() {
       }}
       selectedKeys={[location.pathname]}
       layout="side"
-      siderWidth={isHomePage ? 0 : 200}
-      collapsed={isHomePage}
-      menuRender={isHomePage ? false : undefined}
-      collapsedButtonRender={isHomePage ? false : undefined}
+      siderWidth={200}
+      collapsed={false}
       headerRender={false}
       footerRender={() => (
         <div
@@ -370,12 +377,12 @@ function App() {
           paddingLG: 20,
         },
         Table: {
-          headerBg: '#0c1024',
-          headerColor: 'rgba(255, 255, 255, 0.65)',
+          headerBg: '#0f172b',
+          headerColor: '#90a1b9',
         },
         Modal: {
-          contentBg: '#12183a',
-          headerBg: '#12183a',
+          contentBg: '#0f172b',
+          headerBg: '#0f172b',
         },
         Tag: {
           borderRadiusSM: 2,
@@ -384,31 +391,94 @@ function App() {
     };
   }, [themeMode]);
 
+  const AppFrame: React.FC = () => {
+    return (
+      <div style={{ width: '100vw', height: '100vh' }}>
+        <TopBanner
+          themeMode={themeMode}
+          onToggleThemeMode={() => setThemeMode((m) => (m === 'dark' ? 'light' : 'dark'))}
+          isGrayscale={isGrayscale}
+          onToggleGrayscale={() => setIsGrayscale((v) => !v)}
+          routeLabels={routeLabels}
+        />
+        <div
+          style={{
+            height: '100%',
+            paddingTop: 48,
+            boxSizing: 'border-box',
+            overflow: 'auto',
+          }}
+        >
+          <Routes>
+            <Route path="/" element={<Navigate to="/home" replace />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
+            <Route path="/user-agreement" element={<UserAgreement />} />
+            <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+            <Route element={<FigmaShellLayout />}>
+              <Route
+                path="/super-main-force"
+                element={
+                  <RequireAuth path="/super-main-force">
+                    <SuperMainForce />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/smart-selection"
+                element={
+                  <RequireAuth path="/smart-selection">
+                    <SmartSelection />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/stocks"
+                element={
+                  <RequireAuth path="/stocks">
+                    <StockList mode="all" />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/watchlist"
+                element={
+                  <RequireAuth path="/watchlist">
+                    <StockList mode="watchlist" />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/user-management"
+                element={
+                  <RequireAuth path="/user-management">
+                    <UserManagement />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/settings"
+                element={
+                  <RequireAuth path="/settings">
+                    <Settings />
+                  </RequireAuth>
+                }
+              />
+            </Route>
+            <Route path="/*" element={<AppLayout />} />
+          </Routes>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <ConfigProvider
       theme={themeConfig}
     >
       <AuthProvider>
         <Router>
-          <div style={{ width: '100vw', height: '100vh' }}>
-            <TopBanner
-              themeMode={themeMode}
-              onToggleThemeMode={() => setThemeMode((m) => (m === 'dark' ? 'light' : 'dark'))}
-              isGrayscale={isGrayscale}
-              onToggleGrayscale={() => setIsGrayscale((v) => !v)}
-              routeLabels={routeLabels}
-            />
-            <div style={{ height: '100%', paddingTop: 48, boxSizing: 'border-box', overflow: 'auto' }}>
-              <Routes>
-                <Route path="/" element={<Navigate to="/home" replace />} />
-                <Route path="/login" element={<Login />} />
-                <Route path="/register" element={<Register />} />
-                <Route path="/user-agreement" element={<UserAgreement />} />
-                <Route path="/privacy-policy" element={<PrivacyPolicy />} />
-                <Route path="/*" element={<AppLayout />} />
-              </Routes>
-            </div>
-          </div>
+          <AppFrame />
         </Router>
       </AuthProvider>
     </ConfigProvider>

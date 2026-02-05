@@ -8,4 +8,5 @@ export const API_ENDPOINTS = {
   DATA_COLLECTION: '/api/data',
   QUOTES: '/api/quotes',
   FUNDAMENTAL: '/api/fundamental',
+  DASHBOARD: '/api/home',
 };
