@@ -1,5 +1,5 @@
 # Build stage
-FROM alibaba-cloud-linux-3-registry.cn-hangzhou.cr.aliyuncs.com/alinux3/node:20.19 AS builder
+FROM node:20.19-bullseye AS builder
 
 WORKDIR /app
 USER root
