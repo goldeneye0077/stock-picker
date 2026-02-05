@@ -8,7 +8,6 @@ import {
   LockOutlined,
   SafetyCertificateOutlined,
   CheckCircleOutlined,
-  ExclamationCircleOutlined,
 } from '@ant-design/icons';
 import './AuthPages.css';
 

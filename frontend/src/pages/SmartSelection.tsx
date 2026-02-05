@@ -5,7 +5,6 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
-  PageContainer,
   ProCard,
   ProTable,
 } from '@ant-design/pro-components';
@@ -69,7 +68,8 @@ import {
 } from '../services/advancedSelectionService';
 import FundamentalDetailModal from '../components/Fundamental/FundamentalDetailModal';
 import TechnicalAnalysisModal from '../components/TechnicalAnalysisModal';
-import { addToWatchlist, removeFromWatchlist, getWatchlist, ApiError } from '../services/authService';
+import FigmaPageHero from '../components/FigmaPageHero';
+import { removeFromWatchlist, getWatchlist } from '../services/authService';
 import { useAuth } from '../context/AuthContext';
 import { message } from 'antd';
 
@@ -832,6 +832,50 @@ const SmartSelection: React.FC = () => {
     }
   };
 
+  const handleExport = useCallback(() => {
+    if (!results || results.length === 0) {
+      message.info('暂无可导出的选股结果');
+      return;
+    }
+
+    const headers = [
+      'stock_code',
+      'stock_name',
+      'composite_score',
+      'risk_level',
+      'holding_period',
+      'strategy_name',
+      'selection_reason',
+    ];
+    const escapeCell = (v: unknown) => {
+      const raw = String(v ?? '');
+      const escaped = raw.replaceAll('"', '""');
+      return `"${escaped}"`;
+    };
+
+    const strategyName = strategies.find((s) => s.id === selectedStrategy)?.strategy_name ?? '';
+    const rows = results.map((r) => [
+      escapeCell(r.stock_code),
+      escapeCell(r.stock_name),
+      escapeCell(r.composite_score),
+      escapeCell(r.risk_level),
+      escapeCell(r.holding_period),
+      escapeCell(strategyName),
+      escapeCell(r.selection_reason),
+    ]);
+
+    const csv = ['\ufeff' + headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `smart-selection-${dayjs().format('YYYYMMDD-HHmmss')}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  }, [results, selectedStrategy, strategies]);
+
 
 
   const handleCloseBacktestModal = () => {
@@ -866,8 +910,8 @@ const SmartSelection: React.FC = () => {
     try {
       const res = await getWatchlist(token);
       setWatchlistCodes(new Set(res.data.codes));
-    } catch (e) {
-      console.error('Fetch watchlist failed', e);
+    } catch {
+      console.error('Fetch watchlist failed');
     }
   }, [token]);
 
@@ -904,11 +948,8 @@ const SmartSelection: React.FC = () => {
       if (isFav) {
         await removeFromWatchlist(token, code);
         message.success(`已移出自选: ${record.stock_name}`);
-      } else {
-        await addToWatchlist(token, code);
-        message.success(`已加入自选: ${record.stock_name}`);
       }
-    } catch (e) {
+    } catch {
       // Revert on error
       setWatchlistCodes(prev => {
         const next = new Set(prev);
@@ -1183,32 +1224,36 @@ const SmartSelection: React.FC = () => {
   const selectedStrategyData = strategies.find(s => s.id === selectedStrategy);
 
   return (
-    <PageContainer
-      header={{
-        title: (
-          <Space>
-            {algorithmType === 'basic' ? <CalculatorOutlined /> : <ExperimentOutlined />}
-            <span>精算智选</span>
-            <Tag color={algorithmType === 'advanced' ? 'purple' : 'blue'}>
-              {algorithmType === 'advanced' ? '高级算法' : '基础算法'}
-            </Tag>
-          </Space>
-        ),
-        subTitle: algorithmType === 'basic'
-          ? '基于多维度分析的智能选股系统'
-          : '基于多因子动量模型的AI选股系统',
-        extra: [
-          <Button
-            key="history"
-            icon={<ClockCircleOutlined />}
-            onClick={handleViewHistory}
-          >
-            历史选股
-          </Button>,
-          <Button key="export" type="primary">导出结果</Button>,
-        ],
-      }}
-    >
+    <div className="sq-figma-page">
+        <FigmaPageHero
+          icon={(algorithmType === 'basic'
+            ? <CalculatorOutlined style={{ fontSize: 18 }} />
+            : <ExperimentOutlined style={{ fontSize: 18 }} />
+          )}
+          title={
+            <Space size={10} align="center">
+              <span>精算智选</span>
+              <Tag color={algorithmType === 'advanced' ? 'purple' : 'blue'} style={{ borderRadius: 999 }}>
+                {algorithmType === 'advanced' ? '高级算法' : '基础算法'}
+              </Tag>
+            </Space>
+          }
+          subTitle={
+            algorithmType === 'basic'
+              ? '基于多维度分析的智能选股系统'
+              : '基于多因子动量模型的AI选股系统'
+          }
+          actions={
+            <>
+              <Button icon={<ClockCircleOutlined />} onClick={handleViewHistory} style={{ borderRadius: 10 }}>
+                历史选股
+              </Button>
+              <Button type="primary" icon={<BarChartOutlined />} onClick={handleExport} style={{ borderRadius: 10 }}>
+                导出结果
+              </Button>
+            </>
+          }
+        />
       <Row gutter={[16, 16]}>
         {/* 左侧：策略配置 */}
         <Col span={6}>
@@ -2571,7 +2616,7 @@ const SmartSelection: React.FC = () => {
           ...(currentAnalysisStock?.holding_period ? [{ label: currentAnalysisStock.holding_period, color: getHoldingPeriodColor(currentAnalysisStock.holding_period) }] : []),
         ]}
       />
-    </PageContainer>
+    </div>
   );
 };
 

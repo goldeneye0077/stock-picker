@@ -172,7 +172,8 @@ authRoutes.post('/login', asyncHandler(async (req, res) => {
       });
     }
 
-    if (captcha !== attempts.captcha) {
+    const normalizedCaptcha = typeof captcha === 'string' ? captcha.trim().toLowerCase() : '';
+    if (normalizedCaptcha !== attempts.captcha) {
       attempts.lastAttempt = now;
       loginAttempts.set(ip, attempts);
 

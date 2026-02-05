@@ -10,6 +10,7 @@ import {
 import dayjs, { Dayjs } from 'dayjs';
 import type { ColumnsType } from 'antd/es/table';
 import TechnicalAnalysisModal from '../components/TechnicalAnalysisModal';
+import FigmaPageHero from '../components/FigmaPageHero';
 
 const SuperMainForce: React.FC = () => {
   const [data, setData] = useState<AuctionSuperMainForceData | null>(null);
@@ -25,7 +26,7 @@ const SuperMainForce: React.FC = () => {
     tags: Array<{ label: string; color?: string }>;
   } | null>(null);
   const [isAnalysisModalVisible, setIsAnalysisModalVisible] = useState(false);
-  
+
   const limit = 20;
   const hasSelectedDate = !!selectedDate;
   const hasSnapshot = (data?.dataSource && data.dataSource !== 'none') || false;
@@ -313,170 +314,157 @@ const SuperMainForce: React.FC = () => {
     : items;
 
   return (
-    <div style={{ padding: 24 }}>
-      <Card
-        style={{ marginBottom: 16 }}
-        title={
-          <Space>
-            <ThunderboltOutlined />
-            <span style={{ fontSize: 16, fontWeight: 'bold' }}>超强主力·竞价打板</span>
-          </Space>
-        }
-        extra={
-          <Space>
-            <DatePicker
-              size="small"
-              value={selectedDate ? dayjs(selectedDate) : null}
-              onChange={(date, dateString) =>
-                handleDateChange(
-                  date as Dayjs | null,
-                  Array.isArray(dateString) ? (dateString[0] ?? '') : dateString
-                )
-              }
-              allowClear
-              format="YYYY-MM-DD"
-              disabled={loading}
-            />
-            {isSelectedDateDataComplete ? (
-              <Space size={6}>
-                <Tag color="green">数据齐全：量比已就绪</Tag>
-                <Tooltip title="量比来源于 daily_basic.volume_ratio。该口径在集合竞价阶段通常已就绪，可直接参考。">
-                  <QuestionCircleOutlined style={{ color: '#1890ff' }} />
-                </Tooltip>
-              </Space>
-            ) : isNotCollected ? (
-              <Space size={6}>
-                <Tag color="red">未采集：量比可能偏低（daily_basic 未就绪）</Tag>
-                <Tooltip title="集合竞价阶段 daily_basic.volume_ratio 可能未就绪，建议点击“刷新”采集或使用“强制刷新”。如仍偏低，可参考“竞价量比”。">
-                  <QuestionCircleOutlined style={{ color: '#1890ff' }} />
-                </Tooltip>
-              </Space>
-            ) : isCollectedNoItems ? (
-              <Space size={6}>
-                <Tag color="orange">已采集且无候选：量比可能不稳定</Tag>
-                <Tooltip title="早盘集合竞价数据不完全会导致量比偏低。可尝试“强制刷新”或稍后再试，并结合竞价量比进行判断。">
-                  <QuestionCircleOutlined style={{ color: '#1890ff' }} />
-                </Tooltip>
-              </Space>
-            ) : null}
-            <Space size={4}>
-              <span style={{ fontSize: 12, color: '#aaa' }}>含竞价涨停</span>
-              <Switch
-                size="small"
-                checked={includeAuctionLimitUp}
-                onChange={setIncludeAuctionLimitUp}
-                disabled={loading}
-              />
-            </Space>
-            <Space size={4}>
-              <span style={{ fontSize: 12, color: '#aaa' }}>PE筛选</span>
-              <Switch
-                size="small"
-                checked={peFilterEnabled}
-                onChange={setPeFilterEnabled}
-                disabled={loading}
-              />
-            </Space>
-            <Space size={4}>
-              <span style={{ fontSize: 12, color: '#aaa' }}>α</span>
-              <InputNumber
-                size="small"
-                min={0}
-                max={0.5}
-                step={0.05}
-                value={themeAlpha}
-                onChange={(v) => setThemeAlpha(Number(v ?? 0))}
-                disabled={loading}
-                style={{ width: 86 }}
-              />
-            </Space>
-            <Button
-              size="small"
-              type={showLowGapOnly ? 'primary' : 'default'}
-              onClick={() => setShowLowGapOnly((v) => !v)}
-              disabled={loading || !hasItems}
-            >
-              {showLowGapOnly ? '显示全部' : '只看涨幅<5%'}
-            </Button>
-            <Button icon={<SyncOutlined spin={loading} />} onClick={loadData} loading={loading} size="small">
-              刷新
-            </Button>
-            <Button onClick={forceRefresh} disabled={loading} size="small">
-              强制刷新
-            </Button>
-          </Space>
-        }
-      >
-        <Row gutter={24}>
-          <Col xs={24} md={16}>
-            <Typography.Paragraph style={{ marginBottom: 8 }}>
-              本页功能说明：展示集合竞价阶段的强势标的排行，辅助筛选更可能“冲板”的候选股票。支持选择交易日、设置是否包含竞价涨停，并可调整题材增强系数 α 来放大/减弱题材热度对评分的影响。
-            </Typography.Paragraph>
-            <Typography.Paragraph style={{ marginBottom: 0, fontSize: 13, color: '#aaa' }}>
-              操作说明：点击“刷新”获取数据；当数据缺失时会自动触发采集；点击“强制刷新”会重新采集并刷新当前日期数据。
-            </Typography.Paragraph>
-            <Typography.Paragraph style={{ marginBottom: 0, fontSize: 13, color: '#aaa' }}>
-              标记说明：“竞价涨停”表示集合竞价已触及涨停；“冲板优选”为更可能触及涨停的候选提示；“题材×系数”表示题材热度对评分的增强倍数。
-            </Typography.Paragraph>
-          </Col>
-          <Col xs={24} md={8}>
-            <Row gutter={16}>
-              <Col span={12}>
-                <Statistic
-                  title="候选标的数量"
-                  value={data?.summary.count || 0}
-                  suffix="只"
-                />
-              </Col>
-              <Col span={12}>
-                <Statistic
-                  title="冲板优选"
-                  value={data?.summary.limitUpCandidates || 0}
-                  suffix="只"
-                  valueStyle={{ color: '#cf1322' }}
-                />
-              </Col>
-            </Row>
-            <Row gutter={16} style={{ marginTop: 8 }}>
-              <Col span={12}>
-                <Statistic
-                  title="平均竞价热度"
-                  value={data?.summary.avgHeat || 0}
-                  precision={1}
-                />
-              </Col>
-              <Col span={12}>
-                <Statistic
-                  title="总竞价金额"
-                  value={(data?.summary.totalAmount || 0) / 1e8}
-                  precision={2}
-                  suffix="亿"
-                />
-              </Col>
-            </Row>
-          </Col>
-        </Row>
-      </Card>
-
-      <Card>
-        <Table
-          loading={loading}
-          columns={columns}
-          dataSource={tableItems.slice(0, 20)}
-          rowKey={(record) => `${record.stock}-${record.rank}`}
-          pagination={false}
-          scroll={{ x: 1300 }}
+    <div className="sq-figma-page">
+        <FigmaPageHero
+          icon={<ThunderboltOutlined style={{ fontSize: 18 }} />}
+          title="超强主力"
+          subTitle="集合竞价强势标的排行，辅助筛选更可能冲板的候选股票"
+          actions={
+            <>
+              <Button icon={<SyncOutlined spin={loading} />} onClick={loadData} loading={loading} style={{ borderRadius: 10 }}>
+                刷新
+              </Button>
+              <Button onClick={forceRefresh} disabled={loading} style={{ borderRadius: 10 }}>
+                强制刷新
+              </Button>
+            </>
+          }
         />
-      </Card>
 
-      <TechnicalAnalysisModal
-        open={isAnalysisModalVisible}
-        onClose={handleCloseAnalysisModal}
-        stockCode={currentStock?.code}
-        stockName={currentStock?.name}
-        analysisDate={selectedDate}
-        tags={currentStock?.tags}
-      />
+        <Card style={{ marginBottom: 16, borderRadius: 14 }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              flexWrap: 'wrap',
+              marginBottom: 14,
+            }}
+          >
+            <Space wrap size={[10, 10]}>
+              <DatePicker
+                value={selectedDate ? dayjs(selectedDate) : null}
+                onChange={(date, dateString) =>
+                  handleDateChange(date as Dayjs | null, Array.isArray(dateString) ? (dateString[0] ?? '') : dateString)
+                }
+                allowClear
+                format="YYYY-MM-DD"
+                disabled={loading}
+                style={{ borderRadius: 10 }}
+              />
+              {isSelectedDateDataComplete ? (
+                <Space size={6}>
+                  <Tag color="green" style={{ borderRadius: 999 }}>
+                    数据齐全：量比已就绪
+                  </Tag>
+                  <Tooltip title="量比来源于 daily_basic.volume_ratio。该口径在集合竞价阶段通常已就绪，可直接参考。">
+                    <QuestionCircleOutlined style={{ color: 'var(--sq-primary)' }} />
+                  </Tooltip>
+                </Space>
+              ) : isNotCollected ? (
+                <Space size={6}>
+                  <Tag color="red" style={{ borderRadius: 999 }}>
+                    未采集：量比可能偏低
+                  </Tag>
+                  <Tooltip title="集合竞价阶段 daily_basic.volume_ratio 可能未就绪，建议点击“刷新”采集或使用“强制刷新”。如仍偏低，可参考“竞价量比”。">
+                    <QuestionCircleOutlined style={{ color: 'var(--sq-primary)' }} />
+                  </Tooltip>
+                </Space>
+              ) : isCollectedNoItems ? (
+                <Space size={6}>
+                  <Tag color="orange" style={{ borderRadius: 999 }}>
+                    已采集且无候选：量比可能不稳定
+                  </Tag>
+                  <Tooltip title="早盘集合竞价数据不完全会导致量比偏低。可尝试“强制刷新”或稍后再试，并结合竞价量比进行判断。">
+                    <QuestionCircleOutlined style={{ color: 'var(--sq-primary)' }} />
+                  </Tooltip>
+                </Space>
+              ) : null}
+
+              <Space size={6}>
+                <Typography.Text style={{ fontSize: 12, color: 'var(--sq-text-secondary)' }}>含竞价涨停</Typography.Text>
+                <Switch size="small" checked={includeAuctionLimitUp} onChange={setIncludeAuctionLimitUp} disabled={loading} />
+              </Space>
+              <Space size={6}>
+                <Typography.Text style={{ fontSize: 12, color: 'var(--sq-text-secondary)' }}>PE筛选</Typography.Text>
+                <Switch size="small" checked={peFilterEnabled} onChange={setPeFilterEnabled} disabled={loading} />
+              </Space>
+              <Space size={6}>
+                <Typography.Text style={{ fontSize: 12, color: 'var(--sq-text-secondary)' }}>α</Typography.Text>
+                <InputNumber
+                  min={0}
+                  max={0.5}
+                  step={0.05}
+                  value={themeAlpha}
+                  onChange={(v) => setThemeAlpha(Number(v ?? 0))}
+                  disabled={loading}
+                  style={{ width: 96, borderRadius: 10 }}
+                />
+              </Space>
+              <Button
+                type={showLowGapOnly ? 'primary' : 'default'}
+                onClick={() => setShowLowGapOnly((v) => !v)}
+                disabled={loading || !hasItems}
+                style={{ borderRadius: 10 }}
+              >
+                {showLowGapOnly ? '显示全部' : '只看涨幅<5%'}
+              </Button>
+            </Space>
+          </div>
+
+          <Row gutter={24}>
+            <Col xs={24} md={16}>
+              <Typography.Paragraph style={{ marginBottom: 8, color: 'var(--sq-text-secondary)' }}>
+                本页功能说明：展示集合竞价阶段的强势标的排行，辅助筛选更可能“冲板”的候选股票。支持选择交易日、设置是否包含竞价涨停，并可调整题材增强系数 α 来放大/减弱题材热度对评分的影响。
+              </Typography.Paragraph>
+              <Typography.Paragraph style={{ marginBottom: 0, fontSize: 13, color: 'var(--sq-text-tertiary)' }}>
+                操作说明：点击“刷新”获取数据；当数据缺失时会自动触发采集；点击“强制刷新”会重新采集并刷新当前日期数据。
+              </Typography.Paragraph>
+              <Typography.Paragraph style={{ marginBottom: 0, fontSize: 13, color: 'var(--sq-text-tertiary)' }}>
+                标记说明：“竞价涨停”表示集合竞价已触及涨停；“冲板优选”为更可能触及涨停的候选提示；“题材×系数”表示题材热度对评分的增强倍数。
+              </Typography.Paragraph>
+            </Col>
+            <Col xs={24} md={8}>
+              <Row gutter={16}>
+                <Col span={12}>
+                  <Statistic title="候选标的数量" value={data?.summary.count || 0} suffix="只" />
+                </Col>
+                <Col span={12}>
+                  <Statistic title="冲板优选" value={data?.summary.limitUpCandidates || 0} suffix="只" valueStyle={{ color: 'var(--sq-neon-red-deep)' }} />
+                </Col>
+              </Row>
+              <Row gutter={16} style={{ marginTop: 8 }}>
+                <Col span={12}>
+                  <Statistic title="平均竞价热度" value={data?.summary.avgHeat || 0} precision={1} />
+                </Col>
+                <Col span={12}>
+                  <Statistic title="总竞价金额" value={(data?.summary.totalAmount || 0) / 1e8} precision={2} suffix="亿" />
+                </Col>
+              </Row>
+            </Col>
+          </Row>
+        </Card>
+
+        <Card style={{ borderRadius: 14 }}>
+          <Table
+            loading={loading}
+            columns={columns}
+            dataSource={tableItems.slice(0, 20)}
+            rowKey={(record) => `${record.stock}-${record.rank}`}
+            pagination={false}
+            scroll={{ x: 1300 }}
+          />
+        </Card>
+
+        <TechnicalAnalysisModal
+          open={isAnalysisModalVisible}
+          onClose={handleCloseAnalysisModal}
+          stockCode={currentStock?.code}
+          stockName={currentStock?.name}
+          analysisDate={selectedDate}
+          tags={currentStock?.tags}
+        />
     </div>
   );
 };

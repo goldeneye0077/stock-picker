@@ -3,6 +3,7 @@ import { Card, Form, Switch, Slider, Select, Button, Divider, Space, message, Sp
 import { SaveOutlined, ReloadOutlined, SyncOutlined, ClockCircleOutlined, DatabaseOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import { DATA_SERVICE_URL } from '../config/api';
+import FigmaPageHero from '../components/FigmaPageHero';
 
 const { Option } = Select;
 const { Text } = Typography;
@@ -253,8 +254,39 @@ const Settings: React.FC = () => {
     fetchConfig();
   }, [fetchDataStatus, fetchSchedulerStatus, fetchMultiSourceStatus, fetchQualityMetrics, fetchIncrementalStatus, fetchConfig]);
 
+  const refreshAllStatus = useCallback(async () => {
+    try {
+      await Promise.all([
+        fetchDataStatus(),
+        fetchSchedulerStatus(),
+        fetchMultiSourceStatus(),
+        fetchQualityMetrics(),
+        fetchIncrementalStatus(),
+        fetchConfig(),
+      ]);
+      message.success('状态已刷新');
+    } catch {
+      message.error('状态刷新失败');
+    }
+  }, [fetchConfig, fetchDataStatus, fetchIncrementalStatus, fetchMultiSourceStatus, fetchQualityMetrics, fetchSchedulerStatus]);
+
   return (
-    <div style={{ padding: '24px' }}>
+    <div className="sq-figma-page">
+        <FigmaPageHero
+          icon={<DatabaseOutlined style={{ fontSize: 18 }} />}
+          title="系统设置"
+          subTitle="管理数据源、采集任务及系统运行状态"
+          actions={
+            <>
+              <Button icon={<ReloadOutlined />} onClick={refreshAllStatus} style={{ borderRadius: 10 }}>
+                刷新状态
+              </Button>
+              <Button type="primary" icon={<SyncOutlined spin={collecting} />} onClick={handleCollectData} loading={collecting} disabled={collecting} style={{ borderRadius: 10 }}>
+                立即更新数据
+              </Button>
+            </>
+          }
+        />
       {/* 数据采集管理卡片 */}
       <Card
         title={
@@ -304,7 +336,23 @@ const Settings: React.FC = () => {
             </Button>
           </Space>
         }
-        style={{ marginBottom: '24px' }}
+        style={{
+          marginBottom: 24,
+          borderRadius: 14,
+          overflow: 'hidden',
+          background: 'rgba(15, 23, 43, 0.5)',
+          border: '1px solid #1D293D',
+          boxShadow: 'var(--sq-shadow)',
+        }}
+        styles={{
+          header: {
+            background: 'rgba(15, 23, 43, 0.3)',
+            borderBottom: '1px solid #1D293D',
+          },
+          body: {
+            padding: 24,
+          },
+        }}
       >
         <Spin spinning={loadingStatus}>
           {/* 数据状态统计 */}
@@ -391,7 +439,23 @@ const Settings: React.FC = () => {
             多数据源状态
           </Space>
         }
-        style={{ marginBottom: '24px' }}
+        style={{
+          marginBottom: 24,
+          borderRadius: 14,
+          overflow: 'hidden',
+          background: 'rgba(15, 23, 43, 0.5)',
+          border: '1px solid #1D293D',
+          boxShadow: 'var(--sq-shadow)',
+        }}
+        styles={{
+          header: {
+            background: 'rgba(15, 23, 43, 0.3)',
+            borderBottom: '1px solid #1D293D',
+          },
+          body: {
+            padding: 24,
+          },
+        }}
       >
         <Spin spinning={loadingMultiSource}>
           {multiSourceStatus && (
@@ -478,7 +542,23 @@ const Settings: React.FC = () => {
             数据质量监控
           </Space>
         }
-        style={{ marginBottom: '24px' }}
+        style={{
+          marginBottom: 24,
+          borderRadius: 14,
+          overflow: 'hidden',
+          background: 'rgba(15, 23, 43, 0.5)',
+          border: '1px solid #1D293D',
+          boxShadow: 'var(--sq-shadow)',
+        }}
+        styles={{
+          header: {
+            background: 'rgba(15, 23, 43, 0.3)',
+            borderBottom: '1px solid #1D293D',
+          },
+          body: {
+            padding: 24,
+          },
+        }}
       >
         <Spin spinning={loadingQuality}>
           {qualityMetrics && (
@@ -561,7 +641,23 @@ const Settings: React.FC = () => {
             增量更新状态
           </Space>
         }
-        style={{ marginBottom: '24px' }}
+        style={{
+          marginBottom: 24,
+          borderRadius: 14,
+          overflow: 'hidden',
+          background: 'rgba(15, 23, 43, 0.5)',
+          border: '1px solid #1D293D',
+          boxShadow: 'var(--sq-shadow)',
+        }}
+        styles={{
+          header: {
+            background: 'rgba(15, 23, 43, 0.3)',
+            borderBottom: '1px solid #1D293D',
+          },
+          body: {
+            padding: 24,
+          },
+        }}
       >
         {incrementalStatus ? (
           <div>
@@ -622,7 +718,25 @@ const Settings: React.FC = () => {
       </Card>
 
       {/* 系统设置卡片 */}
-      <Card title="系统设置">
+      <Card
+        title="系统设置"
+        style={{
+          borderRadius: 14,
+          overflow: 'hidden',
+          background: 'rgba(15, 23, 43, 0.5)',
+          border: '1px solid #1D293D',
+          boxShadow: 'var(--sq-shadow)',
+        }}
+        styles={{
+          header: {
+            background: 'rgba(15, 23, 43, 0.3)',
+            borderBottom: '1px solid #1D293D',
+          },
+          body: {
+            padding: 24,
+          },
+        }}
+      >
         <Form
           form={form}
           layout="vertical"
@@ -774,6 +888,10 @@ const Settings: React.FC = () => {
           </Form.Item>
         </Form>
       </Card>
+
+      <div style={{ marginTop: 20, color: '#62748E', fontSize: 12 }}>
+        QuantWhale Engine v2.4.0-beta • Build 20260204
+      </div>
 
       {/* 数据采集进度模态框 */}
       <Modal

@@ -1,1189 +1,531 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Alert, Button, Card, Col, Progress, Row, Space, Statistic, Table, Tag, Typography, message } from 'antd';
-import { BarChartOutlined, CalculatorOutlined, RightOutlined, SyncOutlined, ThunderboltOutlined } from '@ant-design/icons';
-import ReactECharts from 'echarts-for-react';
-import dayjs from 'dayjs';
-import type { ColumnsType } from 'antd/es/table';
-import {
-  collectAuctionSnapshot,
-  fetchAuctionSuperMainForce,
-  type AuctionSuperMainForceItem,
-  type AuctionSuperMainForceData
-} from '../services/analysisService';
-import { fetchSelectionStrategies, type SelectionStrategy } from '../services/smartSelectionService';
-import MonthlyPerformanceCard from '../components/Home/MonthlyPerformanceCard';
+import heroBg from '../assets/home/home_strategy_card_bg_2x.png';
+import hotFundsBg from '../assets/home/home_hot_funds_bg.png';
+import strategyBg from '../assets/home/home_strategy_bg.png';
+import featureMarketBg from '../assets/home/home_feature_market_bg_2x.png';
+import featureAiBg from '../assets/home/home_feature_ai_bg_2x.png';
+import insightMainBg from '../assets/home/home_insight_main_bg_2x.png';
+import insightThumbBg from '../assets/home/home_insight_thumb_2x.png';
+import './Home.css';
 
-type MonthlyLimitUpRecord = {
-  tradeDate: string;
-  stock: string;
-  name: string;
-  heatScore: number;
-  gapPercent: number;
-  changePercent: number;
-  profitPercent: number;
-};
-
-type MonthlySuperMainForceStats = {
-  fromDate: string;
-  toDate: string;
-  requestedDays: number;
-  coveredDays: number;
-  totalSelected: number;
-  totalCloseLimitUp: number;
-  closeLimitUpRate: number;
-  records: MonthlyLimitUpRecord[];
-};
-
-const buildRecentWeekdays = (days: number) => {
-  const dates: string[] = [];
-  for (let i = 0; i < days; i += 1) {
-    const d = dayjs().subtract(i, 'day');
-    const weekday = d.day();
-    if (weekday === 0 || weekday === 6) continue;
-    dates.push(d.format('YYYY-MM-DD'));
-  }
-  return dates;
-};
-
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  mapper: (item: T, index: number) => Promise<R>
-): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let nextIndex = 0;
-
-  const workers = Array.from({ length: Math.max(1, concurrency) }, async () => {
-    while (true) {
-      const idx = nextIndex;
-      nextIndex += 1;
-      if (idx >= items.length) return;
-      results[idx] = await mapper(items[idx], idx);
-    }
-  });
-
-  await Promise.all(workers);
-  return results;
-}
-
-// 基于真实涨停数据计算收益曲线
-type DailyPerformance = {
-  date: string;
-  selectedCount: number;      // 当日入选数量
-  limitUpCount: number;       // 当日涨停数量
-  avgProfit: number;          // 当日平均盈亏
-  cumulativeReturn: number;   // 累计收益率
-};
-
-const buildRealEquitySeries = (monthStats: MonthlySuperMainForceStats | null) => {
-  if (!monthStats || !monthStats.records || monthStats.records.length === 0) {
-    return { dates: [], portfolio: [], dailyReturns: [], hasData: false };
-  }
-
-  // 按日期分组统计
-  const dailyMap = new Map<string, { profits: number[]; count: number; limitUpCount: number }>();
-
-  // 从 monthStats.records 获取每日数据
-  for (const record of monthStats.records) {
-    const date = record.tradeDate;
-    if (!dailyMap.has(date)) {
-      dailyMap.set(date, { profits: [], count: 0, limitUpCount: 0 });
-    }
-    const day = dailyMap.get(date)!;
-    day.profits.push(record.profitPercent);
-    day.count += 1;
-    day.limitUpCount += 1; // 只有涨停的才在 records 里
-  }
-
-  // 按日期排序
-  const sortedDates = Array.from(dailyMap.keys()).sort();
-
-  const dates: string[] = [];
-  const portfolio: number[] = [];
-  const dailyReturns: DailyPerformance[] = [];
-
-  let cumulativeReturn = 1; // 初始净值为1
-
-  for (const date of sortedDates) {
-    const dayData = dailyMap.get(date)!;
-
-    // 计算当日平均收益（假设等仓位分配）
-    const avgProfit = dayData.profits.length > 0
-      ? dayData.profits.reduce((a, b) => a + b, 0) / dayData.profits.length
-      : 0;
-
-    // 假设只有 30% 的仓位参与（保守估计）
-    const dailyReturn = avgProfit * 0.3 / 100;
-    cumulativeReturn *= (1 + dailyReturn);
-
-    dates.push(date);
-    portfolio.push(Number(cumulativeReturn.toFixed(4)));
-    dailyReturns.push({
-      date,
-      selectedCount: dayData.count,
-      limitUpCount: dayData.limitUpCount,
-      avgProfit: avgProfit,
-      cumulativeReturn: (cumulativeReturn - 1) * 100,
-    });
-  }
-
-  return { dates, portfolio, dailyReturns, hasData: true };
+type HotFundRow = {
+  sector: string;
+  isHot?: boolean;
+  changePct: string;
+  netInflow: string;
+  leaderName: string;
+  leaderCode: string;
 };
 
 const Home: React.FC = () => {
   const navigate = useNavigate();
 
-  const [sampleLoading, setSampleLoading] = useState(false);
-  const [sampleError, setSampleError] = useState<string | null>(null);
-  const [sample, setSample] = useState<AuctionSuperMainForceData | null>(null);
-  const [sampleRefreshKey, setSampleRefreshKey] = useState(0);
+  const hotFunds: HotFundRow[] = [
+    { sector: 'CPO 概念', isHot: true, changePct: '+4.2%', netInflow: '+12.4亿', leaderName: '中际旭创', leaderCode: '300308' },
+    { sector: '算力租赁', isHot: true, changePct: '+3.8%', netInflow: '+8.2亿', leaderName: '浪潮信息', leaderCode: '000977' },
+    { sector: '消费电子', changePct: '+2.1%', netInflow: '-1.5亿', leaderName: '立讯精密', leaderCode: '002475' },
+    { sector: '半导体', changePct: '-0.5%', netInflow: '-4.2亿', leaderName: '兆易创新', leaderCode: '603986' },
+  ];
 
-  const [monthLoading, setMonthLoading] = useState(false);
-  const [monthProgress, setMonthProgress] = useState({ total: 0, done: 0 });
-  const [monthError, setMonthError] = useState<string | null>(null);
-  const [monthStats, setMonthStats] = useState<MonthlySuperMainForceStats | null>(null);
-
-  const [strategiesLoading, setStrategiesLoading] = useState(false);
-  const [strategiesError, setStrategiesError] = useState<string | null>(null);
-  const [strategies, setStrategies] = useState<SelectionStrategy[]>([]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const run = async () => {
-      setSampleLoading(true);
-      setSampleError(null);
-      try {
-        const targetTradeDate = '2026-01-27';
-
-        const first = await fetchAuctionSuperMainForce(10, targetTradeDate, true, 0.25, false);
-        if (cancelled) return;
-        const effectiveTradeDate = first.tradeDate ?? targetTradeDate;
-        const needCollect =
-          !first.tradeDate || first.dataSource === 'none' || (first.items?.length ?? 0) === 0;
-
-        let data = first;
-        if (needCollect) {
-          message.loading({
-            content: `${effectiveTradeDate} 数据未准备好，开始从 Tushare 采集...`,
-            key: 'home_super_mainforce_collect',
-            duration: 0
-          });
-
-          const { inserted } = await collectAuctionSnapshot(effectiveTradeDate);
-          if (cancelled) return;
-
-          message.success({
-            content: `采集完成（插入 ${inserted} 条），正在刷新...`,
-            key: 'home_super_mainforce_collect'
-          });
-
-          data = await fetchAuctionSuperMainForce(10, effectiveTradeDate, true, 0.25, false);
-        }
-
-        if (cancelled) return;
-        setSample(data);
-      } catch (e) {
-        if (cancelled) return;
-        setSampleError(e instanceof Error ? e.message : '加载超强主力样例失败');
-        setSample(null);
-      } finally {
-        if (!cancelled) setSampleLoading(false);
-      }
-    };
-
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [sampleRefreshKey]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const run = async () => {
-      setMonthLoading(true);
-      setMonthError(null);
-
-      const dates = buildRecentWeekdays(45).slice(0, 22);
-      setMonthProgress({ total: dates.length, done: 0 });
-
-      try {
-        const results = await mapWithConcurrency(
-          dates,
-          3,
-          async (tradeDate) => {
-            const data = await fetchAuctionSuperMainForce(20, tradeDate, false, 0.25);
-            if (!cancelled) {
-              setMonthProgress((p) => ({ total: p.total, done: Math.min(p.total, p.done + 1) }));
-            }
-            return data;
-          }
-        );
-
-        if (cancelled) return;
-
-        const valid = results.filter((r) => (r.items?.length ?? 0) > 0 && !!r.tradeDate);
-        const fromDate = valid.length ? valid[valid.length - 1].tradeDate! : dates[dates.length - 1];
-        const toDate = valid.length ? valid[0].tradeDate! : dates[0];
-
-        let totalSelected = 0;
-        let totalCloseLimitUp = 0;
-        const records: MonthlyLimitUpRecord[] = [];
-
-        for (const day of valid) {
-          const items = day.items || [];
-          totalSelected += items.length;
-          for (const item of items) {
-            const gap = Number(item.gapPercent || 0);
-            const dayChange = Number(item.changePercent || 0);
-            const profitPercent = dayChange - gap;
-
-            if (item.auctionLimitUp) continue;
-
-            let limitPct = 10;
-            if (
-              item.stock.startsWith('300') ||
-              item.stock.startsWith('301') ||
-              item.stock.startsWith('688') ||
-              item.stock.startsWith('689')
-            ) {
-              limitPct = 20;
-            } else if (item.stock.startsWith('8') || item.stock.startsWith('4')) {
-              limitPct = 30;
-            }
-
-            const isCloseLimitUp = dayChange >= limitPct - 0.2;
-            if (!isCloseLimitUp) continue;
-
-            totalCloseLimitUp += 1;
-            records.push({
-              tradeDate: day.tradeDate || '',
-              stock: item.stock,
-              name: item.name,
-              heatScore: item.heatScore,
-              gapPercent: gap,
-              changePercent: dayChange,
-              profitPercent,
-            });
-          }
-        }
-
-        records.sort((a, b) => {
-          if (a.profitPercent !== b.profitPercent) return b.profitPercent - a.profitPercent;
-          if (a.tradeDate !== b.tradeDate) return b.tradeDate.localeCompare(a.tradeDate);
-          return b.heatScore - a.heatScore;
-        });
-
-        const closeLimitUpRate = totalSelected > 0 ? (totalCloseLimitUp / totalSelected) * 100 : 0;
-
-        setMonthStats({
-          fromDate,
-          toDate,
-          requestedDays: dates.length,
-          coveredDays: valid.length,
-          totalSelected,
-          totalCloseLimitUp,
-          closeLimitUpRate,
-          records,
-        });
-      } catch (e) {
-        if (cancelled) return;
-        setMonthError(e instanceof Error ? e.message : '加载近月统计失败');
-        setMonthStats(null);
-      } finally {
-        if (!cancelled) setMonthLoading(false);
-      }
-    };
-
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const fallback: SelectionStrategy[] = [
-      {
-        id: 1001,
-        strategy_name: '动量突破',
-        description: '侧重技术动量，捕捉强势突破股票',
-        technical_weight: 0.35,
-        fundamental_weight: 0.30,
-        capital_weight: 0.25,
-        market_weight: 0.10,
-        is_active: true,
-        algorithm_type: 'advanced',
-        min_score: 50,
-        max_results: 15,
-        require_uptrend: true,
-        require_hot_sector: true,
-      },
-      {
-        id: 1002,
-        strategy_name: '趋势跟随',
-        description: '以趋势质量为核心，过滤震荡与弱势标的',
-        technical_weight: 0.30,
-        fundamental_weight: 0.20,
-        capital_weight: 0.25,
-        market_weight: 0.25,
-        is_active: true,
-        algorithm_type: 'advanced',
-        min_score: 55,
-        max_results: 20,
-        require_uptrend: true,
-        require_hot_sector: false,
-      },
-      {
-        id: 1003,
-        strategy_name: '价值成长',
-        description: '基本面与趋势并重，偏中线持有',
-        technical_weight: 0.20,
-        fundamental_weight: 0.50,
-        capital_weight: 0.15,
-        market_weight: 0.15,
-        is_active: true,
-        algorithm_type: 'basic',
-        min_score: 60,
-        max_results: 20,
-      },
-      {
-        id: 1004,
-        strategy_name: '底部掘金',
-        description: '偏反转，关注估值与量能拐点',
-        technical_weight: 0.25,
-        fundamental_weight: 0.35,
-        capital_weight: 0.25,
-        market_weight: 0.15,
-        is_active: true,
-        algorithm_type: 'basic',
-        min_score: 58,
-        max_results: 25,
-      },
-    ];
-
-    const run = async () => {
-      setStrategiesLoading(true);
-      setStrategiesError(null);
-      try {
-        const res = await fetchSelectionStrategies();
-        if (cancelled) return;
-        const list = (res.strategies || []).filter((s) => s.is_active).slice(0, 6);
-        setStrategies(list.length ? list : fallback);
-      } catch (e) {
-        if (cancelled) return;
-        setStrategiesError(e instanceof Error ? e.message : '加载策略失败');
-        setStrategies(fallback);
-      } finally {
-        if (!cancelled) setStrategiesLoading(false);
-      }
-    };
-
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const sampleColumns = useMemo(() => {
-    const cols: ColumnsType<AuctionSuperMainForceItem> = [
-      { title: '排名', dataIndex: 'rank', key: 'rank', width: 70 },
-      {
-        title: '股票',
-        dataIndex: 'stock',
-        key: 'stock',
-        width: 140,
-        render: (text: string, record: AuctionSuperMainForceItem) => (
-          <Space direction="vertical" size={0}>
-            <span style={{ fontWeight: 600 }}>{text}</span>
-            <span style={{ fontSize: 12, color: '#aaa' }}>{record.name}</span>
-          </Space>
-        ),
-      },
-      {
-        title: '竞价热度',
-        dataIndex: 'heatScore',
-        key: 'heatScore',
-        width: 180,
-        render: (val: number, record: AuctionSuperMainForceItem) => (
-          <Space size={8}>
-            <span>{Number(val || 0).toFixed(1)}</span>
-            {record.auctionLimitUp ? <Tag color="gold">竞价涨停</Tag> : null}
-            {record.likelyLimitUp ? <Tag color="red">冲板优选</Tag> : null}
-          </Space>
-        ),
-      },
-      {
-        title: '竞价涨幅',
-        dataIndex: 'gapPercent',
-        key: 'gapPercent',
-        width: 110,
-        render: (val: number) => {
-          const v = Number(val || 0);
-          return <span style={{ color: v >= 0 ? '#cf1322' : '#3f8600' }}>{v.toFixed(2)}%</span>;
-        },
-      },
-      {
-        title: '收盘涨幅',
-        dataIndex: 'changePercent',
-        key: 'closeChangePercent',
-        width: 110,
-        render: (val: number | undefined) => {
-          const v = Number(val);
-          if (!Number.isFinite(v)) {
-            return <span style={{ color: '#aaa' }}>-</span>;
-          }
-          const color = v >= 0 ? '#cf1322' : '#3f8600';
-          return <span style={{ color }}>{v.toFixed(2)}%</span>;
-        },
-      },
-      {
-        title: '当日盈亏',
-        key: 'dailyProfit',
-        width: 110,
-        render: (_: any, record: AuctionSuperMainForceItem) => {
-          const day = Number(record.changePercent);
-          if (!Number.isFinite(day)) {
-            return <span style={{ color: '#aaa' }}>-</span>;
-          }
-          const gap = Number(record.gapPercent || 0);
-          const v = day - gap;
-          const color = v >= 0 ? '#cf1322' : '#3f8600';
-          return <span style={{ color }}>{v.toFixed(2)}%</span>;
-        },
-      },
-      {
-        title: '行业',
-        dataIndex: 'industry',
-        key: 'industry',
-        ellipsis: true,
-      },
-    ];
-    return cols;
-  }, []);
-
-  const monthColumns = useMemo(() => {
-    const cols: ColumnsType<MonthlyLimitUpRecord> = [
-      { title: '日期', dataIndex: 'tradeDate', key: 'tradeDate', width: 110 },
-      {
-        title: '股票',
-        dataIndex: 'stock',
-        key: 'stock',
-        width: 130,
-        render: (_: string, record: MonthlyLimitUpRecord) => (
-          <Space direction="vertical" size={0}>
-            <span style={{ fontWeight: 600 }}>{record.stock}</span>
-            <span style={{ fontSize: 12, color: '#aaa' }}>{record.name}</span>
-          </Space>
-        ),
-      },
-      {
-        title: '竞价涨幅',
-        dataIndex: 'gapPercent',
-        key: 'gapPercent',
-        width: 110,
-        render: (val: number) => {
-          const v = Number(val || 0);
-          return <span style={{ color: v >= 0 ? '#cf1322' : '#3f8600' }}>{v.toFixed(2)}%</span>;
-        },
-      },
-      {
-        title: '收盘涨幅',
-        dataIndex: 'changePercent',
-        key: 'changePercent',
-        width: 110,
-        render: (val: number) => {
-          const v = Number(val || 0);
-          return <span style={{ color: v >= 0 ? '#cf1322' : '#3f8600' }}>{v.toFixed(2)}%</span>;
-        },
-      },
-      {
-        title: '当日盈亏',
-        dataIndex: 'profitPercent',
-        key: 'profitPercent',
-        width: 110,
-        render: (val: number) => {
-          const v = Number(val || 0);
-          return <span style={{ color: v >= 0 ? '#cf1322' : '#3f8600' }}>{v.toFixed(2)}%</span>;
-        },
-      },
-    ];
-    return cols;
-  }, []);
-
-  // 基于真实数据的收益曲线
-  const equityData = useMemo(() => buildRealEquitySeries(monthStats), [monthStats]);
-
-  const chartOption = useMemo(() => {
-    if (!equityData.hasData) {
-      return {
-        backgroundColor: 'transparent',
-        title: {
-          text: '暂无数据',
-          left: 'center',
-          top: 'center',
-          textStyle: { color: '#666', fontSize: 14 },
-        },
-      };
-    }
-
-    // 计算累计收益率用于显示
-    const totalReturn = equityData.portfolio.length > 0
-      ? ((equityData.portfolio[equityData.portfolio.length - 1] - 1) * 100).toFixed(2)
-      : '0';
-
-    return {
-      backgroundColor: 'transparent',
-      tooltip: {
-        trigger: 'axis',
-        formatter: (params: any) => {
-          if (!params || params.length === 0) return '';
-          const data = params[0];
-          const dayInfo = equityData.dailyReturns?.find(d => d.date === data.axisValue);
-          if (!dayInfo) return `${data.axisValue}<br/>净值: ${data.value}`;
-          return `<strong>${data.axisValue}</strong><br/>
-                  净值: <span style="color:#1890ff;font-weight:bold">${data.value}</span><br/>
-                  累计收益: <span style="color:${dayInfo.cumulativeReturn >= 0 ? '#cf1322' : '#3f8600'}">${dayInfo.cumulativeReturn >= 0 ? '+' : ''}${dayInfo.cumulativeReturn.toFixed(2)}%</span><br/>
-                  当日涨停: <span style="color:#faad14">${dayInfo.limitUpCount}只</span><br/>
-                  平均盈利: <span style="color:${dayInfo.avgProfit >= 0 ? '#cf1322' : '#3f8600'}">${dayInfo.avgProfit >= 0 ? '+' : ''}${dayInfo.avgProfit.toFixed(2)}%</span>`;
-        },
-      },
-      legend: {
-        data: [`超强主力组合 (${totalReturn}%)`],
-        textStyle: { color: '#d9d9d9' },
-      },
-      grid: { left: 50, right: 20, top: 45, bottom: 30 },
-      xAxis: {
-        type: 'category',
-        data: equityData.dates,
-        axisLabel: {
-          color: '#aaa',
-          rotate: 30,
-          fontSize: 10,
-        },
-        axisLine: { lineStyle: { color: '#303030' } },
-      },
-      yAxis: {
-        type: 'value',
-        name: '净值',
-        nameTextStyle: { color: '#aaa' },
-        axisLabel: {
-          color: '#aaa',
-          formatter: (value: number) => value.toFixed(3),
-        },
-        splitLine: { lineStyle: { color: '#1f1f1f' } },
-        min: (value: { min: number }) => Math.max(0.95, Math.floor(value.min * 100) / 100),
-      },
-      series: [
-        {
-          name: `超强主力组合 (${totalReturn}%)`,
-          type: 'line',
-          showSymbol: true,
-          symbolSize: 6,
-          smooth: true,
-          data: equityData.portfolio,
-          lineStyle: {
-            width: 3,
-            color: {
-              type: 'linear',
-              x: 0, y: 0, x2: 1, y2: 0,
-              colorStops: [
-                { offset: 0, color: '#1890ff' },
-                { offset: 1, color: '#722ed1' },
-              ],
-            },
-          },
-          itemStyle: { color: '#1890ff' },
-          areaStyle: {
-            color: {
-              type: 'linear',
-              x: 0, y: 0, x2: 0, y2: 1,
-              colorStops: [
-                { offset: 0, color: 'rgba(24, 144, 255, 0.3)' },
-                { offset: 1, color: 'rgba(24, 144, 255, 0.05)' },
-              ],
-            },
-          },
-          markLine: {
-            silent: true,
-            lineStyle: { color: '#52c41a', type: 'dashed' },
-            data: [{ yAxis: 1, label: { show: true, formatter: '初始净值', color: '#52c41a' } }],
-          },
-        },
-      ],
-    };
-  }, [equityData]);
+  const marketInsightCards = [
+    {
+      key: 'strategy',
+      category: '策略分享',
+      title: '量化交易策略深度解析',
+      desc: '揭秘机构级量化策略背后的数学模型与风险控制...',
+      time: '12 小时前',
+    },
+    {
+      key: 'research',
+      category: '市场研究',
+      title: 'A 股市场结构性机会研判',
+      desc: '当前市场环境下，价值与成长的平衡策略探讨...',
+      time: '1 天前',
+    },
+    {
+      key: 'ta',
+      category: '技术分析',
+      title: '技术指标组合实战案例',
+      desc: 'MACD + RSI + BOLL 三重确认买卖点的实战应用...',
+      time: '2 天前',
+    },
+  ];
 
   return (
-    <div style={{ padding: 24 }}>
-      <Row gutter={[16, 16]}>
-        {/* 顶部大横幅：量鲸 QuantWhale 介绍 */}
-        <Col span={24}>
-          <Card
-            style={{
-              background: 'linear-gradient(135deg, #1890ff 0%, #722ed1 100%)',
-              border: 'none'
-            }}
-            styles={{ body: { padding: '32px' } }}
-          >
-            <Row gutter={[32, 16]} align="middle">
-              <Col xs={24} md={14}>
-                <Space direction="vertical" size={8}>
-                  <Space>
-                    <ThunderboltOutlined style={{ fontSize: 28, color: '#fff' }} />
-                    <Typography.Title level={2} style={{ margin: 0, color: '#fff' }}>
-                      量鲸 QuantWhale
-                    </Typography.Title>
-                  </Space>
-                  <Typography.Paragraph style={{ marginBottom: 16, color: 'rgba(255,255,255,0.9)', fontSize: 16 }}>
-                    以竞价热度、题材强度、资金行为与多因子评分为核心，提供"超强主力"与"精算智选"两条主线，
-                    帮你在开盘前更快锁定候选标的，并通过策略回测与收益曲线对比做决策校验。
-                  </Typography.Paragraph>
-                  <Space wrap>
-                    <Button
-                      size="large"
-                      icon={<ThunderboltOutlined />}
-                      onClick={() => navigate('/super-main-force')}
-                      style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', borderColor: 'rgba(255,255,255,0.5)' }}
-                    >
-                      超强主力
-                    </Button>
-                    <Button
-                      size="large"
-                      icon={<CalculatorOutlined />}
-                      onClick={() => navigate('/smart-selection')}
-                      style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', borderColor: 'rgba(255,255,255,0.5)' }}
-                    >
-                      精算智选
-                    </Button>
-                    <Button
-                      type="link"
-                      icon={<RightOutlined />}
-                      onClick={() => navigate('/stocks')}
-                      style={{ color: '#fff' }}
-                    >
-                      浏览股票
-                    </Button>
-                  </Space>
-                </Space>
-              </Col>
-              <Col xs={24} md={10}>
-                <Row gutter={[16, 16]}>
-                  <Col span={12}>
-                    <Statistic
-                      title={<span style={{ color: 'rgba(255,255,255,0.8)' }}>近月入选</span>}
-                      value={monthStats?.totalSelected || 0}
-                      suffix="只"
-                      valueStyle={{ color: '#fff', fontSize: 28 }}
-                    />
-                  </Col>
-                  <Col span={12}>
-                    <Statistic
-                      title={<span style={{ color: 'rgba(255,255,255,0.8)' }}>收盘涨停</span>}
-                      value={monthStats?.totalCloseLimitUp || 0}
-                      suffix="只"
-                      valueStyle={{ color: '#faad14', fontSize: 28 }}
-                    />
-                  </Col>
-                  <Col span={12}>
-                    <Statistic
-                      title={<span style={{ color: 'rgba(255,255,255,0.8)' }}>涨停率</span>}
-                      value={monthStats?.closeLimitUpRate || 0}
-                      precision={1}
-                      suffix="%"
-                      valueStyle={{ color: '#52c41a', fontSize: 28 }}
-                    />
-                  </Col>
-                  <Col span={12}>
-                    <Statistic
-                      title={<span style={{ color: 'rgba(255,255,255,0.8)' }}>策略数量</span>}
-                      value={strategies?.length || 0}
-                      suffix="个"
-                      valueStyle={{ color: '#fff', fontSize: 28 }}
-                    />
-                  </Col>
-                </Row>
-              </Col>
-            </Row>
-          </Card>
-        </Col>
+    <main className="sq-home" role="main">
+      <div className="sq-home__shell">
+        <div className="sq-home__main-col">
+          <div className="sq-home__content">
+            <div className="sq-home__container">
+              <section className="sq-home__hero-card" style={{ backgroundImage: `url(${heroBg})` }} aria-label="首页介绍">
+                <div className="sq-home__hero-overlay" aria-hidden="true" />
+                <div className="sq-home__hero-inner">
+                  <div className="sq-home__hero-left">
+                    <div className="sq-home__hero-badges">
+                      <span className="sq-home__badge sq-home__badge--new">New v2.0</span>
+                      <span className="sq-home__badge sq-home__badge--live">
+                        <span className="sq-home__badge-dot" aria-hidden="true" />
+                        实时数据更新中
+                      </span>
+                    </div>
 
-        {/* 市场概览区域 */}
-        <Col xs={24} lg={12}>
-          <Card
-            title={
-              <Space>
-                <BarChartOutlined style={{ color: '#1890ff' }} />
-                <span>实时市场概览</span>
-              </Space>
-            }
-          >
-            <Row gutter={[16, 16]}>
-              <Col span={24}>
-                <Row gutter={16}>
-                  <Col span={8}>
-                    <Statistic
-                      title="上证指数"
-                      value={3145.68}
-                      precision={2}
-                      valueStyle={{ color: '#cf1322', fontSize: 20 }}
-                      suffix={
-                        <span style={{ fontSize: 12, color: '#cf1322', marginLeft: 4 }}>
-                          +0.45%
-                        </span>
-                      }
-                    />
-                  </Col>
-                  <Col span={8}>
-                    <Statistic
-                      title="深证成指"
-                      value={9852.32}
-                      precision={2}
-                      valueStyle={{ color: '#3f8600', fontSize: 20 }}
-                      suffix={
-                        <span style={{ fontSize: 12, color: '#3f8600', marginLeft: 4 }}>
-                          -0.32%
-                        </span>
-                      }
-                    />
-                  </Col>
-                  <Col span={8}>
-                    <Statistic
-                      title="创业板指"
-                      value={1967.85}
-                      precision={2}
-                      valueStyle={{ color: '#cf1322', fontSize: 20 }}
-                      suffix={
-                        <span style={{ fontSize: 12, color: '#cf1322', marginLeft: 4 }}>
-                          +0.68%
-                        </span>
-                      }
-                    />
-                  </Col>
-                </Row>
-              </Col>
-              <Col span={24}>
-                <div style={{ marginTop: 16 }}>
-                  <Typography.Text strong style={{ marginBottom: 8, display: 'block' }}>热门板块</Typography.Text>
-                  <Space wrap>
-                    <Tag color="#f50" style={{ marginBottom: 8 }}>人工智能 +2.5%</Tag>
-                    <Tag color="#2db7f5" style={{ marginBottom: 8 }}>新能源 +1.8%</Tag>
-                    <Tag color="#87d068" style={{ marginBottom: 8 }}>半导体 +1.5%</Tag>
-                    <Tag color="#108ee9" style={{ marginBottom: 8 }}>军工 +1.2%</Tag>
-                    <Tag color="#f50" style={{ marginBottom: 8 }}>券商 +0.9%</Tag>
-                  </Space>
+                    <h1 className="sq-home__hero-title">
+                      <span>智能量化</span>
+                      <span>决策系统</span>
+                    </h1>
+
+                    <p className="sq-home__hero-desc">
+                      基于多因子模型的超强主力追踪，帮助您在 4,000+ 股票中快速锁定交易机会。AI 驱动的策略回测，实时监控市场动态。
+                    </p>
+
+                    <div className="sq-home__hero-metrics" aria-label="平台指标">
+                      <div className="sq-home__hero-metric">
+                        <div className="sq-home__hero-metric-value">4,000+</div>
+                        <div className="sq-home__hero-metric-label">覆盖股票</div>
+                      </div>
+                      <div className="sq-home__hero-metric">
+                        <div className="sq-home__hero-metric-value">98.5%</div>
+                        <div className="sq-home__hero-metric-label">数据准确率</div>
+                      </div>
+                      <div className="sq-home__hero-metric">
+                        <div className="sq-home__hero-metric-value">&lt;100ms</div>
+                        <div className="sq-home__hero-metric-label">响应延迟</div>
+                      </div>
+                    </div>
+
+                    <div className="sq-home__hero-actions">
+                      <button type="button" className="sq-home__btn sq-home__btn--primary" onClick={() => navigate('/super-main-force')}>
+                        进入超强主力
+                      </button>
+                      <button type="button" className="sq-home__btn sq-home__btn--ghost" onClick={() => navigate('/stocks')}>
+                        浏览全部股票
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="sq-home__hero-right" aria-label="策略曲线">
+                    <div className="sq-home__chart-card">
+                      <div className="sq-home__chart-head">
+                        <div className="sq-home__chart-meta">
+                          <div className="sq-home__chart-label">策略收益曲线</div>
+                          <div className="sq-home__chart-value">+45.2%</div>
+                        </div>
+                        <div className="sq-home__chart-filters" aria-label="曲线范围">
+                          <span className="sq-home__chip">30天</span>
+                          <span className="sq-home__chip sq-home__chip--active">实时</span>
+                        </div>
+                      </div>
+                      <div className="sq-home__chart-body" aria-hidden="true">
+                        <svg viewBox="0 0 320 140" width="100%" height="140" preserveAspectRatio="none">
+                          <defs>
+                            <linearGradient id="sq-home-area" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="rgba(97,95,255,0.35)" />
+                              <stop offset="100%" stopColor="rgba(97,95,255,0)" />
+                            </linearGradient>
+                          </defs>
+                          <path
+                            d="M0,120 C40,110 60,80 90,75 C120,70 130,88 160,62 C190,36 220,50 250,44 C280,38 300,22 320,18 L320,140 L0,140 Z"
+                            fill="url(#sq-home-area)"
+                          />
+                          <path
+                            d="M0,120 C40,110 60,80 90,75 C120,70 130,88 160,62 C190,36 220,50 250,44 C280,38 300,22 320,18"
+                            fill="none"
+                            stroke="rgba(0,210,255,0.9)"
+                            strokeWidth="2"
+                          />
+                        </svg>
+                      </div>
+                      <div className="sq-home__chart-foot">
+                        <div className="sq-home__chart-pill">
+                          <span className="sq-home__chart-pill-value">↑ 12.3%</span>
+                          <span className="sq-home__chart-pill-label">今日收益</span>
+                        </div>
+                        <div className="sq-home__chart-stat">
+                          <span className="sq-home__chart-stat-label">夏普比率:</span>
+                          <span className="sq-home__chart-stat-value">2.34</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              </Col>
-            </Row>
-          </Card>
-        </Col>
+              </section>
 
-        {/* 核心功能区域 */}
-        <Col xs={24} lg={12}>
-          <Card
-            title={
-              <Space>
-                <CalculatorOutlined style={{ color: '#722ed1' }} />
-                <span>核心功能</span>
-              </Space>
-            }
-          >
-            <Row gutter={[16, 16]}>
-              <Col xs={24} sm={12}>
-                <Card size="small" bordered={false} style={{ background: 'rgba(24, 144, 255, 0.05)' }}>
-                  <Space>
-                    <ThunderboltOutlined style={{ fontSize: 24, color: '#1890ff' }} />
-                    <div>
-                      <Typography.Text strong>超强主力</Typography.Text>
-                      <Typography.Paragraph style={{ marginBottom: 0, color: '#aaa', fontSize: 12 }}>
-                        集合竞价阶段快速锁定强势标的
-                      </Typography.Paragraph>
+              <section className="sq-home__kpis" aria-label="关键指标">
+                <div className="sq-home__kpi sq-home__kpi--rose">
+                  <div className="sq-home__kpi-head">
+                    <div className="sq-home__kpi-title-row">
+                      <div className="sq-home__kpi-title">今日入选</div>
+                      <span className="sq-home__kpi-dot" aria-hidden="true" />
                     </div>
-                  </Space>
-                </Card>
-              </Col>
-              <Col xs={24} sm={12}>
-                <Card size="small" bordered={false} style={{ background: 'rgba(114, 46, 209, 0.05)' }}>
-                  <Space>
-                    <CalculatorOutlined style={{ fontSize: 24, color: '#722ed1' }} />
-                    <div>
-                      <Typography.Text strong>精算智选</Typography.Text>
-                      <Typography.Paragraph style={{ marginBottom: 0, color: '#aaa', fontSize: 12 }}>
-                        多因子模型精挑细选
-                      </Typography.Paragraph>
-                    </div>
-                  </Space>
-                </Card>
-              </Col>
-              <Col xs={24} sm={12}>
-                <Card size="small" bordered={false} style={{ background: 'rgba(82, 196, 26, 0.05)' }}>
-                  <Space>
-                    <BarChartOutlined style={{ fontSize: 24, color: '#52c41a' }} />
-                    <div>
-                      <Typography.Text strong>策略回测</Typography.Text>
-                      <Typography.Paragraph style={{ marginBottom: 0, color: '#aaa', fontSize: 12 }}>
-                        验证策略有效性
-                      </Typography.Paragraph>
-                    </div>
-                  </Space>
-                </Card>
-              </Col>
-              <Col xs={24} sm={12}>
-                <Card size="small" bordered={false} style={{ background: 'rgba(250, 173, 20, 0.05)' }}>
-                  <Space>
-                    <RightOutlined style={{ fontSize: 24, color: '#faad14' }} />
-                    <div>
-                      <Typography.Text strong>实时监控</Typography.Text>
-                      <Typography.Paragraph style={{ marginBottom: 0, color: '#aaa', fontSize: 12 }}>
-                        把握每一个交易机会
-                      </Typography.Paragraph>
-                    </div>
-                  </Space>
-                </Card>
-              </Col>
-            </Row>
-          </Card>
-        </Col>
-
-        {/* 超强主力样例 */}
-        <Col span={24}>
-          <Row gutter={[16, 16]} align="stretch">
-            <Col xs={24} lg={14}>
-              <Card
-                style={{ height: '100%' }}
-                title={
-                  <Space>
-                    <ThunderboltOutlined style={{ color: '#faad14' }} />
-                    <span>超强主力样例</span>
-                    <span style={{ fontSize: 12, color: '#aaa' }}>
-                      {sample?.tradeDate ? `（${sample.tradeDate}）` : ''}
+                    <span className="sq-home__kpi-icon" aria-hidden="true">
+                      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M9 1.7c4 0 7.3 3.3 7.3 7.3S13 16.3 9 16.3 1.7 13 1.7 9 5 1.7 9 1.7Z" stroke="currentColor" strokeWidth="1.5" />
+                        <path d="M9 5.2v4.1l2.8 1.7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
                     </span>
-                  </Space>
-                }
-                extra={
-                  <Space>
-                    <Button size="small" onClick={() => navigate('/super-main-force')}>
-                      查看全部
-                    </Button>
-                    <Button
-                      size="small"
-                      type="primary"
-                      icon={<SyncOutlined />}
-                      onClick={() => setSampleRefreshKey((v) => v + 1)}
-                    >
-                      刷新数据
-                    </Button>
-                  </Space>
-                }
-                styles={{ body: { padding: 0 } }}
-              >
-                {sampleError ? <Alert type="error" message={sampleError} /> : null}
-                <Table
-                  loading={sampleLoading}
-                  columns={sampleColumns}
-                  dataSource={(sample?.items || []).slice(0, 10)}
-                  rowKey={(r: AuctionSuperMainForceItem) => `${r.stock}-${r.rank}`}
-                  pagination={false}
-                  size="small"
-                />
-              </Card>
-            </Col>
-
-            <Col xs={24} lg={10}>
-              <MonthlyPerformanceCard
-                stats={monthStats}
-                loading={monthLoading}
-                progress={monthProgress}
-                error={monthError}
-                onNavigate={() => navigate('/super-main-force')}
-              />
-            </Col>
-          </Row>
-        </Col>
-
-        {/* 精选策略 */}
-        <Col span={24}>
-          <Card
-            title={
-              <Space>
-                <CalculatorOutlined style={{ color: '#722ed1' }} />
-                <span>精选策略</span>
-              </Space>
-            }
-            extra={
-              <Button size="small" type="primary" onClick={() => navigate('/smart-selection')}>
-                去使用
-              </Button>
-            }
-            loading={strategiesLoading}
-          >
-            {strategiesError ? <Alert type="warning" message={strategiesError} /> : null}
-            <Row gutter={[16, 16]}>
-              {(strategies || []).map((s) => (
-                <Col key={s.id} xs={24} md={12} lg={8} xl={6}>
-                  <Card
-                    size="small"
-                    title={
-                      <Space>
-                        <span>{s.strategy_name}</span>
-                        {s.algorithm_type ? <Tag color={s.algorithm_type === 'advanced' ? 'purple' : 'blue'}>{s.algorithm_type}</Tag> : null}
-                      </Space>
-                    }
-                    hoverable
-                    onClick={() => navigate('/smart-selection')}
-                  >
-                    <Typography.Paragraph style={{ marginBottom: 10, color: '#aaa', fontSize: 12 }}>
-                      {s.description}
-                    </Typography.Paragraph>
-                    <Row gutter={4} style={{ marginBottom: 10 }}>
-                      <Col span={6}>
-                        <div style={{ fontSize: 10, color: '#aaa' }}>技术</div>
-                        <Progress percent={Math.round((s.technical_weight || 0) * 100)} size="small" showInfo={false} strokeColor="#1890ff" />
-                      </Col>
-                      <Col span={6}>
-                        <div style={{ fontSize: 10, color: '#aaa' }}>基本面</div>
-                        <Progress percent={Math.round((s.fundamental_weight || 0) * 100)} size="small" showInfo={false} strokeColor="#722ed1" />
-                      </Col>
-                      <Col span={6}>
-                        <div style={{ fontSize: 10, color: '#aaa' }}>资金</div>
-                        <Progress percent={Math.round((s.capital_weight || 0) * 100)} size="small" showInfo={false} strokeColor="#52c41a" />
-                      </Col>
-                      <Col span={6}>
-                        <div style={{ fontSize: 10, color: '#aaa' }}>市场</div>
-                        <Progress percent={Math.round((s.market_weight || 0) * 100)} size="small" showInfo={false} strokeColor="#faad14" />
-                      </Col>
-                    </Row>
-                    <Space wrap>
-                      {typeof s.min_score === 'number' ? <Tag color="blue">最低{s.min_score}分</Tag> : null}
-                      {typeof s.max_results === 'number' ? <Tag color="purple">最多{s.max_results}只</Tag> : null}
-                      {s.require_uptrend ? <Tag color="green">上升趋势</Tag> : null}
-                      {s.require_hot_sector ? <Tag color="gold">热门板块</Tag> : null}
-                    </Space>
-                  </Card>
-                </Col>
-              ))}
-            </Row>
-          </Card>
-        </Col>
-
-        <Col span={24}>
-          <Card
-            title={
-              <Space>
-                <ThunderboltOutlined style={{ color: '#1890ff' }} />
-                <span>AI选股工作流</span>
-              </Space>
-            }
-          >
-            <Row gutter={[16, 16]}>
-              <Col xs={24} md={8}>
-                <Card size="small" hoverable onClick={() => navigate('/stocks')}>
-                  <Space direction="vertical" size={6}>
-                    <Typography.Text strong>1. 建立观察池</Typography.Text>
-                    <Typography.Text type="secondary">从全市场快速筛选行业/题材/形态</Typography.Text>
-                    <Button type="link" icon={<RightOutlined />} style={{ padding: 0 }}>
-                      去浏览股票
-                    </Button>
-                  </Space>
-                </Card>
-              </Col>
-              <Col xs={24} md={8}>
-                <Card size="small" hoverable onClick={() => navigate('/super-main-force')}>
-                  <Space direction="vertical" size={6}>
-                    <Typography.Text strong>2. 竞价锁定强势</Typography.Text>
-                    <Typography.Text type="secondary">用热度评分+题材增强，缩小范围</Typography.Text>
-                    <Button type="link" icon={<RightOutlined />} style={{ padding: 0 }}>
-                      去超强主力
-                    </Button>
-                  </Space>
-                </Card>
-              </Col>
-              <Col xs={24} md={8}>
-                <Card size="small" hoverable onClick={() => navigate('/smart-selection')}>
-                  <Space direction="vertical" size={6}>
-                    <Typography.Text strong>3. 策略校验与回测</Typography.Text>
-                    <Typography.Text type="secondary">用多因子策略挑选并验证可复制性</Typography.Text>
-                    <Button type="link" icon={<RightOutlined />} style={{ padding: 0 }}>
-                      去精算智选
-                    </Button>
-                  </Space>
-                </Card>
-              </Col>
-            </Row>
-          </Card>
-        </Col>
-
-        {/* 收益曲线和功能推荐 */}
-        <Col xs={24} lg={12}>
-          <Card
-            title={
-              <Space>
-                <BarChartOutlined style={{ color: '#1890ff' }} />
-                <span>超强主力模拟收益曲线</span>
-                {monthLoading && <span style={{ fontSize: 12, color: '#aaa' }}>加载中...</span>}
-              </Space>
-            }
-            extra={
-              monthStats && equityData.hasData ? (
-                <Space>
-                  <span style={{ fontSize: 12, color: '#aaa' }}>
-                    {monthStats.fromDate} ~ {monthStats.toDate}
-                  </span>
-                </Space>
-              ) : null
-            }
-          >
-            <ReactECharts option={chartOption} style={{ height: 280 }} notMerge lazyUpdate />
-            <Alert
-              type="success"
-              message={
-                equityData.hasData
-                  ? `基于近月 ${monthStats?.coveredDays || 0} 个交易日的涨停数据，假设30%仓位参与计算的模拟净值曲线。`
-                  : '等待数据加载...'
-              }
-              style={{ marginTop: 12 }}
-            />
-          </Card>
-        </Col>
-
-        <Col xs={24} lg={12}>
-          <Card title="特色功能">
-            <Row gutter={[16, 16]}>
-              <Col xs={24} sm={12} md={8}>
-                <Card size="small" hoverable>
-                  <Space>
-                    <ThunderboltOutlined style={{ fontSize: 28, color: '#faad14' }} />
-                    <div>
-                      <Typography.Text strong>题材增强α</Typography.Text>
-                      <Typography.Paragraph style={{ marginBottom: 0, color: '#aaa', fontSize: 12 }}>
-                        调节α系数，放大/减弱题材影响
-                      </Typography.Paragraph>
+                  </div>
+                  <div className="sq-home__kpi-value">18</div>
+                  <div className="sq-home__kpi-foot">
+                    <span className="sq-home__kpi-foot-text sq-home__kpi-foot-text--accent">较昨日 +4</span>
+                    <span className="sq-home__kpi-pill">+22%</span>
+                  </div>
+                </div>
+                <div className="sq-home__kpi sq-home__kpi--magenta">
+                  <div className="sq-home__kpi-head">
+                    <div className="sq-home__kpi-title-row">
+                      <div className="sq-home__kpi-title">昨日策略胜率</div>
                     </div>
-                  </Space>
-                </Card>
-              </Col>
-              <Col xs={24} sm={12} md={8}>
-                <Card size="small" hoverable>
-                  <Space>
-                    <BarChartOutlined style={{ fontSize: 28, color: '#1890ff' }} />
-                    <div>
-                      <Typography.Text strong>自动数据采集</Typography.Text>
-                      <Typography.Paragraph style={{ marginBottom: 0, color: '#aaa', fontSize: 12 }}>
-                        数据缺失时自动触发采集
-                      </Typography.Paragraph>
+                    <span className="sq-home__kpi-icon" aria-hidden="true">
+                      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M3.2 14.8V9.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                        <path d="M7 14.8V6.9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                        <path d="M10.8 14.8V10.9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                        <path d="M14.6 14.8V4.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                      </svg>
+                    </span>
+                  </div>
+                  <div className="sq-home__kpi-value">68.2%</div>
+                  <div className="sq-home__kpi-foot">
+                    <span className="sq-home__kpi-foot-text sq-home__kpi-foot-text--accent">跑赢指数 12%</span>
+                    <span className="sq-home__kpi-pill">+5.2%</span>
+                  </div>
+                </div>
+                <div className="sq-home__kpi sq-home__kpi--amber">
+                  <div className="sq-home__kpi-head">
+                    <div className="sq-home__kpi-title-row">
+                      <div className="sq-home__kpi-title">市场情绪</div>
                     </div>
-                  </Space>
-                </Card>
-              </Col>
-              <Col xs={24} sm={12} md={8}>
-                <Card size="small" hoverable>
-                  <Space>
-                    <CalculatorOutlined style={{ fontSize: 28, color: '#722ed1' }} />
-                    <div>
-                      <Typography.Text strong>多策略组合</Typography.Text>
-                      <Typography.Paragraph style={{ marginBottom: 0, color: '#aaa', fontSize: 12 }}>
-                        组合多个策略，分散风险
-                      </Typography.Paragraph>
+                    <span className="sq-home__kpi-icon" aria-hidden="true">
+                      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M9 2.1v3.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                        <path d="M9 12.8v3.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                        <path d="M2.1 9h3.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                        <path d="M12.8 9h3.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                        <path d="M6.7 9c.7 0 1.1-2.2 1.8-2.2s1 4.4 1.6 4.4 1-2.2 1.7-2.2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </span>
+                  </div>
+                  <div className="sq-home__kpi-value">贪婪</div>
+                  <div className="sq-home__kpi-foot">
+                    <span className="sq-home__kpi-foot-text">82/100</span>
+                    <span className="sq-home__kpi-pill">High</span>
+                  </div>
+                </div>
+                <div className="sq-home__kpi sq-home__kpi--emerald">
+                  <div className="sq-home__kpi-head">
+                    <div className="sq-home__kpi-title-row">
+                      <div className="sq-home__kpi-title">全A成交额</div>
                     </div>
-                  </Space>
-                </Card>
-              </Col>
-              <Col xs={24} sm={12} md={8}>
-                <Card size="small" hoverable>
-                  <Space>
-                    <RightOutlined style={{ fontSize: 28, color: '#52c41a' }} />
-                    <div>
-                      <Typography.Text strong>实时行情监控</Typography.Text>
-                      <Typography.Paragraph style={{ marginBottom: 0, color: '#aaa', fontSize: 12 }}>
-                        把握盘中实时机会
-                      </Typography.Paragraph>
-                    </div>
-                  </Space>
-                </Card>
-              </Col>
-              <Col xs={24} sm={12} md={8}>
-                <Card size="small" hoverable>
-                  <Space>
-                    <SyncOutlined style={{ fontSize: 28, color: '#13c2c2' }} />
-                    <div>
-                      <Typography.Text strong>30秒自动刷新</Typography.Text>
-                      <Typography.Paragraph style={{ marginBottom: 0, color: '#aaa', fontSize: 12 }}>
-                        实时盈亏数据快速掌握
-                      </Typography.Paragraph>
-                    </div>
-                  </Space>
-                </Card>
-              </Col>
-              <Col xs={24} sm={12} md={8}>
-                <Card size="small" hoverable>
-                  <Space>
-                    <BarChartOutlined style={{ fontSize: 28, color: '#eb2f96' }} />
-                    <div>
-                      <Typography.Text strong>回测验证</Typography.Text>
-                      <Typography.Paragraph style={{ marginBottom: 0, color: '#aaa', fontSize: 12 }}>
-                        历史数据验证策略有效性
-                      </Typography.Paragraph>
-                    </div>
-                  </Space>
-                </Card>
-              </Col>
-            </Row>
-          </Card>
-        </Col>
+                    <span className="sq-home__kpi-icon" aria-hidden="true">
+                      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M3.2 12.6 7.1 8.7l2.4 2.4 5.3-5.3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                        <path d="M12.1 5.8h2.7v2.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </span>
+                  </div>
+                  <div className="sq-home__kpi-value">9,820亿</div>
+                  <div className="sq-home__kpi-foot">
+                    <span className="sq-home__kpi-foot-text sq-home__kpi-foot-text--accent">缩量 15%</span>
+                    <span className="sq-home__kpi-pill">-15%</span>
+                  </div>
+                </div>
+              </section>
 
-        {/* 快捷入口 */}
-        <Col span={24}>
-          <Card title="快捷入口" size="small">
-            <Row gutter={[16, 16]}>
-              <Col xs={24} sm={12} md={6}>
-                <Button
-                  type="primary"
-                  block
-                  size="large"
-                  icon={<ThunderboltOutlined />}
-                  onClick={() => navigate('/super-main-force')}
-                >
-                  超强主力
-                </Button>
-              </Col>
-              <Col xs={24} sm={12} md={6}>
-                <Button
-                  block
-                  size="large"
-                  icon={<CalculatorOutlined />}
-                  onClick={() => navigate('/smart-selection')}
-                >
-                  精算智选
-                </Button>
-              </Col>
-              <Col xs={24} sm={12} md={6}>
-                <Button
-                  block
-                  size="large"
-                  icon={<BarChartOutlined />}
-                  onClick={() => navigate('/backtest-analysis')}
-                >
-                  回测分析
-                </Button>
-              </Col>
-              <Col xs={24} sm={12} md={6}>
-                <Button
-                  block
-                  size="large"
-                  icon={<RightOutlined />}
-                  onClick={() => navigate('/stocks')}
-                >
-                  股票列表
-                </Button>
-              </Col>
-            </Row>
-          </Card>
-        </Col>
-      </Row>
-    </div>
+              <section className="sq-home__grid" aria-label="热点与策略">
+                <div className="sq-home__card sq-home__card--hot" style={{ backgroundImage: `url(${hotFundsBg})` }}>
+                  <div className="sq-home__card-overlay" aria-hidden="true" />
+                  <div className="sq-home__card-inner">
+                    <div className="sq-home__card-head">
+                      <div className="sq-home__card-head-left">
+                        <span className="sq-home__icon-box" aria-hidden="true">
+                          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path
+                              d="M10 1.8 16.5 4.9v5c0 4.4-2.8 7.6-6.5 8.3C6.3 17.5 3.5 14.3 3.5 9.9v-5L10 1.8Z"
+                              stroke="currentColor"
+                              strokeWidth="1.4"
+                            />
+                            <path
+                              d="M7 10l2 2 4-5"
+                              stroke="currentColor"
+                              strokeWidth="1.6"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </span>
+                        <div className="sq-home__card-head-text">
+                          <div className="sq-home__card-title-row">
+                            <h2 className="sq-home__card-title">实时热点资金</h2>
+                            <span className="sq-home__pill sq-home__pill--live">LIVE</span>
+                          </div>
+                          <p className="sq-home__card-subtitle">追踪主力动向，把握板块机会</p>
+                        </div>
+                      </div>
+                      <button type="button" className="sq-home__link-btn" onClick={() => navigate('/super-main-force')}>
+                        查看更多
+                        <span className="sq-home__link-btn-icon" aria-hidden="true">
+                          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M5.3 2.6 9.7 7l-4.4 4.4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                          </svg>
+                        </span>
+                      </button>
+                    </div>
+
+                    <div className="sq-home__table-wrap" role="region" aria-label="热点资金表格">
+                      <table className="sq-home__table">
+                        <thead>
+                          <tr>
+                            <th scope="col">板块</th>
+                            <th scope="col">涨跌幅</th>
+                            <th scope="col">主力净流入</th>
+                            <th scope="col">领涨个股</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {hotFunds.map((row) => {
+                            const isUp = row.changePct.startsWith('+');
+                            const isInflowUp = row.netInflow.startsWith('+');
+                            return (
+                              <tr key={`${row.sector}-${row.leaderCode}`}>
+                                <td>
+                                  <div className="sq-home__sector">
+                                    <span className="sq-home__sector-dot" aria-hidden="true" />
+                                    <span className="sq-home__sector-name">{row.sector}</span>
+                                    {row.isHot ? <span className="sq-home__sector-tag">HOT</span> : null}
+                                  </div>
+                                </td>
+                                <td className={isUp ? 'sq-home__num sq-home__num--up' : 'sq-home__num sq-home__num--down'}>
+                                  {row.changePct}
+                                </td>
+                                <td className={isInflowUp ? 'sq-home__num sq-home__num--up' : 'sq-home__num sq-home__num--down'}>
+                                  {row.netInflow}
+                                </td>
+                                <td>
+                                  <div className="sq-home__leader">
+                                    <span className="sq-home__leader-name">{row.leaderName}</span>
+                                    <span className="sq-home__leader-code">({row.leaderCode})</span>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="sq-home__card sq-home__card--strategy" style={{ backgroundImage: `url(${strategyBg})` }}>
+                  <div className="sq-home__card-overlay" aria-hidden="true" />
+                  <div className="sq-home__card-inner">
+                    <div className="sq-home__strategy-head">
+                      <span className="sq-home__icon-box sq-home__icon-box--purple" aria-hidden="true">
+                        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path
+                            d="M4 7.3c0-1.8 1.5-3.3 3.3-3.3h5.4C14.5 4 16 5.5 16 7.3v5.4c0 1.8-1.5 3.3-3.3 3.3H7.3C5.5 16 4 14.5 4 12.7V7.3Z"
+                            stroke="currentColor"
+                            strokeWidth="1.4"
+                          />
+                          <path
+                            d="M7 3v2M13 3v2M7 15v2M13 15v2M3 10h2M15 10h2"
+                            stroke="currentColor"
+                            strokeWidth="1.4"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      </span>
+                      <div className="sq-home__strategy-head-text">
+                        <h2 className="sq-home__card-title">精算策略表现</h2>
+                        <p className="sq-home__card-subtitle">基于AI的量化策略实时收益</p>
+                      </div>
+                    </div>
+
+                    <div className="sq-home__strategy-chips" aria-label="策略指标">
+                      <span className="sq-home__chip sq-home__chip--danger">胜率 68.5%</span>
+                      <span className="sq-home__chip sq-home__chip--info">夏普 2.34</span>
+                    </div>
+
+                    <div className="sq-home__strategy-visual" aria-hidden="true" />
+
+                    <button type="button" className="sq-home__strategy-btn" onClick={() => navigate('/smart-selection')}>
+                      <span className="sq-home__strategy-btn-icon" aria-hidden="true">
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path
+                            d="M7 2.3a4.7 4.7 0 1 0 0 9.4 4.7 4.7 0 0 0 0-9.4Z"
+                            stroke="currentColor"
+                            strokeWidth="1.4"
+                          />
+                          <path
+                            d="M7 5.1V7l1.3 0.8"
+                            stroke="currentColor"
+                            strokeWidth="1.4"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      </span>
+                      配置我的策略
+                    </button>
+
+                    <div className="sq-home__strategy-stats">
+                      <div className="sq-home__mini">
+                        <div className="sq-home__mini-label">年化收益</div>
+                        <div className="sq-home__mini-value sq-home__mini-value--up">+24.5%</div>
+                      </div>
+                      <div className="sq-home__mini">
+                        <div className="sq-home__mini-label">最大回撤</div>
+                        <div className="sq-home__mini-value sq-home__mini-value--down">-8.2%</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="sq-home__features" aria-label="核心能力">
+                <article className="sq-home__feature-card">
+                  <img
+                    className="sq-home__feature-bg"
+                    src={featureMarketBg}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                    aria-hidden="true"
+                  />
+                  <div className="sq-home__feature-overlay" aria-hidden="true" />
+                  <div className="sq-home__feature-inner">
+                    <span className="sq-home__feature-badge sq-home__feature-badge--danger">核心功能</span>
+                    <div className="sq-home__feature-head">
+                      <span className="sq-home__feature-icon" aria-hidden="true">
+                        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path
+                            d="M2.25 9c0-1.55 1.25-2.8 2.8-2.8h7.9c1.55 0 2.8 1.25 2.8 2.8v1.8c0 1.55-1.25 2.8-2.8 2.8h-7.9c-1.55 0-2.8-1.25-2.8-2.8V9Z"
+                            stroke="currentColor"
+                            strokeWidth="1.6"
+                          />
+                          <path
+                            d="M5.4 9.9 7.2 11.7 12.6 6.3"
+                            stroke="currentColor"
+                            strokeWidth="1.6"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      </span>
+                      <h2 className="sq-home__feature-title">实时市场追踪</h2>
+                    </div>
+                    <p className="sq-home__feature-desc">L2 级行情数据，毫秒级响应，捕捉每一个交易机会</p>
+                    <div className="sq-home__feature-tags" aria-label="功能标签">
+                      <span className="sq-home__feature-tag">实时数据</span>
+                      <span className="sq-home__feature-tag">智能预警</span>
+                    </div>
+                  </div>
+                </article>
+
+                <article className="sq-home__feature-card">
+                  <img
+                    className="sq-home__feature-bg"
+                    src={featureAiBg}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                    aria-hidden="true"
+                  />
+                  <div className="sq-home__feature-overlay" aria-hidden="true" />
+                  <div className="sq-home__feature-inner">
+                    <span className="sq-home__feature-badge sq-home__feature-badge--purple">数据分析</span>
+                    <div className="sq-home__feature-head">
+                      <span className="sq-home__feature-icon sq-home__feature-icon--purple" aria-hidden="true">
+                        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path
+                            d="M6.2 3.8h5.6c1.55 0 2.8 1.25 2.8 2.8v4.8c0 1.55-1.25 2.8-2.8 2.8H6.2c-1.55 0-2.8-1.25-2.8-2.8V6.6c0-1.55 1.25-2.8 2.8-2.8Z"
+                            stroke="currentColor"
+                            strokeWidth="1.6"
+                          />
+                          <path
+                            d="M6 10.2h6M6 7.6h2.5"
+                            stroke="currentColor"
+                            strokeWidth="1.6"
+                            strokeLinecap="round"
+                          />
+                        </svg>
+                      </span>
+                      <h2 className="sq-home__feature-title">智能数据分析</h2>
+                    </div>
+                    <p className="sq-home__feature-desc">AI 驱动的多维度数据分析，深度挖掘市场规律</p>
+                    <div className="sq-home__feature-tags" aria-label="功能标签">
+                      <span className="sq-home__feature-tag">深度学习</span>
+                      <span className="sq-home__feature-tag">可视化</span>
+                    </div>
+                  </div>
+                </article>
+              </section>
+
+              <section className="sq-home__insights" aria-label="市场洞察">
+                <div className="sq-home__section-head">
+                  <div className="sq-home__section-title">
+                    <div className="sq-home__section-title-row">
+                      <h2 className="sq-home__section-heading">市场洞察</h2>
+                      <span className="sq-home__live-pill" aria-label="实时更新">
+                        <span className="sq-home__live-dot" aria-hidden="true" />
+                        LIVE
+                      </span>
+                    </div>
+                    <p className="sq-home__section-subtitle">实时追踪市场动态，深度解读热点事件</p>
+                  </div>
+                  <button type="button" className="sq-home__section-btn" onClick={() => navigate('/stocks')}>
+                    查看全部
+                    <span className="sq-home__section-btn-icon" aria-hidden="true">
+                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M5.3 2.6 9.7 7l-4.4 4.4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                      </svg>
+                    </span>
+                  </button>
+                </div>
+
+                <div className="sq-home__insights-grid">
+                  <article className="sq-home__insight-main">
+                    <img
+                      className="sq-home__insight-bg"
+                      src={insightMainBg}
+                      alt=""
+                      loading="lazy"
+                      decoding="async"
+                      aria-hidden="true"
+                    />
+                    <div className="sq-home__insight-overlay" aria-hidden="true" />
+                    <div className="sq-home__insight-main-inner">
+                      <span className="sq-home__insight-tag">市场热点</span>
+                      <h3 className="sq-home__insight-title">全球资本流向分析：科技板块资金净流入持续加速</h3>
+                      <p className="sq-home__insight-desc">本周科技板块主力资金净流入达 186 亿元，其中芯片、AI 应用细分赛道表现亮眼...</p>
+                      <div className="sq-home__insight-meta" aria-label="文章信息">
+                        <span className="sq-home__insight-meta-item">5 小时前</span>
+                        <span className="sq-home__insight-meta-item">• 阅读 2.4k</span>
+                      </div>
+                    </div>
+                  </article>
+
+                  <div className="sq-home__insight-side" aria-label="更多洞察">
+                    {marketInsightCards.map((item) => (
+                      <article key={item.key} className="sq-home__insight-item">
+                        <img className="sq-home__insight-thumb" src={insightThumbBg} alt="" loading="lazy" decoding="async" aria-hidden="true" />
+                        <div className="sq-home__insight-item-body">
+                          <span className="sq-home__insight-item-tag">{item.category}</span>
+                          <h4 className="sq-home__insight-item-title">{item.title}</h4>
+                          <p className="sq-home__insight-item-desc">{item.desc}</p>
+                          <div className="sq-home__insight-item-time">{item.time}</div>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
   );
 };
 
