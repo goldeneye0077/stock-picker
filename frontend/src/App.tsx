@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { ConfigProvider, Result, Spin, theme } from 'antd';
 import { ProLayout } from '@ant-design/pro-layout';
@@ -11,6 +11,7 @@ import {
   HomeOutlined,
   StarOutlined,
   AreaChartOutlined,
+  MessageOutlined,
 } from '@ant-design/icons';
 import Home from './pages/Home';
 import StockList from './pages/StockList';
@@ -20,10 +21,13 @@ import SuperMainForce from './pages/SuperMainForce';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import UserManagement from './pages/UserManagement';
+import ContactManagement from './pages/ContactManagement';
+import Contact from './pages/Contact';
 import UserAgreement from './pages/UserAgreement';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import SiteAnalytics from './pages/SiteAnalytics';
 import TopBanner from './components/DateTimeBanner';
+import GlobalDisclaimer from './components/GlobalDisclaimer';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { usePageTracking } from './hooks/usePageTracking';
 import FigmaShellLayout from './components/FigmaShellLayout';
@@ -33,43 +37,48 @@ const { darkAlgorithm, defaultAlgorithm } = theme;
 const menuItems = [
   {
     path: '/home',
-    name: '首页',
+    name: '棣栭〉',
     icon: <HomeOutlined />,
   },
   {
     path: '/super-main-force',
-    name: '超强主力',
+    name: '瓒呭己涓诲姏',
     icon: <ThunderboltOutlined />,
   },
   {
     path: '/smart-selection',
-    name: '精算智选',
+    name: '精选智选',
     icon: <CalculatorOutlined />,
   },
   {
     path: '/stocks',
-    name: '股票列表',
+    name: '鑲＄エ鍒楄〃',
     icon: <StockOutlined />,
   },
   {
     path: '/watchlist',
-    name: '自选股',
+    name: '鑷€夎偂',
     icon: <StarOutlined />,
   },
   {
     path: '/settings',
-    name: '设置',
+    name: '璁剧疆',
     icon: <SettingOutlined />,
   },
   {
     path: '/user-management',
-    name: '用户管理',
+    name: '鐢ㄦ埛绠＄悊',
     icon: <TeamOutlined />,
   },
   {
     path: '/site-analytics',
     name: '网站统计',
     icon: <AreaChartOutlined />,
+  },
+  {
+    path: '/contact-management',
+    name: '留言管理',
+    icon: <MessageOutlined />,
   },
 ];
 
@@ -93,7 +102,7 @@ function RequireAuth({ path, children }: { path: string; children: React.ReactNo
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }
 
-  if (path === '/user-management' && !user.isAdmin) {
+  if (['/user-management', '/site-analytics', '/contact-management'].includes(path) && !user.isAdmin) {
     return <Navigate to="/forbidden" replace />;
   }
 
@@ -110,7 +119,7 @@ function AppLayout() {
   const { user, firstAllowedPath, canAccess, loading } = useAuth();
   const isHomePage = location.pathname === '/home' || location.pathname === '/';
 
-  // 页面访问追踪
+  // 椤甸潰璁块棶杩借釜
   usePageTracking();
 
   if (loading) {
@@ -132,7 +141,7 @@ function AppLayout() {
   });
   const menuItemsWithAdminGuard = visibleMenuItems.filter((item) => {
     if (!item.path) return false;
-    if (item.path === '/user-management' || item.path === '/site-analytics') return user?.isAdmin;
+    if (item.path === '/user-management' || item.path === '/site-analytics' || item.path === '/contact-management') return user?.isAdmin;
     return true;
   });
 
@@ -161,23 +170,7 @@ function AppLayout() {
       siderWidth={200}
       collapsed={false}
       headerRender={false}
-      footerRender={() => (
-        <div
-          style={{
-            height: 40,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 12,
-            fontWeight: 500,
-            color: 'var(--sq-text-secondary)',
-            background: 'var(--sq-bg)',
-            borderTop: '1px solid var(--sq-border)',
-          }}
-        >
-          本引擎仅供学习，不作为投资依据，严禁用作商业用途
-        </div>
-      )}
+      footerRender={false}
       contentStyle={{
         margin: 0,
         padding: 0,
@@ -259,19 +252,27 @@ function AppLayout() {
           }
         />
         <Route
+          path="/contact-management"
+          element={
+            <RequireAuth path="/contact-management">
+              <ContactManagement />
+            </RequireAuth>
+          }
+        />
+        <Route
           path="/forbidden"
           element={
             <Result
               status="403"
               title="403"
-              subTitle="无权限访问该页面"
+              subTitle="鏃犳潈闄愯闂椤甸潰"
               extra={
                 <a
                   onClick={() => {
                     navigate(firstAllowedPath(), { replace: true });
                   }}
                 >
-                  返回可访问首页
+                  杩斿洖鍙闂椤?
                 </a>
               }
             />
@@ -305,11 +306,13 @@ function App() {
 
   const routeLabels = useMemo(() => {
     const map: Record<string, string> = {
-      '/': '首页',
-      '/home': '首页',
-      '/login': '登录',
-      '/register': '注册',
+      '/': '棣栭〉',
+      '/home': '棣栭〉',
+      '/login': '鐧诲綍',
+      '/register': '娉ㄥ唽',
+      '/contact': '联系我',
       '/forbidden': '无权限',
+      '/contact-management': '留言管理',
     };
     for (const item of menuItems) {
       if (item.path && item.name) map[item.path] = item.name;
@@ -405,6 +408,7 @@ function App() {
           style={{
             height: '100%',
             paddingTop: 48,
+            paddingBottom: 56,
             boxSizing: 'border-box',
             overflow: 'auto',
           }}
@@ -413,6 +417,7 @@ function App() {
             <Route path="/" element={<Navigate to="/home" replace />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
+            <Route path="/contact" element={<Contact />} />
             <Route path="/user-agreement" element={<UserAgreement />} />
             <Route path="/privacy-policy" element={<PrivacyPolicy />} />
             <Route element={<FigmaShellLayout />}>
@@ -457,6 +462,22 @@ function App() {
                 }
               />
               <Route
+                path="/site-analytics"
+                element={
+                  <RequireAuth path="/site-analytics">
+                    <SiteAnalytics />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/contact-management"
+                element={
+                  <RequireAuth path="/contact-management">
+                    <ContactManagement />
+                  </RequireAuth>
+                }
+              />
+              <Route
                 path="/settings"
                 element={
                   <RequireAuth path="/settings">
@@ -468,6 +489,7 @@ function App() {
             <Route path="/*" element={<AppLayout />} />
           </Routes>
         </div>
+        <GlobalDisclaimer />
       </div>
     );
   };
@@ -486,3 +508,4 @@ function App() {
 }
 
 export default App;
+

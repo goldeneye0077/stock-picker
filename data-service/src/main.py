@@ -75,6 +75,10 @@ def parse_cors_origins(value: str | None) -> list[str]:
             origins.append(origin)
     return origins
 
+
+def is_production_environment() -> bool:
+    return (os.getenv("ENV") or os.getenv("NODE_ENV") or "").strip().lower() == "production"
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
@@ -143,7 +147,13 @@ app = FastAPI(
 
 # 配置 CORS - 允许所有 localhost 端口
 cors_allow_origins = parse_cors_origins(os.getenv("CORS_ALLOW_ORIGINS")) or []
-cors_origin_regex = os.getenv("CORS_ALLOW_ORIGIN_REGEX") or r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+cors_origin_regex = (os.getenv("CORS_ALLOW_ORIGIN_REGEX") or "").strip() or None
+
+if not cors_allow_origins and not cors_origin_regex and not is_production_environment():
+    cors_origin_regex = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
+
+if not cors_allow_origins and not cors_origin_regex and is_production_environment():
+    logger.warning("CORS_ALLOW_ORIGINS is empty in production; browser cross-origin requests will be blocked")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_allow_origins,
@@ -201,10 +211,15 @@ class APITrackingMiddleware(BaseHTTPMiddleware):
             if auth_header.startswith("Bearer "):
                 token = auth_header[7:].strip()
                 if token:
+                    try:
+                        from .utils.auth import hash_session_token
+                    except ImportError:
+                        from utils.auth import hash_session_token
+                    token_hash = hash_session_token(token)
                     async with get_database() as db:
                         cursor = await db.execute(
-                            "SELECT user_id FROM user_sessions WHERE token = ?",
-                            (token,)
+                            "SELECT user_id FROM user_sessions WHERE token = ? OR token = ? LIMIT 1",
+                            (token_hash, token)
                         )
                         row = await cursor.fetchone()
                         if row:

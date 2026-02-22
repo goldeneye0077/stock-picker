@@ -77,7 +77,7 @@ def _is_local_request(request: Request) -> bool:
     return host in {"127.0.0.1", "::1", "localhost"}
 
 async def require_admin_or_local(request: Request, authorization: str | None = Header(None)) -> dict:
-    if _env_flag(os.getenv("ALLOW_LOCAL_JOBS", "1")) and _is_local_request(request):
+    if _env_flag(os.getenv("ALLOW_LOCAL_JOBS", "0")) and _is_local_request(request):
         return {"id": 0, "username": "local", "isAdmin": True, "isActive": True, "token": "", "permissions": []}
     user = await require_user(authorization)
     return await require_admin(user)
@@ -685,7 +685,7 @@ async def batch_collect_7days_task(include_moneyflow: bool = True, include_aucti
 
 
 @router.get("/status")
-async def get_collection_status():
+async def get_collection_status(_: dict = Depends(require_admin_or_local)):
     """Get data collection status"""
     try:
         async with get_database() as db:
@@ -813,7 +813,11 @@ class IncrementalCollectionRequest(BaseModel):
 
 
 @router.post("/incremental-collect")
-async def incremental_collect(background_tasks: BackgroundTasks, request: IncrementalCollectionRequest = None):
+async def incremental_collect(
+    background_tasks: BackgroundTasks,
+    request: IncrementalCollectionRequest = None,
+    _: dict = Depends(require_admin_or_local),
+):
     """
     执行增量数据采集
 
@@ -877,7 +881,7 @@ async def incremental_collect_task(days: int = 7, include_moneyflow: bool = True
 
 
 @router.get("/collection-history")
-async def get_collection_history(limit: int = 10):
+async def get_collection_history(limit: int = 10, _: dict = Depends(require_admin_or_local)):
     """获取采集历史记录"""
     try:
         async with get_database() as db:
@@ -920,7 +924,7 @@ async def get_collection_history(limit: int = 10):
 
 
 @router.get("/collection-config")
-async def get_collection_config():
+async def get_collection_config(_: dict = Depends(require_admin_or_local)):
     """获取采集配置"""
     try:
         async with get_database() as db:
@@ -945,7 +949,7 @@ async def get_collection_config():
 
 
 @router.put("/collection-config/{config_key}")
-async def update_collection_config(config_key: str, config_value: str):
+async def update_collection_config(config_key: str, config_value: str, _: dict = Depends(require_admin_or_local)):
     """更新采集配置"""
     try:
         async with get_database() as db:
@@ -967,7 +971,7 @@ async def update_collection_config(config_key: str, config_value: str):
 
 
 @router.get("/data-quality-metrics")
-async def get_data_quality_metrics(days: int = 7):
+async def get_data_quality_metrics(days: int = 7, _: dict = Depends(require_admin_or_local)):
     """获取数据质量指标"""
     try:
         async with get_database() as db:
@@ -1030,7 +1034,7 @@ async def get_data_quality_metrics(days: int = 7):
 
 
 @router.get("/incremental-status")
-async def get_incremental_status():
+async def get_incremental_status(_: dict = Depends(require_admin_or_local)):
     """获取增量更新状态"""
     try:
         async with get_database() as db:
@@ -1098,7 +1102,7 @@ async def get_incremental_status():
 
 
 @router.post("/quick-refresh-all")
-async def quick_refresh_all(background_tasks: BackgroundTasks):
+async def quick_refresh_all(background_tasks: BackgroundTasks, _: dict = Depends(require_admin_or_local)):
     """一键快速更新数据（统一增量更新入口）"""
     try:
         manager = get_multi_source_manager()
@@ -1166,7 +1170,7 @@ async def quick_refresh_all(background_tasks: BackgroundTasks):
 # ==================== 数据质量监控相关API ====================
 
 @router.get("/quality-metrics")
-async def get_quality_metrics(days: int = 7):
+async def get_quality_metrics(days: int = 7, _: dict = Depends(require_admin_or_local)):
     """
     获取数据质量指标
 
@@ -1209,7 +1213,7 @@ async def get_quality_metrics(days: int = 7):
 
 
 @router.get("/quality-report")
-async def get_quality_report(days: int = 7):
+async def get_quality_report(days: int = 7, _: dict = Depends(require_admin_or_local)):
     """
     获取数据质量报告
 
@@ -1233,7 +1237,11 @@ async def get_quality_report(days: int = 7):
 
 
 @router.post("/run-quality-check")
-async def run_quality_check(background_tasks: BackgroundTasks, days: int = 7):
+async def run_quality_check(
+    background_tasks: BackgroundTasks,
+    days: int = 7,
+    _: dict = Depends(require_admin_or_local),
+):
     """
     运行数据质量检查
 
@@ -1275,7 +1283,7 @@ async def run_quality_check_task(days: int = 7):
 
 
 @router.get("/quality-alerts")
-async def get_quality_alerts(limit: int = 10, days: int = 7):
+async def get_quality_alerts(limit: int = 10, days: int = 7, _: dict = Depends(require_admin_or_local)):
     """
     获取数据质量报警记录
 
@@ -1323,7 +1331,7 @@ async def get_quality_alerts(limit: int = 10, days: int = 7):
 
 
 @router.get("/quality-trend")
-async def get_quality_trend(days: int = 30):
+async def get_quality_trend(days: int = 30, _: dict = Depends(require_admin_or_local)):
     """
     获取数据质量趋势
 
@@ -1393,7 +1401,11 @@ async def get_quality_trend(days: int = 30):
 # ==================== 多数据源管理相关API ====================
 
 @router.get("/multi-source/status")
-async def get_multi_source_status(refresh: bool = False, timeout_sec: float = 8.0):
+async def get_multi_source_status(
+    refresh: bool = False,
+    timeout_sec: float = 8.0,
+    _: dict = Depends(require_admin_or_local),
+):
     """获取多数据源状态"""
     try:
         manager = get_multi_source_manager()
@@ -1418,7 +1430,7 @@ async def get_multi_source_status(refresh: bool = False, timeout_sec: float = 8.
 
 
 @router.get("/multi-source/consistency")
-async def get_consistency_report(days: int = 7):
+async def get_consistency_report(days: int = 7, _: dict = Depends(require_admin_or_local)):
     """获取数据一致性报告"""
     try:
         manager = get_multi_source_manager()
@@ -1443,7 +1455,7 @@ async def get_consistency_report(days: int = 7):
 
 
 @router.post("/multi-source/run-health-check")
-async def run_health_check(background_tasks: BackgroundTasks):
+async def run_health_check(background_tasks: BackgroundTasks, _: dict = Depends(require_admin_or_local)):
     """运行数据源健康检查"""
     try:
         manager = get_multi_source_manager()
@@ -1472,7 +1484,7 @@ async def run_health_check_task():
 
 
 @router.post("/multi-source/clear-cache")
-async def clear_multi_source_cache():
+async def clear_multi_source_cache(_: dict = Depends(require_admin_or_local)):
     """清空多数据源缓存"""
     try:
         manager = get_multi_source_manager()
@@ -1489,7 +1501,7 @@ async def clear_multi_source_cache():
 
 
 @router.put("/multi-source/cache-ttl/{ttl_seconds}")
-async def set_cache_ttl(ttl_seconds: int):
+async def set_cache_ttl(ttl_seconds: int, _: dict = Depends(require_admin_or_local)):
     """设置缓存有效期"""
     try:
         manager = get_multi_source_manager()
@@ -1506,7 +1518,7 @@ async def set_cache_ttl(ttl_seconds: int):
 
 
 @router.get("/multi-source/source-info/{source_name}")
-async def get_source_info(source_name: str):
+async def get_source_info(source_name: str, _: dict = Depends(require_admin_or_local)):
     """获取指定数据源的详细信息"""
     try:
         manager = get_multi_source_manager()

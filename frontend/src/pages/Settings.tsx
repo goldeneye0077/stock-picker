@@ -3,6 +3,7 @@ import { Card, Form, Switch, Slider, Select, Button, Divider, Space, message, Sp
 import { SaveOutlined, ReloadOutlined, SyncOutlined, ClockCircleOutlined, DatabaseOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import { DATA_SERVICE_URL } from '../config/api';
+import { getStoredToken } from '../services/authService';
 import FigmaPageHero from '../components/FigmaPageHero';
 import { FigmaBorderRadius } from '../styles/FigmaDesignTokens';
 
@@ -40,27 +41,49 @@ const Settings: React.FC = () => {
   const [currentStep, setCurrentStep] = useState('');
   const [startTime, setStartTime] = useState<Date | null>(null);
 
+  const buildAuthConfig = useCallback(() => {
+    const token = getStoredToken();
+    if (!token) return {};
+    return {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    };
+  }, []);
+
+  const dsGet = useCallback((path: string) => {
+    return axios.get(`${DATA_SERVICE_URL}${path}`, buildAuthConfig());
+  }, [buildAuthConfig]);
+
+  const dsPost = useCallback((path: string, body?: any) => {
+    return axios.post(`${DATA_SERVICE_URL}${path}`, body, buildAuthConfig());
+  }, [buildAuthConfig]);
+
+  const dsPut = useCallback((path: string, body?: any) => {
+    return axios.put(`${DATA_SERVICE_URL}${path}`, body, buildAuthConfig());
+  }, [buildAuthConfig]);
+
   const onFinish = async (values: any) => {
     try {
       // 保存多数据源配置
       if (values.dataSource) {
-        await axios.put(`${DATA_SERVICE_URL}/api/data/collection-config/preferred_source?config_value=${encodeURIComponent(values.dataSource)}`);
+        await dsPut(`/api/data/collection-config/preferred_source?config_value=${encodeURIComponent(values.dataSource)}`);
       }
 
       if (values.fallbackOrder && values.fallbackOrder.length > 0) {
-        await axios.put(`${DATA_SERVICE_URL}/api/data/collection-config/fallback_order?config_value=${encodeURIComponent(values.fallbackOrder.join(','))}`);
+        await dsPut(`/api/data/collection-config/fallback_order?config_value=${encodeURIComponent(values.fallbackOrder.join(','))}`);
       }
 
       if (values.cacheTTL) {
-        await axios.put(`${DATA_SERVICE_URL}/api/data/multi-source/cache-ttl/${values.cacheTTL}`);
+        await dsPut(`/api/data/multi-source/cache-ttl/${values.cacheTTL}`);
       }
 
       if (values.enableIncremental !== undefined) {
-        await axios.put(`${DATA_SERVICE_URL}/api/data/collection-config/incremental_enabled?config_value=${encodeURIComponent(values.enableIncremental.toString())}`);
+        await dsPut(`/api/data/collection-config/incremental_enabled?config_value=${encodeURIComponent(values.enableIncremental.toString())}`);
       }
 
       if (values.incrementalDays) {
-        await axios.put(`${DATA_SERVICE_URL}/api/data/collection-config/incremental_days?config_value=${encodeURIComponent(values.incrementalDays.toString())}`);
+        await dsPut(`/api/data/collection-config/incremental_days?config_value=${encodeURIComponent(values.incrementalDays.toString())}`);
       }
 
       message.success('设置保存成功');
@@ -82,7 +105,7 @@ const Settings: React.FC = () => {
   const fetchDataStatus = useCallback(async () => {
     setLoadingStatus(true);
     try {
-      const response = await axios.get(`${DATA_SERVICE_URL}/api/data/status`);
+      const response = await dsGet('/api/data/status');
       if (response.data.success) {
         setDataStatus(response.data.data);
       }
@@ -91,23 +114,23 @@ const Settings: React.FC = () => {
     } finally {
       setLoadingStatus(false);
     }
-  }, []);
+  }, [dsGet]);
 
   // 获取调度器状态
   const fetchSchedulerStatus = useCallback(async () => {
     try {
-      const response = await axios.get(`${DATA_SERVICE_URL}/api/data/scheduler-status`);
+      const response = await dsGet('/api/data/scheduler-status');
       setSchedulerStatus(response.data);
     } catch (error) {
       console.error('获取调度器状态失败:', error);
     }
-  }, []);
+  }, [dsGet]);
 
   // 获取多数据源状态
   const fetchMultiSourceStatus = useCallback(async () => {
     setLoadingMultiSource(true);
     try {
-      const response = await axios.get(`${DATA_SERVICE_URL}/api/data/multi-source/status`);
+      const response = await dsGet('/api/data/multi-source/status');
       if (response.data.success) {
         setMultiSourceStatus(response.data.data);
       }
@@ -116,13 +139,13 @@ const Settings: React.FC = () => {
     } finally {
       setLoadingMultiSource(false);
     }
-  }, []);
+  }, [dsGet]);
 
   // 获取数据质量指标
   const fetchQualityMetrics = useCallback(async () => {
     setLoadingQuality(true);
     try {
-      const response = await axios.get(`${DATA_SERVICE_URL}/api/data/quality-metrics?days=7`);
+      const response = await dsGet('/api/data/quality-metrics?days=7');
       if (response.data.success) {
         setQualityMetrics(response.data.data);
       }
@@ -137,12 +160,12 @@ const Settings: React.FC = () => {
     } finally {
       setLoadingQuality(false);
     }
-  }, []);
+  }, [dsGet]);
 
   // 获取增量更新状态
   const fetchIncrementalStatus = useCallback(async () => {
     try {
-      const response = await axios.get(`${DATA_SERVICE_URL}/api/data/incremental-status`);
+      const response = await dsGet('/api/data/incremental-status');
       if (response.data.success) {
         setIncrementalStatus(response.data.data);
       }
@@ -158,12 +181,12 @@ const Settings: React.FC = () => {
         }
       });
     }
-  }, []);
+  }, [dsGet]);
 
   // 获取配置
   const fetchConfig = useCallback(async () => {
     try {
-      const response = await axios.get(`${DATA_SERVICE_URL}/api/data/collection-config`);
+      const response = await dsGet('/api/data/collection-config');
       if (response.data.success) {
         const config = response.data.data;
         const formValues: any = {};
@@ -193,7 +216,7 @@ const Settings: React.FC = () => {
     } catch (error) {
       console.error('获取配置失败:', error);
     }
-  }, [form]);
+  }, [dsGet, form]);
 
   // 手动触发数据采集 - 快速更新今日数据
   const handleCollectData = async () => {
@@ -204,7 +227,7 @@ const Settings: React.FC = () => {
     setStartTime(new Date());
 
     try {
-      const response = await axios.post(`${DATA_SERVICE_URL}/api/data/quick-refresh-all`);
+      const response = await dsPost('/api/data/quick-refresh-all');
 
       if (!response.data.success) {
         message.error('数据更新任务启动失败');
@@ -239,7 +262,13 @@ const Settings: React.FC = () => {
         message.success('数据更新任务已启动');
       }, 1000);
     } catch (error: any) {
-      message.error(`数据更新失败: ${error.message}`);
+      if (error?.response?.status === 401) {
+        message.error('数据更新失败：登录态已失效，请重新登录后重试');
+      } else if (error?.response?.status === 403) {
+        message.error('数据更新失败：需要管理员权限');
+      } else {
+        message.error(`数据更新失败: ${error.message}`);
+      }
       setProgressModalVisible(false);
       setCollecting(false);
     }
@@ -311,7 +340,7 @@ const Settings: React.FC = () => {
               icon={<CheckCircleOutlined />}
               onClick={async () => {
                 try {
-                  await axios.post(`${DATA_SERVICE_URL}/api/data/multi-source/run-health-check`);
+                  await dsPost('/api/data/multi-source/run-health-check');
                   message.success('健康检查已启动');
                   setTimeout(() => fetchMultiSourceStatus(), 2000);
                 } catch {
@@ -325,7 +354,7 @@ const Settings: React.FC = () => {
               icon={<DatabaseOutlined />}
               onClick={async () => {
                 try {
-                  await axios.post(`${DATA_SERVICE_URL}/api/data/multi-source/clear-cache`);
+                  await dsPost('/api/data/multi-source/clear-cache');
                   message.success('缓存已清空');
                   setTimeout(() => fetchMultiSourceStatus(), 1000);
                 } catch {

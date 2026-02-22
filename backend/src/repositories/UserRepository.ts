@@ -28,6 +28,10 @@ const DEFAULT_USER_PAGES = [
 ];
 
 export class UserRepository extends BaseRepository {
+  private hashToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
+  }
+
   private isHexString(s: string): boolean {
     return /^[0-9a-f]+$/i.test(s);
   }
@@ -190,44 +194,49 @@ export class UserRepository extends BaseRepository {
     // 假设我们将 Session Token 视为 Short-lived Access Token (e.g. 1 hour)
     const ttl = 1; // 1 hour
     const token = crypto.randomBytes(32).toString('hex');
+    const tokenHash = this.hashToken(token);
     const expires = new Date(Date.now() + ttl * 3600 * 1000);
     const sql = `INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)`;
-    await this.execute(sql, [token, userId, expires.toISOString()]);
+    await this.execute(sql, [tokenHash, userId, expires.toISOString()]);
     return { token, expiresAt: expires.toISOString() };
   }
 
   async getSession(token: string): Promise<{ userId: number } | null> {
-    const sql = `SELECT user_id, expires_at FROM sessions WHERE token = ?`;
-    const row = await this.queryOne<{ user_id: number; expires_at: string }>(sql, [token]);
+    const tokenHash = this.hashToken(token);
+    const sql = `SELECT token, user_id, expires_at FROM sessions WHERE token = ? OR token = ? LIMIT 1`;
+    const row = await this.queryOne<{ token: string; user_id: number; expires_at: string }>(sql, [tokenHash, token]);
     if (!row) return null;
     if (new Date(row.expires_at).getTime() < Date.now()) {
-      await this.execute(`DELETE FROM sessions WHERE token = ?`, [token]);
+      await this.execute(`DELETE FROM sessions WHERE token = ?`, [row.token]);
       return null;
     }
     return { userId: row.user_id };
   }
 
   async deleteSession(token: string): Promise<void> {
-    await this.execute(`DELETE FROM sessions WHERE token = ?`, [token]);
+    const tokenHash = this.hashToken(token);
+    await this.execute(`DELETE FROM sessions WHERE token = ? OR token = ?`, [tokenHash, token]);
   }
 
   // Refresh Token Methods
   async createRefreshToken(userId: number, ttlDays: number = 7): Promise<{ token: string; expiresAt: string }> {
     const token = crypto.randomBytes(40).toString('hex');
+    const tokenHash = this.hashToken(token);
     const expires = new Date(Date.now() + ttlDays * 24 * 3600 * 1000);
     const sql = `INSERT INTO refresh_tokens (token, user_id, expires_at) VALUES (?, ?, ?)`;
-    await this.execute(sql, [token, userId, expires.toISOString()]);
+    await this.execute(sql, [tokenHash, userId, expires.toISOString()]);
     return { token, expiresAt: expires.toISOString() };
   }
 
   async verifyRefreshToken(token: string): Promise<{ userId: number; expiresAt: string } | null> {
-    const sql = `SELECT user_id, expires_at FROM refresh_tokens WHERE token = ?`;
-    const row = await this.queryOne<{ user_id: number; expires_at: string }>(sql, [token]);
+    const tokenHash = this.hashToken(token);
+    const sql = `SELECT token, user_id, expires_at FROM refresh_tokens WHERE token = ? OR token = ? LIMIT 1`;
+    const row = await this.queryOne<{ token: string; user_id: number; expires_at: string }>(sql, [tokenHash, token]);
     if (!row) return null;
 
     // Check expiration
     if (new Date(row.expires_at).getTime() < Date.now()) {
-      await this.execute(`DELETE FROM refresh_tokens WHERE token = ?`, [token]); // Clean up expired
+      await this.execute(`DELETE FROM refresh_tokens WHERE token = ?`, [row.token]); // Clean up expired
       return null;
     }
 
@@ -235,7 +244,8 @@ export class UserRepository extends BaseRepository {
   }
 
   async deleteRefreshToken(token: string): Promise<void> {
-    await this.execute(`DELETE FROM refresh_tokens WHERE token = ?`, [token]);
+    const tokenHash = this.hashToken(token);
+    await this.execute(`DELETE FROM refresh_tokens WHERE token = ? OR token = ?`, [tokenHash, token]);
   }
 
   async deleteAllRefreshTokens(userId: number): Promise<void> {

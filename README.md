@@ -1,79 +1,52 @@
-# 选股应用 (Stock Picker)
+# Stock Picker
 
-基于成交量和K线走势分析主力资金介入的智能选股系统
+多服务股票分析系统，包含 `frontend`、`backend`、`data-service` 三个核心服务。
 
-## 项目架构
+## 目录结构
 
-```
+```text
 stock-picker/
-├── frontend/           # React + TypeScript 前端应用
-├── backend/           # Node.js + Express API 服务
-├── data-service/      # Python 数据处理和机器学习服务
-├── shared/           # 共享类型定义和工具
-├── docs/             # 项目文档
-└── scripts/          # 部署和工具脚本
+  backend/                  # Node.js API
+  frontend/                 # React 前端
+  data-service/             # FastAPI 数据服务
+  specs/                    # OpenAPI 与契约测试
+  scripts/
+    data/                   # 数据采集/生成脚本
+    diagnostics/            # 检查、分析、排障脚本
+    dev/                    # 本地启动/停止/重启脚本
+    migrate/                # 数据修复与迁移脚本
+    ops/                    # 运维脚本与结构校验
+  tests/manual/             # 手工测试资产（API/前端页面）
+  docs/
+    architecture/           # 架构文档
+    guides/                 # 使用与开发指南
+    reports/                # 阶段总结与报告
+  artifacts/                # 临时产物、日志、样例输出
 ```
 
-## 核心功能
+## 常用命令
 
-- 📊 主力资金流向分析
-- 📈 K线走势技术指标计算
-- 🎯 智能买入点预测
-- 📱 实时行情监控
-- 🔍 个股筛选和排序
-
-## 技术栈
-
-### 前端
-- React 18 + TypeScript
-- TradingView Charting Library
-- Ant Design
-- Vite
-
-### 后端
-- Node.js + Express + TypeScript
-- SQLite3 + Redis
-- WebSocket 实时数据推送
-
-### 数据处理
-- Python + FastAPI
-- pandas, numpy, TA-Lib
-- scikit-learn, XGBoost
-- TensorFlow/PyTorch
-
-## 快速开始
-
-### 自动安装（推荐）
 ```bash
-# Windows
-scripts\setup.bat
-
-# Linux/macOS
-chmod +x scripts/setup.sh
-./scripts/setup.sh
-```
-
-### 手动安装
-```bash
-# 安装所有依赖
 npm run setup
-
-# 启动开发环境
 npm run dev
-
-# 构建生产版本
 npm run build
+npm run test
+npm run repo:check-structure
 ```
 
-### 配置环境变量
-1. 注册 [Tushare Pro](https://tushare.pro/) 账号获取token
-2. 在 `backend/.env` 和 `data-service/.env` 中配置 TUSHARE_TOKEN
+## 启动入口（兼容保留）
 
-### 服务端口
-- 前端：http://localhost:3001
-- 后端API：http://localhost:3000
-- 数据服务：http://localhost:8001
+根目录以下脚本为兼容入口，真实实现已迁移到 `scripts/dev/`：
 
-## 开发状态
+- `start-services.js`
+- `stop-services.js`
+- `restart-services.js`
+- `start.bat` / `start.sh`
+- `stop.bat` / `restart.bat` / `start-manual.bat`
 
-🚧 项目正在开发中...
+## 结构治理
+
+提交前会执行根目录结构检查，避免再次出现脚本/文档/临时文件散落在仓库根目录的情况。
+
+- 检查脚本：`scripts/ops/check-root-structure.js`
+- npm 命令：`npm run repo:check-structure`

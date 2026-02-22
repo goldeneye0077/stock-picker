@@ -1,5 +1,4 @@
-import sqlite3 from 'sqlite3';
-import { promisify } from 'util';
+﻿import sqlite3 from 'sqlite3';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -16,9 +15,44 @@ function resolveSqlitePath(): string {
   return path.resolve(__dirname, '../../..', 'data', 'stock_picker.db');
 }
 
+function isProductionEnvironment(): boolean {
+  return (process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
+}
+
+function assertAdminPasswordStrength(password: string): void {
+  const hasMinLength = password.length >= 12;
+  const hasUpper = /[A-Z]/.test(password);
+  const hasLower = /[a-z]/.test(password);
+  const hasNumber = /\d/.test(password);
+  const hasSymbol = /[^A-Za-z0-9]/.test(password);
+
+  if (!hasMinLength || !hasUpper || !hasLower || !hasNumber || !hasSymbol) {
+    throw new Error(
+      'ADMIN_PASSWORD must be at least 12 chars and include upper/lower letters, numbers, and symbols in production'
+    );
+  }
+}
+
+function resolveBootstrapAdminPassword(adminPassword: string): string {
+  if (adminPassword) {
+    if (isProductionEnvironment()) {
+      assertAdminPasswordStrength(adminPassword);
+    }
+    return adminPassword;
+  }
+
+  if (isProductionEnvironment()) {
+    throw new Error('ADMIN_PASSWORD is required for first startup in production');
+  }
+
+  const generated = crypto.randomBytes(18).toString('base64url');
+  console.warn(`[SECURITY] ADMIN_PASSWORD is not set. Generated temporary admin password: ${generated}`);
+  return generated;
+}
+
 const dbPath = resolveSqlitePath();
 
-// 确保数据目录存在
+// 纭繚鏁版嵁鐩綍瀛樺湪
 const dataDir = path.dirname(dbPath);
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
@@ -174,7 +208,7 @@ export async function initDatabase(): Promise<void> {
     )
   `);
 
-  // 实时行情表（保存每只股票的最新行情）
+  // 瀹炴椂琛屾儏琛紙淇濆瓨姣忓彧鑲＄エ鐨勬渶鏂拌鎯咃級
   await db.run(`
     CREATE TABLE IF NOT EXISTS realtime_quotes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -198,7 +232,7 @@ export async function initDatabase(): Promise<void> {
     )
   `);
 
-  // 历史行情快照表（保存所有历史记录）
+  // 鍘嗗彶琛屾儏蹇収琛紙淇濆瓨鎵€鏈夊巻鍙茶褰曪級
   await db.run(`
     CREATE TABLE IF NOT EXISTS quote_history (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -217,7 +251,7 @@ export async function initDatabase(): Promise<void> {
     )
   `);
 
-  // 每日指标表（技术分析指标）
+  // 姣忔棩鎸囨爣琛紙鎶€鏈垎鏋愭寚鏍囷級
   await db.run(`
     CREATE TABLE IF NOT EXISTS daily_basic (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -245,7 +279,7 @@ export async function initDatabase(): Promise<void> {
     )
   `);
 
-  // 大盘资金流向表（东财市场资金流向数据）
+  // 澶х洏璧勯噾娴佸悜琛紙涓滆储甯傚満璧勯噾娴佸悜鏁版嵁锛?
   await db.run(`
     CREATE TABLE IF NOT EXISTS market_moneyflow (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -269,7 +303,7 @@ export async function initDatabase(): Promise<void> {
     )
   `);
 
-  // 板块资金流向表（东财概念及行业板块资金流向数据）
+  // 鏉垮潡璧勯噾娴佸悜琛紙涓滆储姒傚康鍙婅涓氭澘鍧楄祫閲戞祦鍚戞暟鎹級
   await db.run(`
     CREATE TABLE IF NOT EXISTS sector_moneyflow (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -295,7 +329,7 @@ export async function initDatabase(): Promise<void> {
     )
   `);
 
-  // 创建索引优化查询性能
+  // 鍒涘缓绱㈠紩浼樺寲鏌ヨ鎬ц兘
   await db.run(`
     CREATE TABLE IF NOT EXISTS sessions (
       token TEXT PRIMARY KEY,
@@ -338,7 +372,7 @@ export async function initDatabase(): Promise<void> {
     )
   `);
 
-  // 页面访问记录表（用于网站统计）
+  // 椤甸潰璁块棶璁板綍琛紙鐢ㄤ簬缃戠珯缁熻锛?
   await db.run(`
     CREATE TABLE IF NOT EXISTS page_views (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -351,7 +385,7 @@ export async function initDatabase(): Promise<void> {
     )
   `);
 
-  // API 调用日志表（用于网站统计）
+  // API 璋冪敤鏃ュ織琛紙鐢ㄤ簬缃戠珯缁熻锛?
   await db.run(`
     CREATE TABLE IF NOT EXISTS api_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -366,6 +400,25 @@ export async function initDatabase(): Promise<void> {
     )
   `);
 
+
+  // 用户留言表（联系我功能）
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS contact_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL,
+      subject TEXT,
+      message TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'new',
+      source_page TEXT,
+      ip_hash TEXT,
+      user_agent TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `);
   await db.run('CREATE INDEX IF NOT EXISTS idx_realtime_stock_code ON realtime_quotes(stock_code)');
   await db.run('CREATE INDEX IF NOT EXISTS idx_realtime_updated_at ON realtime_quotes(updated_at)');
   await db.run('CREATE INDEX IF NOT EXISTS idx_history_stock_code ON quote_history(stock_code)');
@@ -384,20 +437,23 @@ export async function initDatabase(): Promise<void> {
   await db.run('CREATE INDEX IF NOT EXISTS idx_user_watchlists_user_id ON user_watchlists(user_id)');
   await db.run('CREATE INDEX IF NOT EXISTS idx_user_watchlists_stock_code ON user_watchlists(stock_code)');
   await db.run('CREATE INDEX IF NOT EXISTS idx_refresh_tokens_token ON refresh_tokens(token)');
-  // 网站统计表索引
+  // 缃戠珯缁熻琛ㄧ储寮?
   await db.run('CREATE INDEX IF NOT EXISTS idx_page_views_created_at ON page_views(created_at)');
   await db.run('CREATE INDEX IF NOT EXISTS idx_page_views_user_id ON page_views(user_id)');
   await db.run('CREATE INDEX IF NOT EXISTS idx_page_views_page_path ON page_views(page_path)');
   await db.run('CREATE INDEX IF NOT EXISTS idx_api_logs_created_at ON api_logs(created_at)');
   await db.run('CREATE INDEX IF NOT EXISTS idx_api_logs_endpoint ON api_logs(endpoint)');
   await db.run('CREATE INDEX IF NOT EXISTS idx_api_logs_user_id ON api_logs(user_id)');
+  await db.run('CREATE INDEX IF NOT EXISTS idx_contact_messages_created_at ON contact_messages(created_at)');
+  await db.run('CREATE INDEX IF NOT EXISTS idx_contact_messages_status ON contact_messages(status)');
+  await db.run('CREATE INDEX IF NOT EXISTS idx_contact_messages_user_id ON contact_messages(user_id)');
 
   const adminUsername = process.env.ADMIN_USERNAME || 'admin';
-  const adminPassword = process.env.ADMIN_PASSWORD;
+  const adminPassword = (process.env.ADMIN_PASSWORD || '').trim();
 
   const adminCount = await db.get('SELECT COUNT(*) as cnt FROM users WHERE is_admin = 1');
   if ((adminCount?.cnt || 0) === 0) {
-    const initialPassword = adminPassword || 'admin123';
+    const initialPassword = resolveBootstrapAdminPassword(adminPassword);
     const salt = crypto.randomBytes(16).toString('hex');
     const hash = crypto.pbkdf2Sync(initialPassword, salt, 120000, 32, 'sha256').toString('hex');
     await db.run(
@@ -407,6 +463,9 @@ export async function initDatabase(): Promise<void> {
   }
 
   if (adminPassword) {
+    if (isProductionEnvironment()) {
+      assertAdminPasswordStrength(adminPassword);
+    }
     const row = await db.get('SELECT id FROM users WHERE username = ?', [adminUsername]);
     if (row?.id) {
       const salt = crypto.randomBytes(16).toString('hex');
@@ -441,3 +500,4 @@ export async function initDatabase(): Promise<void> {
 
   console.log('Database tables created successfully');
 }
+

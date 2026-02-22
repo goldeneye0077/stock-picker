@@ -45,7 +45,10 @@ const TopBanner: React.FC<TopBannerProps> = ({ themeMode, onToggleThemeMode, isG
   const menuItems = useMemo(() => {
     const items: Array<{ key: string; label: React.ReactNode }> = [];
     if (!user) return items;
-    if (user.isAdmin) items.push({ key: 'user-management', label: '用户管理' });
+    if (user.isAdmin) {
+      items.push({ key: 'contact-management', label: '留言管理' });
+      items.push({ key: 'user-management', label: '用户管理' });
+    }
     items.push({
       key: 'toggle-theme',
       label: themeMode === 'dark' ? '切换到亮色模式' : '切换到深色模式',
@@ -159,7 +162,13 @@ const TopBanner: React.FC<TopBannerProps> = ({ themeMode, onToggleThemeMode, isG
         { path: '/smart-selection', name: '精算智选' },
         { path: '/stocks', name: '股票列表' },
         { path: '/settings', name: '设置' },
-        ...(user?.isAdmin ? [{ path: '/user-management', name: '用户管理' }] : []),
+        ...(user?.isAdmin
+          ? [
+            { path: '/site-analytics', name: '网站统计' },
+            { path: '/contact-management', name: '留言管理' },
+            { path: '/user-management', name: '用户管理' },
+          ]
+          : []),
       ]
         .filter((x) => x.name.includes(q) || x.path.includes(q))
         .slice(0, 5)
@@ -311,6 +320,10 @@ const TopBanner: React.FC<TopBannerProps> = ({ themeMode, onToggleThemeMode, isG
             menu={{
               items: menuItems,
               onClick: async ({ key }) => {
+                if (key === 'contact-management') {
+                  navigate('/contact-management');
+                  return;
+                }
                 if (key === 'user-management') {
                   navigate('/user-management');
                   return;

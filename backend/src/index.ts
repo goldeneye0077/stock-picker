@@ -13,6 +13,7 @@ import analysisRoutes from './routes/analysis';
 import quotesRoutes from './routes/quotes';
 import smartSelectionRoutes from './routes/smartSelection';
 import analyticsRoutes from './routes/analytics';
+import contactRoutes from './routes/contact';
 import dashboardRoutes from './routes/dashboard';
 import superMainForceRoutes from './routes/superMainForce';
 import { authRoutes, adminRoutes } from './routes/auth';
@@ -23,6 +24,7 @@ dotenv.config();
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 const enableSwagger = process.env.ENABLE_SWAGGER !== 'false';
+const isProduction = process.env.NODE_ENV === 'production';
 
 function parseCorsOrigins(value?: string): string[] {
   if (!value) return [];
@@ -32,19 +34,34 @@ function parseCorsOrigins(value?: string): string[] {
     .filter(Boolean);
 }
 
+function parseTrustProxy(value?: string): boolean | number | string {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'true') return true;
+  if (normalized === 'false') return false;
+  if (/^\d+$/.test(normalized)) return Number(normalized);
+  return value;
+}
+
 // Middleware
+app.disable('x-powered-by');
+app.set('trust proxy', parseTrustProxy(process.env.TRUST_PROXY));
 app.use(helmet());
 const localhostOriginRegex = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 const corsOrigins = new Set<string>([
   ...parseCorsOrigins(process.env.CORS_ALLOW_ORIGINS),
   ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : [])
 ]);
+const allowLocalhostCors = !isProduction || process.env.ALLOW_LOCALHOST_CORS === 'true';
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
-    if (localhostOriginRegex.test(origin)) return callback(null, true);
-    if (corsOrigins.size === 0) return callback(null, true);
     if (corsOrigins.has(origin)) return callback(null, true);
+    if (allowLocalhostCors && localhostOriginRegex.test(origin)) return callback(null, true);
+    if (!isProduction && corsOrigins.size === 0) return callback(null, true);
+    if (isProduction && corsOrigins.size === 0) {
+      return callback(new Error('CORS_ALLOW_ORIGINS must be configured in production'));
+    }
     return callback(new Error('Not allowed by CORS'));
   },
   credentials: true
@@ -77,6 +94,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/quotes', quotesRoutes);
 app.use('/api/smart-selection', smartSelectionRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/contact', contactRoutes);
 app.use('/api/home', dashboardRoutes);
 app.use('/api/analysis/super-main-force', superMainForceRoutes);
 

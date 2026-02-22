@@ -16,14 +16,10 @@ const ATTEMPT_TTL = 30 * 60 * 1000;
 const MAX_ATTEMPTS = 3;
 
 function getClientIp(req: express.Request): string {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string') {
-    return forwarded.split(',')[0].trim();
-  }
-  if (Array.isArray(forwarded) && forwarded.length > 0) {
-    return forwarded[0].split(',')[0].trim();
-  }
-  return req.socket?.remoteAddress || 'unknown';
+  const rawIp = req.ip || req.socket?.remoteAddress || 'unknown';
+  if (rawIp === '::1') return '127.0.0.1';
+  if (rawIp.startsWith('::ffff:')) return rawIp.slice(7);
+  return rawIp;
 }
 
 function generateCaptcha(): string {
@@ -41,7 +37,8 @@ function cleanupExpiredAttempts() {
 }
 
 // 每5分钟清理一次
-setInterval(cleanupExpiredAttempts, 5 * 60 * 1000);
+const cleanupTimer = setInterval(cleanupExpiredAttempts, 5 * 60 * 1000);
+cleanupTimer.unref();
 
 function getToken(req: express.Request): string | null {
   const auth = req.headers.authorization || '';
@@ -52,7 +49,7 @@ function getToken(req: express.Request): string | null {
   return null;
 }
 
-async function requireUser(req: express.Request): Promise<{ userId: number }> {
+export async function requireUser(req: express.Request): Promise<{ userId: number }> {
   const token = getToken(req);
   if (!token) {
     throw new AppError('缺少认证信息', 401, ErrorCode.UNAUTHORIZED);
@@ -64,7 +61,7 @@ async function requireUser(req: express.Request): Promise<{ userId: number }> {
   return { userId: session.userId };
 }
 
-async function requireAdmin(req: express.Request): Promise<number> {
+export async function requireAdmin(req: express.Request): Promise<number> {
   const { userId } = await requireUser(req);
   const row = await authRepo.findById(userId);
   if (!row || !row.is_admin) {
@@ -334,6 +331,8 @@ adminRoutes.get('/pages', asyncHandler(async (req, res) => {
     '/stocks',
     '/watchlist',
     '/settings',
+    '/site-analytics',
+    '/contact-management',
     '/user-management'
   ];
   sendSuccess(res, { pages });

@@ -1,7 +1,7 @@
 services:
   # Redis Cache
   redis:
-    image: ${REDIS_IMAGE:-registry.openanolis.cn/openanolis/redis:5.0.3-8.6}
+    image: ${REDIS_IMAGE:-redis:7-alpine}
     container_name: stock-picker-redis
     restart: unless-stopped
     networks:
@@ -16,12 +16,12 @@ services:
     container_name: stock-picker-backend
     restart: unless-stopped
     ports:
-      - "3100:3000"
+      - "127.0.0.1:${BACKEND_PORT:-3100}:3000"
     environment:
       - NODE_ENV=production
       - REDIS_URL=redis://redis:6379
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-111111}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD?ADMIN_PASSWORD is required}
       - DATA_SERVICE_URL=http://data-service:8001
       # DATABASE_URL is ignored by the code but good to have for reference
       - DATABASE_URL=sqlite:/data/stock_picker.db
@@ -49,7 +49,7 @@ services:
     container_name: stock-picker-data-service
     restart: unless-stopped
     ports:
-      - "8001:8001"
+      - "127.0.0.1:${DATA_SERVICE_PORT:-8001}:8001"
     env_file:
       - ./data-service/.env
     environment:
@@ -87,7 +87,7 @@ services:
     container_name: stock-picker-frontend
     restart: unless-stopped
     ports:
-      - "3101:80"
+      - "127.0.0.1:${FRONTEND_PORT:-3101}:80"
     healthcheck:
       test: ["CMD-SHELL", "test -f /usr/share/nginx/html/index.html"]
       interval: 10s

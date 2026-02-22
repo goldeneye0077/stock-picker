@@ -26,7 +26,8 @@
     "specs:docs": "cd specs && npm run generate:docs",
     "specs:preview": "cd specs && npm run preview",
     "specs:all": "cd specs && npm run all",
-    "precommit": "npm run specs:validate && npm run specs:lint"
+    "repo:check-structure": "node scripts/ops/check-root-structure.js",
+    "precommit": "npm run specs:validate && npm run specs:lint && npm run repo:check-structure"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"

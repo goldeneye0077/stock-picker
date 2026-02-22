@@ -51,6 +51,31 @@ export type PagesResponse = {
   };
 };
 
+export type ContactMessageStatus = 'new' | 'in_progress' | 'resolved' | 'archived';
+
+export type ContactMessageItem = {
+  id: number;
+  user_id: number | null;
+  name: string;
+  email: string;
+  subject: string | null;
+  message: string;
+  status: ContactMessageStatus;
+  source_page: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AdminContactMessagesResponse = {
+  success: boolean;
+  data: {
+    items: ContactMessageItem[];
+    total: number;
+    limit: number;
+    offset: number;
+  };
+};
+
 const TOKEN_KEY = 'authToken';
 const REFRESH_TOKEN_KEY = 'refreshToken';
 
@@ -201,6 +226,38 @@ export async function adminListUsers(token: string): Promise<AdminUsersResponse>
 
 export async function adminPages(token: string): Promise<PagesResponse> {
   return request<PagesResponse>('/api/admin/pages', { method: 'GET' }, token);
+}
+
+export async function adminListContactMessages(
+  token: string,
+  params: {
+    status?: ContactMessageStatus;
+    limit?: number;
+    offset?: number;
+  } = {}
+): Promise<AdminContactMessagesResponse> {
+  const query = new URLSearchParams();
+  if (params.status) query.set('status', params.status);
+  if (typeof params.limit === 'number') query.set('limit', String(params.limit));
+  if (typeof params.offset === 'number') query.set('offset', String(params.offset));
+  const queryString = query.toString();
+  const endpoint = `/api/contact/admin/messages${queryString ? `?${queryString}` : ''}`;
+  return request<AdminContactMessagesResponse>(endpoint, { method: 'GET' }, token);
+}
+
+export async function adminUpdateContactMessageStatus(
+  token: string,
+  id: number,
+  status: ContactMessageStatus
+): Promise<{ success: boolean; data?: { id: number; status: ContactMessageStatus } }> {
+  return request<{ success: boolean; data?: { id: number; status: ContactMessageStatus } }>(
+    `/api/contact/admin/messages/${id}/status`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    },
+    token
+  );
 }
 
 export async function adminUpdateUser(

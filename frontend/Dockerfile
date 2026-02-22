@@ -17,7 +17,8 @@ ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 ENV VITE_DATA_SERVICE_URL=${VITE_DATA_SERVICE_URL}
 
 # Install dependencies
-RUN npm config set registry https://registry.npmmirror.com && npm install
+RUN npm config set registry https://registry.npmjs.org \
+    && npm install --no-audit --no-fund --loglevel=info
 
 # Copy source code
 COPY public ./public
@@ -30,7 +31,7 @@ ENV NODE_OPTIONS=--max-old-space-size=4096
 RUN npm run build
 
 # Production stage
-FROM registry.openanolis.cn/openanolis/nginx:1.14.1-8.6
+FROM nginx:1.27-alpine
 
 # Copy built assets from builder to nginx html directory
 COPY --from=builder /app/dist /usr/share/nginx/html

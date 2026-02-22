@@ -2,47 +2,94 @@ import express from 'express';
 import { asyncHandler } from '../middleware/errorHandler';
 import { sendSuccess } from '../utils/responseHelper';
 import { getDatabase } from '../config/database';
+import { AppError, ErrorCode } from '../utils/errors';
+import { UserRepository } from '../repositories';
+import { requireAdmin } from './auth';
 
 const router = express.Router();
+const authRepo = new UserRepository();
 
-// 获取统计概览
+function parseBoundedInt(
+  value: unknown,
+  fallback: number,
+  min: number,
+  max: number,
+  fieldName: string
+): number {
+  if (value === undefined || value === null || value === '') return fallback;
+
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
+    throw new AppError(
+      `${fieldName} must be an integer between ${min} and ${max}`,
+      400,
+      ErrorCode.INVALID_PARAMETER
+    );
+  }
+
+  return parsed;
+}
+
+async function requireAnalyticsAdmin(req: express.Request): Promise<void> {
+  await requireAdmin(req);
+}
+
+function extractClientIp(req: express.Request): string | null {
+  const rawIp = req.ip || req.socket?.remoteAddress || null;
+  if (!rawIp) return null;
+  if (rawIp === '::1') return '127.0.0.1';
+  if (rawIp.startsWith('::ffff:')) return rawIp.slice(7);
+  return rawIp;
+}
+
+function parsePagePath(value: unknown): string {
+  if (typeof value !== 'string') {
+    throw new AppError('page_path is required', 400, ErrorCode.INVALID_PARAMETER);
+  }
+
+  const pagePath = value.trim();
+  if (!pagePath || pagePath.length > 255 || !pagePath.startsWith('/')) {
+    throw new AppError('page_path is invalid', 400, ErrorCode.INVALID_PARAMETER);
+  }
+
+  return pagePath;
+}
+
+// Summary
 router.get('/summary', asyncHandler(async (req, res) => {
+  await requireAnalyticsAdmin(req);
+
   const db = getDatabase();
 
-  // 使用东八区时间计算
   const now = new Date(Date.now() + 8 * 3600 * 1000);
   const today = now.toISOString().split('T')[0];
   const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-  // 今日 UV/PV
   const todayStats = await db.get(`
-    SELECT 
+    SELECT
       COUNT(DISTINCT COALESCE(user_id, ip_address)) as uv,
       COUNT(*) as pv
     FROM page_views
     WHERE date(created_at, '+8 hours') = ?
   `, [today]) || { uv: 0, pv: 0 };
 
-  // 今日 API 调用
   const todayApi = await db.get(`
     SELECT COUNT(*) as cnt, AVG(response_time_ms) as avg_time
     FROM api_logs
     WHERE date(created_at, '+8 hours') = ?
   `, [today]) || { cnt: 0, avg_time: 0 };
 
-  // 本周 UV/PV
   const weekStats = await db.get(`
-    SELECT 
+    SELECT
       COUNT(DISTINCT COALESCE(user_id, ip_address)) as uv,
       COUNT(*) as pv
     FROM page_views
     WHERE date(created_at, '+8 hours') >= ?
   `, [weekAgo]) || { uv: 0, pv: 0 };
 
-  // 本月 UV/PV
   const monthStats = await db.get(`
-    SELECT 
+    SELECT
       COUNT(DISTINCT COALESCE(user_id, ip_address)) as uv,
       COUNT(*) as pv
     FROM page_views
@@ -61,16 +108,18 @@ router.get('/summary', asyncHandler(async (req, res) => {
   });
 }));
 
-// 访问趋势
+// Visit trend
 router.get('/trend', asyncHandler(async (req, res) => {
-  const db = getDatabase();
-  const days = Number(req.query.days) || 7;
+  await requireAnalyticsAdmin(req);
 
-  const now = new Date(Date.now() + 8 * 3600 * 1000); // Define 'now' here
+  const db = getDatabase();
+  const days = parseBoundedInt(req.query.days, 7, 1, 90, 'days');
+
+  const now = new Date(Date.now() + 8 * 3600 * 1000);
   const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
   const rows = await db.all(`
-    SELECT 
+    SELECT
       date(created_at, '+8 hours') as date,
       COUNT(*) as pv,
       COUNT(DISTINCT COALESCE(user_id, ip_address)) as uv
@@ -80,7 +129,6 @@ router.get('/trend', asyncHandler(async (req, res) => {
     ORDER BY date
   `, [startDate]);
 
-  // 填充缺失的日期
   const result: { date: string; pv: number; uv: number }[] = [];
   const dataMap = new Map(rows.map((r: any) => [r.date, r]));
 
@@ -98,17 +146,19 @@ router.get('/trend', asyncHandler(async (req, res) => {
   res.json(result);
 }));
 
-// 页面热度排行
+// Page ranking
 router.get('/page-ranking', asyncHandler(async (req, res) => {
-  const db = getDatabase();
-  const days = Number(req.query.days) || 7;
-  const limit = Number(req.query.limit) || 10;
+  await requireAnalyticsAdmin(req);
 
-  const now = new Date(Date.now() + 8 * 3600 * 1000); // Define 'now' for UTC+8
+  const db = getDatabase();
+  const days = parseBoundedInt(req.query.days, 7, 1, 90, 'days');
+  const limit = parseBoundedInt(req.query.limit, 10, 1, 100, 'limit');
+
+  const now = new Date(Date.now() + 8 * 3600 * 1000);
   const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
   const rows = await db.all(`
-    SELECT 
+    SELECT
       page_path,
       COUNT(*) as view_count,
       COUNT(DISTINCT COALESCE(user_id, ip_address)) as unique_visitors
@@ -122,17 +172,19 @@ router.get('/page-ranking', asyncHandler(async (req, res) => {
   res.json(rows);
 }));
 
-// API 调用统计
+// API stats
 router.get('/api-stats', asyncHandler(async (req, res) => {
+  await requireAnalyticsAdmin(req);
+
   const db = getDatabase();
-  const days = Number(req.query.days) || 7;
-  const limit = Number(req.query.limit) || 10;
+  const days = parseBoundedInt(req.query.days, 7, 1, 90, 'days');
+  const limit = parseBoundedInt(req.query.limit, 10, 1, 100, 'limit');
 
   const now = new Date(Date.now() + 8 * 3600 * 1000);
   const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
   const rows = await db.all(`
-    SELECT 
+    SELECT
       endpoint,
       COUNT(*) as call_count,
       AVG(response_time_ms) as avg_response_time_ms,
@@ -152,16 +204,18 @@ router.get('/api-stats', asyncHandler(async (req, res) => {
   })));
 }));
 
-// 24小时访问分布
+// Time distribution
 router.get('/time-distribution', asyncHandler(async (req, res) => {
+  await requireAnalyticsAdmin(req);
+
   const db = getDatabase();
-  const days = Number(req.query.days) || 7;
+  const days = parseBoundedInt(req.query.days, 7, 1, 90, 'days');
 
   const now = new Date(Date.now() + 8 * 3600 * 1000);
   const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
   const rows = await db.all(`
-    SELECT 
+    SELECT
       CAST(strftime('%H', created_at, '+8 hours') AS INTEGER) as hour,
       COUNT(*) as count
     FROM page_views
@@ -170,7 +224,6 @@ router.get('/time-distribution', asyncHandler(async (req, res) => {
     ORDER BY hour
   `, [startDate]);
 
-  // 填充所有24小时
   const hourMap = new Map(rows.map((r: any) => [r.hour, r.count]));
   const result = [];
   for (let h = 0; h < 24; h++) {
@@ -183,17 +236,19 @@ router.get('/time-distribution', asyncHandler(async (req, res) => {
   res.json(result);
 }));
 
-// 用户活跃排行
+// User activity ranking
 router.get('/user-activity', asyncHandler(async (req, res) => {
-  const db = getDatabase();
-  const days = Number(req.query.days) || 7;
-  const limit = Number(req.query.limit) || 10;
+  await requireAnalyticsAdmin(req);
 
-  const now = new Date(Date.now() + 8 * 3600 * 1000); // Define 'now' for UTC+8
+  const db = getDatabase();
+  const days = parseBoundedInt(req.query.days, 7, 1, 90, 'days');
+  const limit = parseBoundedInt(req.query.limit, 10, 1, 100, 'limit');
+
+  const now = new Date(Date.now() + 8 * 3600 * 1000);
   const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
   const rows = await db.all(`
-    SELECT 
+    SELECT
       pv.user_id,
       u.username,
       COUNT(DISTINCT pv.id) as page_views,
@@ -209,25 +264,26 @@ router.get('/user-activity', asyncHandler(async (req, res) => {
 
   res.json(rows.map((r: any) => ({
     user_id: r.user_id,
-    username: r.username || `用户${r.user_id}`,
+    username: r.username || `user_${r.user_id}`,
     page_views: r.page_views,
     api_calls: r.api_calls || 0,
     last_active: r.last_active,
   })));
 }));
 
-// 实时访问流
+// Realtime visits (without raw IP exposure)
 router.get('/realtime', asyncHandler(async (req, res) => {
+  await requireAnalyticsAdmin(req);
+
   const db = getDatabase();
-  const limit = Number(req.query.limit) || 30;
+  const limit = parseBoundedInt(req.query.limit, 30, 1, 100, 'limit');
 
   const rows = await db.all(`
-    SELECT 
+    SELECT
       pv.id,
       pv.page_path,
       pv.user_id,
       u.username,
-      pv.ip_address,
       pv.created_at
     FROM page_views pv
     LEFT JOIN users u ON pv.user_id = u.id
@@ -238,49 +294,32 @@ router.get('/realtime', asyncHandler(async (req, res) => {
   res.json(rows);
 }));
 
-// 记录页面访问（前端调用）
+// Record page view from frontend
 router.post('/page-view', asyncHandler(async (req, res) => {
   const db = getDatabase();
-  const { page_path } = req.body;
+  const pagePath = parsePagePath(req.body?.page_path);
 
-  if (!page_path) {
-    res.status(400).json({ error: 'page_path is required' });
-    return;
-  }
-
-  // 从请求中提取信息
   let userId: number | null = null;
   const authHeader = req.headers.authorization;
   if (authHeader?.startsWith('Bearer ')) {
-    try {
-      const token = authHeader.slice(7);
-      const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
-      userId = payload.userId || payload.user_id || null;
-    } catch {
-      // ignore decode errors
+    const token = authHeader.slice(7).trim();
+    if (token) {
+      const session = await authRepo.getSession(token);
+      if (session) {
+        userId = session.userId;
+      }
     }
   }
 
-  // 获取客户端 IP
-  const forwarded = req.headers['x-forwarded-for'];
-  let ipAddress: string | null = null;
-  if (typeof forwarded === 'string') {
-    ipAddress = forwarded.split(',')[0].trim();
-  } else if (Array.isArray(forwarded) && forwarded.length > 0) {
-    ipAddress = forwarded[0].split(',')[0].trim();
-  } else {
-    ipAddress = req.socket?.remoteAddress || null;
-  }
-
-  const userAgent = req.headers['user-agent'] || null;
+  const ipAddress = extractClientIp(req);
+  const userAgent = typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : null;
 
   await db.run(`
     INSERT INTO page_views (page_path, user_id, ip_address, user_agent)
     VALUES (?, ?, ?, ?)
-  `, [page_path, userId, ipAddress, userAgent]);
+  `, [pagePath, userId, ipAddress, userAgent]);
 
   sendSuccess(res, { success: true });
 }));
 
 export default router;
-
