@@ -597,7 +597,7 @@ jobs:
             exit 1
           fi
 
-          docker compose -f "${DEPLOY_DIR}/docker-compose.yml" up -d --remove-orphans --no-build
+          docker compose -f "${DEPLOY_DIR}/docker-compose.yml" up -d --remove-orphans --no-build --no-deps backend data-service frontend
           docker compose -f "${DEPLOY_DIR}/docker-compose.yml" ps
 
           CRON_SCRIPT="${DEPLOY_DIR}/scripts/stock-picker-cron.sh"
