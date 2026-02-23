@@ -581,7 +581,22 @@ jobs:
           export BACKEND_IMAGE="ghcr.io/${OWNER}/stock-picker-backend:${TAG}"
           export FRONTEND_IMAGE="ghcr.io/${OWNER}/stock-picker-frontend:${TAG}"
           export DATA_SERVICE_IMAGE="ghcr.io/${OWNER}/stock-picker-data-service:${TAG}"
-          docker compose -f "${DEPLOY_DIR}/docker-compose.yml" pull
+
+          # Pull only app images from GHCR to avoid transient Docker Hub outages (e.g. redis image pull timeout).
+          pull_ok=0
+          for i in 1 2 3; do
+            if docker compose -f "${DEPLOY_DIR}/docker-compose.yml" pull backend frontend data-service; then
+              pull_ok=1
+              break
+            fi
+            echo "docker compose pull failed (attempt ${i}/3), retrying in 10s..."
+            sleep 10
+          done
+          if [ "${pull_ok}" -ne 1 ]; then
+            echo "docker compose pull failed after retries"
+            exit 1
+          fi
+
           docker compose -f "${DEPLOY_DIR}/docker-compose.yml" up -d --remove-orphans --no-build
           docker compose -f "${DEPLOY_DIR}/docker-compose.yml" ps
 
