@@ -321,6 +321,10 @@ jobs:
     name: Smoke Test (Docker Compose)
     runs-on: ubuntu-latest
     needs: [changes, gate-checks, validate-specs]
+    env:
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: CI_admin!2026_Smoke
+      REDIS_IMAGE: redis:7-alpine
     if: |
       always() &&
       github.event_name == 'workflow_dispatch' &&
@@ -340,8 +344,6 @@ jobs:
           printf 'TUSHARE_TOKEN=\n' > data-service/.env
         fi
     - name: Build and start services
-      env:
-        REDIS_IMAGE: redis:7-alpine
       run: |
         set -euo pipefail
         docker compose up -d --build || (docker compose ps && docker compose logs --no-color --tail=200 && exit 1)
@@ -405,7 +407,7 @@ jobs:
          (needs.build.result == 'success' || needs.build.result == 'skipped'))
         ||
         (github.event_name == 'workflow_dispatch' &&
-         inputs.publish_images == true &&
+         (inputs.publish_images == true || inputs.deploy == true) &&
          (needs['smoke-docker-compose'].result == 'success' || needs['smoke-docker-compose'].result == 'skipped') &&
          (needs.build.result == 'success' || needs.build.result == 'skipped'))
       )
