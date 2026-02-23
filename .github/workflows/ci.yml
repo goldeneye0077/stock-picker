@@ -521,15 +521,18 @@ jobs:
       uses: appleboy/ssh-action@v1.0.3
       env:
         DEPLOY_ADMIN_PASSWORD: ${{ secrets.DEPLOY_ADMIN_PASSWORD }}
+        DEPLOY_FRONTEND_ORIGIN: ${{ secrets.DEPLOY_FRONTEND_ORIGIN }}
+        DEPLOY_CORS_ALLOW_ORIGINS: ${{ secrets.DEPLOY_CORS_ALLOW_ORIGINS }}
       with:
         host: ${{ secrets.DEPLOY_SSH_HOST }}
         username: ${{ secrets.DEPLOY_SSH_USER }}
         key: ${{ secrets.DEPLOY_SSH_KEY }}
         port: ${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}
-        envs: DEPLOY_ADMIN_PASSWORD
+        envs: DEPLOY_ADMIN_PASSWORD,DEPLOY_FRONTEND_ORIGIN,DEPLOY_CORS_ALLOW_ORIGINS
         script: |
           set -euo pipefail
           DEPLOY_DIR="/home/${{ secrets.DEPLOY_SSH_USER }}/stock-picker"
+          SSH_HOST="${{ secrets.DEPLOY_SSH_HOST }}"
           mkdir -p "${DEPLOY_DIR}"
           mkdir -p "${DEPLOY_DIR}/scripts"
           mkdir -p "${DEPLOY_DIR}/data"
@@ -541,10 +544,20 @@ jobs:
             echo "DEPLOY_ADMIN_PASSWORD does not meet production password complexity requirements"
             exit 1
           fi
+          frontend_origin="${DEPLOY_FRONTEND_ORIGIN:-}"
+          if [ -z "${frontend_origin}" ]; then
+            frontend_origin="http://${SSH_HOST}:3101"
+          fi
+          cors_allow_origins="${DEPLOY_CORS_ALLOW_ORIGINS:-}"
+          if [ -z "${cors_allow_origins}" ]; then
+            cors_allow_origins="${frontend_origin},http://${SSH_HOST}:3101,https://${SSH_HOST}:3101,http://${SSH_HOST},https://${SSH_HOST},http://localhost:3101,http://127.0.0.1:3101"
+          fi
           tmp_env="$(mktemp)"
-          grep -vE '^(ADMIN_USERNAME|ADMIN_PASSWORD)=' "${ROOT_ENV}" > "${tmp_env}" || true
+          grep -vE '^(ADMIN_USERNAME|ADMIN_PASSWORD|FRONTEND_URL|CORS_ALLOW_ORIGINS)=' "${ROOT_ENV}" > "${tmp_env}" || true
           printf 'ADMIN_USERNAME=admin\n' >> "${tmp_env}"
           printf 'ADMIN_PASSWORD=%s\n' "${pw}" >> "${tmp_env}"
+          printf 'FRONTEND_URL=%s\n' "${frontend_origin}" >> "${tmp_env}"
+          printf 'CORS_ALLOW_ORIGINS=%s\n' "${cors_allow_origins}" >> "${tmp_env}"
           mv "${tmp_env}" "${ROOT_ENV}"
           chmod 600 "${ROOT_ENV}"
           if [ ! -f "${DEPLOY_DIR}/data-service/.env" ]; then
