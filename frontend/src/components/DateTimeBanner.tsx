@@ -132,6 +132,14 @@ const TopBanner: React.FC<TopBannerProps> = ({ themeMode, onToggleThemeMode, isG
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (searchTimerRef.current) {
+        window.clearTimeout(searchTimerRef.current);
+      }
+    };
+  }, []);
+
   const buildSearchOptions = useCallback(async (query: string) => {
     const q = query.trim();
     if (!q) {
@@ -212,13 +220,15 @@ const TopBanner: React.FC<TopBannerProps> = ({ themeMode, onToggleThemeMode, isG
     setSearchOptions([]);
   }, [navigate]);
 
+  const shouldShowSearchDropdown = searchValue.trim().length > 0 && searchOptions.length > 0;
+
   return (
     <div
       style={{
         backgroundColor: 'var(--sq-bg)',
         color: 'var(--sq-text)',
         padding: '0 16px',
-        borderBottom: '1px solid var(--sq-border)',
+        borderBottom: 'none',
         position: 'fixed',
         top: 0,
         left: 0,
@@ -261,6 +271,9 @@ const TopBanner: React.FC<TopBannerProps> = ({ themeMode, onToggleThemeMode, isG
           <AutoComplete
             value={searchValue}
             options={searchOptions}
+            open={shouldShowSearchDropdown}
+            notFoundContent={null}
+            getPopupContainer={(triggerNode) => triggerNode.parentElement ?? document.body}
             style={{ width: 520, maxWidth: '52vw' }}
             onChange={onSearchChange}
             onSelect={onSearchSelect}

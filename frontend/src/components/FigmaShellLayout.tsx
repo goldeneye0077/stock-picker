@@ -1,12 +1,10 @@
-﻿import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   AreaChartOutlined,
-  ArrowUpOutlined,
   CalculatorOutlined,
   HomeOutlined,
   MailOutlined,
-  SearchOutlined,
   SettingOutlined,
   StarOutlined,
   StockOutlined,
@@ -39,7 +37,6 @@ const FigmaShellLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, canAccess } = useAuth();
-  const [searchValue, setSearchValue] = useState('');
 
   const navItems = useMemo(() => {
     return figmaNavItems.filter((item) => {
@@ -55,56 +52,8 @@ const FigmaShellLayout: React.FC = () => {
 
   return (
     <div className="sq-figma-shell" data-sq-figma="true">
-      <header className="sq-figma-header">
-        <div className="sq-figma-headerLeft">
-          <div className="sq-figma-searchContainer">
-            <SearchOutlined className="sq-figma-searchIcon" />
-            <input
-              type="text"
-              className="sq-figma-searchInput"
-              placeholder="搜索股票代码 / 名称 / 概念..."
-              value={searchValue}
-              onChange={(event) => setSearchValue(event.target.value)}
-            />
-            <kbd className="sq-figma-kbd">Ctrl+K</kbd>
-          </div>
-        </div>
-
-        <div className="sq-figma-headerRight">
-          <div className="sq-figma-marketIndex">
-            <div className="sq-figma-indexLabel">上证指数</div>
-            <div className="sq-figma-indexValue">
-              3,052.14
-              <ArrowUpOutlined className="sq-figma-indexIcon" />
-            </div>
-          </div>
-
-          <div className="sq-figma-separator" />
-
-          <button className="sq-figma-headerButton" aria-label="Notifications">
-            <span className="sq-figma-notifDot" />
-          </button>
-        </div>
-      </header>
-
       <div className="sq-figma-bodyContainer">
         <aside className="sq-figma-sider">
-          <div
-            className="sq-figma-brand"
-            style={{ display: 'none' }}
-            onClick={() => navigate('/home')}
-            role="button"
-            tabIndex={0}
-          >
-            <div className="sq-figma-brandMark" aria-hidden="true">
-              A
-            </div>
-            <div className="sq-figma-brandText">
-              <span className="sq-figma-brandAlpha">Alpha</span>
-              <span className="sq-figma-brandQuant">Quant</span>
-            </div>
-          </div>
-
           <nav className="sq-figma-nav" aria-label="主导航">
             {navItems.map((item) => {
               const active = location.pathname === item.path;

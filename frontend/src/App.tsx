@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { ConfigProvider, Result, Spin, theme } from 'antd';
 import { ProLayout } from '@ant-design/pro-layout';
@@ -37,12 +37,12 @@ const { darkAlgorithm, defaultAlgorithm } = theme;
 const menuItems = [
   {
     path: '/home',
-    name: '棣栭〉',
+    name: '首页',
     icon: <HomeOutlined />,
   },
   {
     path: '/super-main-force',
-    name: '瓒呭己涓诲姏',
+    name: '超强主力',
     icon: <ThunderboltOutlined />,
   },
   {
@@ -52,22 +52,22 @@ const menuItems = [
   },
   {
     path: '/stocks',
-    name: '鑲＄エ鍒楄〃',
+    name: '股票列表',
     icon: <StockOutlined />,
   },
   {
     path: '/watchlist',
-    name: '鑷€夎偂',
+    name: '自选股',
     icon: <StarOutlined />,
   },
   {
     path: '/settings',
-    name: '璁剧疆',
+    name: '系统设置',
     icon: <SettingOutlined />,
   },
   {
     path: '/user-management',
-    name: '鐢ㄦ埛绠＄悊',
+    name: '用户管理',
     icon: <TeamOutlined />,
   },
   {
@@ -81,6 +81,26 @@ const menuItems = [
     icon: <MessageOutlined />,
   },
 ];
+
+const FIGMA_SHELL_ROOT_PATHS = new Set([
+  '/super-main-force',
+  '/smart-selection',
+  '/stocks',
+  '/watchlist',
+  '/settings',
+  '/site-analytics',
+  '/contact-management',
+  '/user-management',
+]);
+
+function isFigmaShellRoutePath(pathname: string): boolean {
+  const segments = pathname.split('/').filter(Boolean);
+  if (segments.length === 0) {
+    return false;
+  }
+
+  return FIGMA_SHELL_ROOT_PATHS.has(`/${segments[0]}`);
+}
 
 function RequireAuth({ path, children }: { path: string; children: React.ReactNode }) {
   const location = useLocation();
@@ -119,7 +139,7 @@ function AppLayout() {
   const { user, firstAllowedPath, canAccess, loading } = useAuth();
   const isHomePage = location.pathname === '/home' || location.pathname === '/';
 
-  // 椤甸潰璁块棶杩借釜
+  // 页面访问追踪
   usePageTracking();
 
   if (loading) {
@@ -265,14 +285,14 @@ function AppLayout() {
             <Result
               status="403"
               title="403"
-              subTitle="鏃犳潈闄愯闂椤甸潰"
+              subTitle="无权限访问该页面"
               extra={
                 <a
                   onClick={() => {
                     navigate(firstAllowedPath(), { replace: true });
                   }}
                 >
-                  杩斿洖鍙闂椤?
+                  返回可访问首页
                 </a>
               }
             />
@@ -306,10 +326,10 @@ function App() {
 
   const routeLabels = useMemo(() => {
     const map: Record<string, string> = {
-      '/': '棣栭〉',
-      '/home': '棣栭〉',
-      '/login': '鐧诲綍',
-      '/register': '娉ㄥ唽',
+      '/': '首页',
+      '/home': '首页',
+      '/login': '登录',
+      '/register': '注册',
       '/contact': '联系我',
       '/forbidden': '无权限',
       '/contact-management': '留言管理',
@@ -395,6 +415,9 @@ function App() {
   }, [themeMode]);
 
   const AppFrame: React.FC = () => {
+    const location = useLocation();
+    const shouldUseGlobalTopPadding = !isFigmaShellRoutePath(location.pathname);
+
     return (
       <div style={{ width: '100vw', height: '100vh' }}>
         <TopBanner
@@ -407,7 +430,7 @@ function App() {
         <div
           style={{
             height: '100%',
-            paddingTop: 48,
+            paddingTop: shouldUseGlobalTopPadding ? 48 : 0,
             paddingBottom: 56,
             boxSizing: 'border-box',
             overflow: 'auto',

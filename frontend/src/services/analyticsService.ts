@@ -1,4 +1,4 @@
-﻿import { API_BASE_URL } from '../config/api';
+import { API_BASE_URL } from '../config/api';
 import { getStoredToken } from './authService';
 
 const ANALYTICS_BASE = `${API_BASE_URL}/api/analytics`;
