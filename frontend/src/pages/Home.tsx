@@ -10,6 +10,19 @@ import insightMainBg from '../assets/home/home_insight_main_bg_2x.png';
 import insightThumbBg from '../assets/home/home_insight_thumb_2x.png';
 import { useHomeDashboard } from '../hooks/useHomeDashboard';
 import { useSuperMainForceMonthlyStats } from '../hooks/useSuperMainForceMonthlyStats';
+import {
+  NO_DATA_TEXT,
+  buildMonthlySummary,
+  isFiniteNumber,
+  formatText,
+  formatNumber,
+  formatPercent,
+  formatSignedNumber,
+  formatScore,
+  formatTurnoverYi,
+  formatDays,
+  formatSignedPercent,
+} from './homeDisplay';
 import './Home.css';
 
 type HotFundRow = {
@@ -26,66 +39,17 @@ const Home: React.FC = () => {
   const { data: dashboardData, loading } = useHomeDashboard();
   const { data: monthlyStatsData, loading: monthlyStatsLoading } = useSuperMainForceMonthlyStats();
 
-  const monthlySummary = useMemo(() => {
-    const superRate =
-      monthlyStatsData?.statistics?.comparison?.superMainForce ??
-      monthlyStatsData?.statistics?.limitUpRate ??
-      0;
-    const marketRate =
-      monthlyStatsData?.statistics?.comparison?.market ??
-      monthlyStatsData?.statistics?.marketLimitUpRate ??
-      0;
-    const multiplier = marketRate > 0 ? superRate / marketRate : null;
-    const maxRate = Math.max(superRate, marketRate, 1);
-    const periodText =
-      monthlyStatsData?.period?.start && monthlyStatsData?.period?.end
-        ? `${monthlyStatsData.period.start} ~ ${monthlyStatsData.period.end}`
-        : null;
-    return {
-      superRate,
-      marketRate,
-      multiplier,
-      maxRate,
-      periodText,
-    };
-  }, [monthlyStatsData]);
+  const monthlySummary = useMemo(() => buildMonthlySummary(monthlyStatsData), [monthlyStatsData]);
 
-  const formatSignedPercent = (value?: number | null) => {
-    if (value === null || value === undefined || Number.isNaN(value)) return '--';
-    return `${value >= 0 ? '+' : ''}${value.toFixed(1)}%`;
-  };
+  const hotFunds: HotFundRow[] = (dashboardData?.hotSectors || []).slice(0, 10);
 
-  // Use API data or fallback to defaults (limit to top 10)
-  const hotFunds: HotFundRow[] = (dashboardData?.hotSectors || []).slice(0, 10) || [
-    { sector: 'CPO 概念', isHot: true, changePct: '+4.2%', netInflow: '+12.4亿', leaderName: '中际旭创', leaderCode: '300308' },
-    { sector: '算力租赁', isHot: true, changePct: '+3.8%', netInflow: '+8.2亿', leaderName: '浪潮信息', leaderCode: '000977' },
-    { sector: '消费电子', changePct: '+2.1%', netInflow: '-1.5亿', leaderName: '立讯精密', leaderCode: '002475' },
-    { sector: '半导体', changePct: '-0.5%', netInflow: '-4.2亿', leaderName: '兆易创新', leaderCode: '603986' },
-  ];
+  const marketInsightCards: Array<{ key: string; category: string; title: string; desc: string; time: string }> = [];
 
-  const marketInsightCards = [
-    {
-      key: 'strategy',
-      category: '策略分享',
-      title: '量化交易策略深度解析',
-      desc: '揭秘机构级量化策略背后的数学模型与风险控制...',
-      time: '12 小时前',
-    },
-    {
-      key: 'research',
-      category: '市场研究',
-      title: 'A 股市场结构性机会研判',
-      desc: '当前市场环境下，价值与成长的平衡策略探讨...',
-      time: '1 天前',
-    },
-    {
-      key: 'ta',
-      category: '技术分析',
-      title: '技术指标组合实战案例',
-      desc: 'MACD + RSI + BOLL 三重确认买卖点的实战应用...',
-      time: '2 天前',
-    },
-  ];
+  const hasAnyMedal = Boolean(
+    monthlyStatsData?.medals?.gold ||
+    monthlyStatsData?.medals?.silver ||
+    monthlyStatsData?.medals?.bronze
+  );
 
   return (
     <main className="sq-home" role="main">
@@ -117,19 +81,23 @@ const Home: React.FC = () => {
                     <div className="sq-home__hero-metrics" aria-label="平台指标">
                       <div className="sq-home__hero-metric">
                         <div className="sq-home__hero-metric-value">
-                          {loading ? <Spin size="small" /> : `${(dashboardData?.platform.totalStocks || 4000).toLocaleString()}+`}
+                          {loading
+                            ? <Spin size="small" />
+                            : (isFiniteNumber(dashboardData?.platform.totalStocks)
+                              ? `${dashboardData.platform.totalStocks.toLocaleString()}+`
+                              : NO_DATA_TEXT)}
                         </div>
                         <div className="sq-home__hero-metric-label">覆盖股票</div>
                       </div>
                       <div className="sq-home__hero-metric">
                         <div className="sq-home__hero-metric-value">
-                          {loading ? <Spin size="small" /> : `${dashboardData?.platform.dataAccuracy || 98.5}%`}
+                          {loading ? <Spin size="small" /> : formatPercent(dashboardData?.platform.dataAccuracy)}
                         </div>
                         <div className="sq-home__hero-metric-label">数据准确率</div>
                       </div>
                       <div className="sq-home__hero-metric">
                         <div className="sq-home__hero-metric-value">
-                          {loading ? <Spin size="small" /> : (dashboardData?.platform.responseTime || '<100ms')}
+                          {loading ? <Spin size="small" /> : formatText(dashboardData?.platform.responseTime)}
                         </div>
                         <div className="sq-home__hero-metric-label">响应延迟</div>
                       </div>
@@ -151,7 +119,7 @@ const Home: React.FC = () => {
                         <div className="sq-home__chart-meta">
                           <div className="sq-home__chart-label">策略收益曲线</div>
                           <div className="sq-home__chart-value">
-                            {loading ? <Spin size="small" /> : `+${dashboardData?.strategy.totalReturn || 45.2}%`}
+                            {loading ? <Spin size="small" /> : formatPercent(dashboardData?.strategy.totalReturn, 1, true)}
                           </div>
                         </div>
                         <div className="sq-home__chart-filters" aria-label="曲线范围">
@@ -160,36 +128,21 @@ const Home: React.FC = () => {
                         </div>
                       </div>
                       <div className="sq-home__chart-body" aria-hidden="true">
-                        <svg viewBox="0 0 320 140" width="100%" height="140" preserveAspectRatio="none">
-                          <defs>
-                            <linearGradient id="sq-home-area" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="0%" stopColor="rgba(97,95,255,0.35)" />
-                              <stop offset="100%" stopColor="rgba(97,95,255,0)" />
-                            </linearGradient>
-                          </defs>
-                          <path
-                            d="M0,120 C40,110 60,80 90,75 C120,70 130,88 160,62 C190,36 220,50 250,44 C280,38 300,22 320,18 L320,140 L0,140 Z"
-                            fill="url(#sq-home-area)"
-                          />
-                          <path
-                            d="M0,120 C40,110 60,80 90,75 C120,70 130,88 160,62 C190,36 220,50 250,44 C280,38 300,22 320,18"
-                            fill="none"
-                            stroke="rgba(0,210,255,0.9)"
-                            strokeWidth="2"
-                          />
-                        </svg>
+                        <div style={{ height: 140, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--sq-text-tertiary)' }}>
+                          {NO_DATA_TEXT}
+                        </div>
                       </div>
                       <div className="sq-home__chart-foot">
                         <div className="sq-home__chart-pill">
                           <span className="sq-home__chart-pill-value">
-                            {loading ? <Spin size="small" /> : `↑ ${dashboardData?.strategy.todayReturn || 12.3}%`}
+                            {loading ? <Spin size="small" /> : formatPercent(dashboardData?.strategy.todayReturn, 1, true)}
                           </span>
                           <span className="sq-home__chart-pill-label">今日收益</span>
                         </div>
                         <div className="sq-home__chart-stat">
                           <span className="sq-home__chart-stat-label">夏普比率:</span>
                           <span className="sq-home__chart-stat-value">
-                            {loading ? <Spin size="small" /> : dashboardData?.strategy.sharpeRatio || 2.34}
+                            {loading ? <Spin size="small" /> : formatNumber(dashboardData?.strategy.sharpeRatio)}
                           </span>
                         </div>
                       </div>
@@ -213,14 +166,14 @@ const Home: React.FC = () => {
                     </span>
                   </div>
                   <div className="sq-home__kpi-value">
-                    {loading ? <Spin size="small" /> : dashboardData?.today.selectedStocks || 18}
+                    {loading ? <Spin size="small" /> : formatNumber(dashboardData?.today.selectedStocks)}
                   </div>
                   <div className="sq-home__kpi-foot">
                     <span className="sq-home__kpi-foot-text sq-home__kpi-foot-text--accent">
-                      较昨日 {(dashboardData?.today.selectedChange ?? 4) >= 0 ? '+' : ''}{dashboardData?.today.selectedChange ?? 4}
+                      较昨日 {formatSignedNumber(dashboardData?.today.selectedChange)}
                     </span>
                     <span className="sq-home__kpi-pill">
-                      {(dashboardData?.today.selectedChangePercent ?? 22) >= 0 ? '+' : ''}{dashboardData?.today.selectedChangePercent ?? 22}%
+                      {formatPercent(dashboardData?.today.selectedChangePercent, 1, true)}
                     </span>
                   </div>
                 </div>
@@ -239,11 +192,15 @@ const Home: React.FC = () => {
                     </span>
                   </div>
                   <div className="sq-home__kpi-value">
-                    {loading ? <Spin size="small" /> : `${dashboardData?.today.winRate ?? 68.2}%`}
+                    {loading ? <Spin size="small" /> : formatPercent(dashboardData?.today.winRate)}
                   </div>
                   <div className="sq-home__kpi-foot">
                     <span className="sq-home__kpi-foot-text sq-home__kpi-foot-text--accent">策略胜率</span>
-                    <span className="sq-home__kpi-pill">{(dashboardData?.today.winRate ?? 68.2) > 60 ? '优秀' : '一般'}</span>
+                    <span className="sq-home__kpi-pill">
+                      {isFiniteNumber(dashboardData?.today.winRate)
+                        ? (dashboardData.today.winRate > 60 ? '优秀' : '一般')
+                        : NO_DATA_TEXT}
+                    </span>
                   </div>
                 </div>
                 <div className="sq-home__kpi sq-home__kpi--amber">
@@ -262,12 +219,16 @@ const Home: React.FC = () => {
                     </span>
                   </div>
                   <div className="sq-home__kpi-value">
-                    {loading ? <Spin size="small" /> : (dashboardData?.market.sentiment ?? '贪婪')}
+                    {loading ? <Spin size="small" /> : formatText(dashboardData?.market.sentiment)}
                   </div>
                   <div className="sq-home__kpi-foot">
-                    <span className="sq-home__kpi-foot-text">{dashboardData?.market.sentimentScore ?? 82}/100</span>
+                    <span className="sq-home__kpi-foot-text">{formatScore(dashboardData?.market.sentimentScore)}</span>
                     <span className="sq-home__kpi-pill">
-                      {(dashboardData?.market.sentimentScore ?? 82) >= 80 ? 'High' : (dashboardData?.market.sentimentScore ?? 82) >= 50 ? 'Mid' : 'Low'}
+                      {isFiniteNumber(dashboardData?.market.sentimentScore)
+                        ? (dashboardData.market.sentimentScore >= 80
+                          ? 'High'
+                          : (dashboardData.market.sentimentScore >= 50 ? 'Mid' : 'Low'))
+                        : NO_DATA_TEXT}
                     </span>
                   </div>
                 </div>
@@ -284,14 +245,16 @@ const Home: React.FC = () => {
                     </span>
                   </div>
                   <div className="sq-home__kpi-value">
-                    {loading ? <Spin size="small" /> : `${Math.round(((dashboardData?.market.totalTurnover ?? 982000000000) / 100000000)).toLocaleString()}亿`}
+                    {loading ? <Spin size="small" /> : formatTurnoverYi(dashboardData?.market.totalTurnover)}
                   </div>
                   <div className="sq-home__kpi-foot">
                     <span className="sq-home__kpi-foot-text sq-home__kpi-foot-text--accent">
-                      {(dashboardData?.market.turnoverChange ?? -15) >= 0 ? '放量' : '缩量'} {Math.abs(dashboardData?.market.turnoverChange ?? -15)}%
+                      {isFiniteNumber(dashboardData?.market.turnoverChange)
+                        ? `${dashboardData.market.turnoverChange >= 0 ? '放量' : '缩量'} ${Math.abs(dashboardData.market.turnoverChange).toFixed(1)}%`
+                        : NO_DATA_TEXT}
                     </span>
                     <span className="sq-home__kpi-pill">
-                      {(dashboardData?.market.turnoverChange ?? -15) >= 0 ? '+' : ''}{dashboardData?.market.turnoverChange ?? -15}%
+                      {formatPercent(dashboardData?.market.turnoverChange, 1, true)}
                     </span>
                   </div>
                 </div>
@@ -348,9 +311,23 @@ const Home: React.FC = () => {
                           </tr>
                         </thead>
                         <tbody>
-                          {hotFunds.map((row) => {
+                          {hotFunds.length === 0 ? (
+                            <tr>
+                              <td colSpan={4} style={{ textAlign: 'center', color: 'var(--sq-text-tertiary)' }}>
+                                {NO_DATA_TEXT}
+                              </td>
+                            </tr>
+                          ) : hotFunds.map((row) => {
                             const isUp = row.changePct.startsWith('+');
                             const isInflowUp = row.netInflow.startsWith('+');
+                            const changeClassName =
+                              row.changePct === NO_DATA_TEXT
+                                ? 'sq-home__num'
+                                : (isUp ? 'sq-home__num sq-home__num--up' : 'sq-home__num sq-home__num--down');
+                            const inflowClassName =
+                              row.netInflow === NO_DATA_TEXT
+                                ? 'sq-home__num'
+                                : (isInflowUp ? 'sq-home__num sq-home__num--up' : 'sq-home__num sq-home__num--down');
                             return (
                               <tr key={`${row.sector}-${row.leaderCode}`}>
                                 <td>
@@ -360,10 +337,10 @@ const Home: React.FC = () => {
                                     {row.isHot ? <span className="sq-home__sector-tag">HOT</span> : null}
                                   </div>
                                 </td>
-                                <td className={isUp ? 'sq-home__num sq-home__num--up' : 'sq-home__num sq-home__num--down'}>
+                                <td className={changeClassName}>
                                   {row.changePct}
                                 </td>
-                                <td className={isInflowUp ? 'sq-home__num sq-home__num--up' : 'sq-home__num sq-home__num--down'}>
+                                <td className={inflowClassName}>
                                   {row.netInflow}
                                 </td>
                                 <td>
@@ -402,7 +379,7 @@ const Home: React.FC = () => {
                             if (monthlySummary.periodText) return `（${monthlySummary.periodText}）`;
                             const tradeDate = monthlyStatsData?.tradeDate;
                             if (tradeDate) return `（${tradeDate}）`;
-                            return '（近30日）';
+                            return `（${NO_DATA_TEXT}）`;
                           })()}
                         </p>
                       </div>
@@ -411,12 +388,12 @@ const Home: React.FC = () => {
                     {/* 核心统计数据 */}
                     <div className="sq-home__strategy-chips" aria-label="月度统计指标">
                       <span className="sq-home__chip sq-home__chip--danger">
-                        超强主力 {monthlyStatsLoading ? <Spin size="small" /> : `${monthlySummary.superRate.toFixed(1)}%`}
+                        超强主力 {monthlyStatsLoading ? <Spin size="small" /> : formatPercent(monthlySummary.superRate)}
                       </span>
                       <span className="sq-home__chip sq-home__chip--info">
-                        全市场 {monthlyStatsLoading ? <Spin size="small" /> : `${monthlySummary.marketRate.toFixed(1)}%`}
+                        全市场 {monthlyStatsLoading ? <Spin size="small" /> : formatPercent(monthlySummary.marketRate)}
                       </span>
-                      {monthlySummary.multiplier ? (
+                      {isFiniteNumber(monthlySummary.multiplier) ? (
                         <span className="sq-home__chip sq-home__chip--active">
                           领先 {monthlySummary.multiplier.toFixed(1)}x
                         </span>
@@ -428,17 +405,21 @@ const Home: React.FC = () => {
                         <div className="sq-home__strategy-visual-left">
                           <div className="sq-home__strategy-visual-label">涨停命中率</div>
                           <div className="sq-home__strategy-visual-value">
-                            {monthlyStatsLoading ? <Spin size="small" /> : `${monthlySummary.superRate.toFixed(1)}%`}
+                            {monthlyStatsLoading ? <Spin size="small" /> : formatPercent(monthlySummary.superRate)}
                           </div>
                           <div className="sq-home__strategy-visual-sub">
-                            {monthlySummary.periodText ?? '近30日'} ·{' '}
-                            {monthlyStatsLoading ? <Spin size="small" /> : `${monthlyStatsData?.period.days ?? 0}天`}
+                            {(monthlySummary.periodText || monthlyStatsData?.tradeDate || NO_DATA_TEXT)} ·{' '}
+                            {monthlyStatsLoading ? <Spin size="small" /> : formatDays(monthlyStatsData?.period.days)}
                           </div>
                         </div>
                         <div className="sq-home__strategy-bars" aria-hidden="true">
                           {(() => {
-                            const superHeight = Math.round((monthlySummary.superRate / monthlySummary.maxRate) * 100);
-                            const marketHeight = Math.round((monthlySummary.marketRate / monthlySummary.maxRate) * 100);
+                            const superHeight = isFiniteNumber(monthlySummary.superRate)
+                              ? Math.round((monthlySummary.superRate / monthlySummary.maxRate) * 100)
+                              : 0;
+                            const marketHeight = isFiniteNumber(monthlySummary.marketRate)
+                              ? Math.round((monthlySummary.marketRate / monthlySummary.maxRate) * 100)
+                              : 0;
                             return (
                               <>
                                 <div className="sq-home__strategy-bar-item">
@@ -447,7 +428,7 @@ const Home: React.FC = () => {
                                   </div>
                                   <div className="sq-home__strategy-bar-meta">
                                     <span className="sq-home__strategy-bar-name">超强主力</span>
-                                    <span className="sq-home__strategy-bar-value">{monthlySummary.superRate.toFixed(1)}%</span>
+                                    <span className="sq-home__strategy-bar-value">{formatPercent(monthlySummary.superRate)}</span>
                                   </div>
                                 </div>
                                 <div className="sq-home__strategy-bar-item">
@@ -456,7 +437,7 @@ const Home: React.FC = () => {
                                   </div>
                                   <div className="sq-home__strategy-bar-meta">
                                     <span className="sq-home__strategy-bar-name">全市场</span>
-                                    <span className="sq-home__strategy-bar-value">{monthlySummary.marketRate.toFixed(1)}%</span>
+                                    <span className="sq-home__strategy-bar-value">{formatPercent(monthlySummary.marketRate)}</span>
                                   </div>
                                 </div>
                               </>
@@ -471,25 +452,25 @@ const Home: React.FC = () => {
                       <div className="sq-home__mini">
                         <div className="sq-home__mini-label">入选股票</div>
                         <div className="sq-home__mini-value">
-                          {monthlyStatsLoading ? <Spin size="small" /> : monthlyStatsData?.statistics.selectedCount ?? 0}
+                          {monthlyStatsLoading ? <Spin size="small" /> : formatNumber(monthlyStatsData?.statistics.selectedCount)}
                         </div>
                       </div>
                       <div className="sq-home__mini">
                         <div className="sq-home__mini-label">涨停数</div>
                         <div className="sq-home__mini-value sq-home__mini-value--up">
-                          {monthlyStatsLoading ? <Spin size="small" /> : monthlyStatsData?.statistics.limitUpCount ?? 0}
+                          {monthlyStatsLoading ? <Spin size="small" /> : formatNumber(monthlyStatsData?.statistics.limitUpCount)}
                         </div>
                       </div>
                       <div className="sq-home__mini">
                         <div className="sq-home__mini-label">统计天数</div>
                         <div className="sq-home__mini-value">
-                          {monthlyStatsLoading ? <Spin size="small" /> : monthlyStatsData?.period.days ?? 0}
+                          {monthlyStatsLoading ? <Spin size="small" /> : formatDays(monthlyStatsData?.period.days)}
                         </div>
                       </div>
                     </div>
 
                     {/* 金银铜牌 */}
-                    {monthlyStatsData?.medals && (
+                    {hasAnyMedal && monthlyStatsData?.medals && (
                       <div className="sq-home__strategy-stats" style={{ marginTop: 8 }}>
                         {monthlyStatsData.medals.gold && (
                           <div className="sq-home__mini" style={{ flex: 1 }}>
@@ -711,18 +692,26 @@ const Home: React.FC = () => {
                     />
                     <div className="sq-home__insight-overlay" aria-hidden="true" />
                     <div className="sq-home__insight-main-inner">
-                      <span className="sq-home__insight-tag">市场热点</span>
-                      <h3 className="sq-home__insight-title">全球资本流向分析：科技板块资金净流入持续加速</h3>
-                      <p className="sq-home__insight-desc">本周科技板块主力资金净流入达 186 亿元，其中芯片、AI 应用细分赛道表现亮眼...</p>
+                      <span className="sq-home__insight-tag">{NO_DATA_TEXT}</span>
+                      <h3 className="sq-home__insight-title">{NO_DATA_TEXT}</h3>
+                      <p className="sq-home__insight-desc">{NO_DATA_TEXT}</p>
                       <div className="sq-home__insight-meta" aria-label="文章信息">
-                        <span className="sq-home__insight-meta-item">5 小时前</span>
-                        <span className="sq-home__insight-meta-item">• 阅读 2.4k</span>
+                        <span className="sq-home__insight-meta-item">{NO_DATA_TEXT}</span>
                       </div>
                     </div>
                   </article>
 
                   <div className="sq-home__insight-side" aria-label="更多洞察">
-                    {marketInsightCards.map((item) => (
+                    {marketInsightCards.length === 0 ? (
+                      <article className="sq-home__insight-item">
+                        <div className="sq-home__insight-item-body">
+                          <span className="sq-home__insight-item-tag">{NO_DATA_TEXT}</span>
+                          <h4 className="sq-home__insight-item-title">{NO_DATA_TEXT}</h4>
+                          <p className="sq-home__insight-item-desc">{NO_DATA_TEXT}</p>
+                          <div className="sq-home__insight-item-time">{NO_DATA_TEXT}</div>
+                        </div>
+                      </article>
+                    ) : marketInsightCards.map((item) => (
                       <article key={item.key} className="sq-home__insight-item">
                         <img className="sq-home__insight-thumb" src={insightThumbBg} alt="" loading="lazy" decoding="async" aria-hidden="true" />
                         <div className="sq-home__insight-item-body">

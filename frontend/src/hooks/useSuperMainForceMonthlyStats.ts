@@ -15,21 +15,21 @@ export interface SuperMainForceMedal {
 }
 
 export interface SuperMainForceMonthlyStats {
-  tradeDate: string;
+  tradeDate: string | null;
   period: {
-    start: string;
-    end: string;
-    days: number;
+    start: string | null;
+    end: string | null;
+    days: number | null;
   };
   statistics: {
-    selectedCount: number;
-    limitUpCount: number;
-    limitUpRate: number;
-    marketLimitUpRate: number;
+    selectedCount: number | null;
+    limitUpCount: number | null;
+    limitUpRate: number | null;
+    marketLimitUpRate: number | null;
     comparison: {
-      superMainForce: number;
-      market: number;
-      difference: number;
+      superMainForce: number | null;
+      market: number | null;
+      difference: number | null;
     };
   };
   medals: {
@@ -39,9 +39,9 @@ export interface SuperMainForceMonthlyStats {
   };
   weeklyComparison: Array<{
     date: string;
-    selectedCount: number;
-    limitUpCount: number;
-    hitRate: number;
+    selectedCount: number | null;
+    limitUpCount: number | null;
+    hitRate: number | null;
   }>;
 }
 

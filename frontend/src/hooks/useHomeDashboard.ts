@@ -4,8 +4,8 @@ import { API_BASE_URL, API_ENDPOINTS } from '../config/api';
 // Types for dashboard data
 export interface PlatformMetrics {
   totalStocks: number;
-  dataAccuracy: number;
-  responseTime: string;
+  dataAccuracy: number | null;
+  responseTime: string | null;
 }
 
 export interface MarketData {
@@ -13,17 +13,17 @@ export interface MarketData {
   upCount: number;
   downCount: number;
   flatCount: number;
-  sentiment: string;
-  sentimentScore: number;
-  totalTurnover: number;
-  turnoverChange: number;
+  sentiment: string | null;
+  sentimentScore: number | null;
+  totalTurnover: number | null;
+  turnoverChange: number | null;
 }
 
 export interface TodayMetrics {
   selectedStocks: number;
   selectedChange: number;
-  selectedChangePercent: number;
-  winRate: number;
+  selectedChangePercent: number | null;
+  winRate: number | null;
   volumeSurges: number;
 }
 
@@ -37,12 +37,12 @@ export interface HotSector {
 }
 
 export interface StrategyPerformance {
-  totalReturn: number;
-  todayReturn: number;
-  annualReturn: number;
-  maxDrawdown: number;
-  sharpeRatio: number;
-  winRate: number;
+  totalReturn: number | null;
+  todayReturn: number | null;
+  annualReturn: number | null;
+  maxDrawdown: number | null;
+  sharpeRatio: number | null;
+  winRate: number | null;
 }
 
 export interface DashboardData {

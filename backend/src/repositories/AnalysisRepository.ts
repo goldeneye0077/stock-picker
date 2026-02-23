@@ -40,7 +40,7 @@ export class AnalysisRepository extends BaseRepository {
     `);
     const volumeSurgeCount = volumeSurgeResult?.count || 0;
 
-    // 今日买入信号数
+    // 今日买入信号�?
     const buySignalsResult = await this.queryOne<{ count: number }>(`
       SELECT COUNT(*) as count
       FROM buy_signals
@@ -61,6 +61,158 @@ export class AnalysisRepository extends BaseRepository {
   /**
    * 获取买入信号列表
    */
+  private asFiniteNumber(value: unknown): number | null {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+
+  async getYesterdaySignalCount(): Promise<number> {
+    const result = await this.queryOne<{ count: number }>(`
+      SELECT COUNT(*) as count
+      FROM buy_signals
+      WHERE date(created_at) = date('now', '-1 day')
+    `);
+    return result?.count || 0;
+  }
+
+  async getTurnoverSummary(): Promise<{ todayTurnover: number | null; previousTurnover: number | null }> {
+    const [todayResult, previousResult] = await Promise.all([
+      this.queryOne<{ total: number }>(`
+        SELECT SUM(amount) as total
+        FROM realtime_quotes
+        WHERE updated_at >= datetime('now', '-1 day')
+      `),
+      this.queryOne<{ total: number }>(`
+        SELECT SUM(amount) as total
+        FROM quote_history
+        WHERE snapshot_time >= datetime('now', '-2 day')
+          AND snapshot_time < datetime('now', '-1 day')
+      `),
+    ]);
+
+    return {
+      todayTurnover: this.asFiniteNumber(todayResult?.total),
+      previousTurnover: this.asFiniteNumber(previousResult?.total),
+    };
+  }
+
+  async hasSuperMainForceTable(): Promise<boolean> {
+    const tableCheck = await this.queryOne<{ name: string }>(`
+      SELECT name FROM sqlite_master WHERE type='table' AND name='auction_super_mainforce'
+    `);
+    return Boolean(tableCheck?.name);
+  }
+
+  async getLatestSuperMainForceTradeDate(): Promise<string | null> {
+    const row = await this.queryOne<{ trade_date: string | null }>(`
+      SELECT MAX(trade_date) as trade_date
+      FROM auction_super_mainforce
+    `);
+    return row?.trade_date || null;
+  }
+
+  async getLatestQuoteTradeDate(): Promise<string | null> {
+    const row = await this.queryOne<{ trade_date: string | null }>(`
+      SELECT date(MAX(snapshot_time)) as trade_date
+      FROM quote_history
+    `);
+    return row?.trade_date || null;
+  }
+
+  async getSuperMainForcePeriodStats(
+    startDate: string,
+    endDate: string
+  ): Promise<{ selectedCount: number; limitUpCount: number; statsDays: number }> {
+    const [selectedCountResult, limitUpCountResult, statsDaysResult] = await Promise.all([
+      this.queryOne<{ count: number }>(`
+        SELECT COUNT(DISTINCT ts_code) as count
+        FROM auction_super_mainforce
+        WHERE trade_date >= ? AND trade_date <= ?
+      `, [startDate, endDate]),
+      this.queryOne<{ count: number }>(`
+        SELECT COUNT(DISTINCT s.ts_code) as count
+        FROM auction_super_mainforce s
+        INNER JOIN quote_history q ON s.ts_code = q.ts_code
+          AND q.trade_date = date(s.trade_date, '+1 day')
+        WHERE s.trade_date >= ? AND s.trade_date <= ?
+          AND q.change_percent >= 9.5
+      `, [startDate, endDate]),
+      this.queryOne<{ count: number }>(`
+        SELECT COUNT(DISTINCT trade_date) as count
+        FROM auction_super_mainforce
+        WHERE trade_date >= ? AND trade_date <= ?
+      `, [startDate, endDate]),
+    ]);
+
+    return {
+      selectedCount: selectedCountResult?.count ?? 0,
+      limitUpCount: limitUpCountResult?.count ?? 0,
+      statsDays: statsDaysResult?.count ?? 0,
+    };
+  }
+
+  async getSuperMainForceWeeklyComparison(
+    startDate: string,
+    endDate: string
+  ): Promise<Array<{ date: string; selectedCount: number; limitUpCount: number; hitRate: number }>> {
+    return this.query<{ date: string; selectedCount: number; limitUpCount: number; hitRate: number }>(`
+      WITH daily_selected AS (
+        SELECT
+          trade_date,
+          COUNT(DISTINCT ts_code) as selected_count
+        FROM auction_super_mainforce
+        WHERE trade_date >= ? AND trade_date <= ?
+        GROUP BY trade_date
+      ),
+      daily_limit_up AS (
+        SELECT
+          s.trade_date,
+          COUNT(DISTINCT s.ts_code) as limit_up_count
+        FROM auction_super_mainforce s
+        INNER JOIN quote_history q ON s.ts_code = q.ts_code
+          AND q.trade_date = date(s.trade_date, '+1 day')
+        WHERE s.trade_date >= ? AND s.trade_date <= ?
+          AND q.change_percent >= 9.5
+        GROUP BY s.trade_date
+      ),
+      merged AS (
+        SELECT
+          ds.trade_date as date,
+          ds.selected_count as selectedCount,
+          COALESCE(dlu.limit_up_count, 0) as limitUpCount,
+          CASE
+            WHEN ds.selected_count > 0 THEN ROUND(COALESCE(dlu.limit_up_count, 0) * 1000.0 / ds.selected_count) / 10.0
+            ELSE 0
+          END as hitRate
+        FROM daily_selected ds
+        LEFT JOIN daily_limit_up dlu ON ds.trade_date = dlu.trade_date
+        ORDER BY ds.trade_date DESC
+        LIMIT 7
+      )
+      SELECT date, selectedCount, limitUpCount, hitRate
+      FROM merged
+      ORDER BY date ASC
+    `, [startDate, endDate, startDate, endDate]);
+  }
+
+  async getMarketLimitUpSnapshot(tradeDate: string): Promise<{ count: number; limitUp: number } | null> {
+    const result = await this.queryOne<{ count: number; limit_up: number }>(`
+      SELECT
+        COUNT(DISTINCT ts_code) as count,
+        SUM(CASE WHEN change_percent >= 9.5 THEN 1 ELSE 0 END) as limit_up
+      FROM quote_history
+      WHERE trade_date = ?
+    `, [tradeDate]);
+
+    if (!result || !result.count) {
+      return null;
+    }
+
+    return {
+      count: result.count,
+      limitUp: result.limit_up ?? 0,
+    };
+  }
   async getBuySignals(days: number = 7): Promise<any[]> {
     // 参数验证
     if (!this.validateNumber(days, 0, 365)) {
@@ -147,7 +299,7 @@ export class AnalysisRepository extends BaseRepository {
   }
 
   /**
-   * 获取成交量异动分析
+   * 获取成交量异动分�?
    */
   async getVolumeAnalysis(options: DateRangeOptions): Promise<any[]> {
     const { days = 10, date_from, date_to } = options;
@@ -275,7 +427,7 @@ export class AnalysisRepository extends BaseRepository {
   }
 
   /**
-   * 获取成交量分析（特定股票）
+   * 获取成交量分析（特定股票�?
    */
   async getVolumeAnalysisByStock(stockCode: string, limit: number = 10): Promise<VolumeAnalysis[]> {
     const sql = `
@@ -355,7 +507,7 @@ export class AnalysisRepository extends BaseRepository {
   }
 
   /**
-   * 获取板块成交量异动分析
+   * 获取板块成交量异动分�?
    */
   async getSectorVolumeAnalysis(days: number = 1): Promise<any[]> {
     // 参数验证
@@ -369,7 +521,7 @@ export class AnalysisRepository extends BaseRepository {
         SELECT MAX(date) as max_date FROM klines
       ),
       today_sector_data AS (
-        -- 今日各板块数据
+        -- 今日各板块数�?
         SELECT
           s.industry as sector,
           COUNT(DISTINCT k.stock_code) as stock_count,
@@ -480,7 +632,7 @@ export class AnalysisRepository extends BaseRepository {
   }
 
   /**
-   * 获取热点板块交叉分析（资金流向 + 成交量异动）
+   * 获取热点板块交叉分析（资金流�?+ 成交量异动）
    */
   async getHotSectorStocks(days: number = 1, limit: number = 10): Promise<any[]> {
     // 参数验证
@@ -498,7 +650,7 @@ export class AnalysisRepository extends BaseRepository {
         SELECT MAX(date) as max_date FROM klines
       ),
       hot_sectors AS (
-        -- 找出既有资金流向数据又有成交量数据的板块（不限制资金必须流入）
+        -- 找出既有资金流向数据又有成交量数据的板块（不限制资金必须流入�?
         SELECT DISTINCT
           s.industry as sector_name,
           COALESCE(MAX(sm.net_amount), 0) as sector_money_flow,
@@ -515,7 +667,7 @@ export class AnalysisRepository extends BaseRepository {
           AND s.industry IS NOT NULL
           AND s.industry != ''
         GROUP BY s.industry
-        HAVING COUNT(DISTINCT k.stock_code) >= 3  -- 至少3只股票
+        HAVING COUNT(DISTINCT k.stock_code) >= 3  -- 至少3只股�?
       ),
       sector_stocks AS (
         -- 获取热点板块中的股票
@@ -530,7 +682,7 @@ export class AnalysisRepository extends BaseRepository {
           ROUND(((k.close - k.open) / k.open * 100), 2) as change_percent,
           COALESCE(va.volume_ratio, 1.0) as volume_ratio,
           COALESCE(ff.main_fund_flow, 0) as main_fund_flow,
-          -- 综合评分：涨幅(40%) + 量比(30%) + 资金流(30%)
+          -- 综合评分：涨�?40%) + 量比(30%) + 资金�?30%)
           (
             (CASE WHEN k.open > 0 THEN ((k.close - k.open) / k.open * 100) ELSE 0 END) * 0.4 +
             (COALESCE(va.volume_ratio, 1.0) - 1.0) * 10 * 0.3 +
