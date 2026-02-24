@@ -216,6 +216,7 @@ export interface AuctionSuperMainForceItem {
   volumeRatio: number;
   auctionVolumeRatio?: number;
   pe?: number;
+  peTtm?: number;
   floatShare: number;
   heatScore: number;
   baseHeatScore?: number;
@@ -225,6 +226,9 @@ export interface AuctionSuperMainForceItem {
   themeAlpha?: number;
   themeEnhanceFactor?: number;
   likelyLimitUp: boolean;
+  likelyLimitUpProb?: number;
+  breakoutScore?: number;
+  breakoutThreshold?: number;
   auctionLimitUp?: boolean;
   rank: number;
 }
@@ -234,6 +238,14 @@ export interface AuctionSuperMainForceSummary {
   avgHeat: number;
   totalAmount: number;
   limitUpCandidates: number;
+  sortMode?: 'heat' | 'candidate_first';
+  marketRegime?: string;
+  marketHitRate?: number;
+  themeAlphaInput?: number;
+  themeAlphaEffective?: number;
+  rollingWindowDays?: number;
+  rollingWindowDaysUsed?: number;
+  candidateThreshold?: number;
 }
 
 export interface AuctionSuperMainForceData {
@@ -274,7 +286,10 @@ export async function fetchAuctionSuperMainForce(
   tradeDate?: string,
   excludeAuctionLimitUp: boolean = true,
   themeAlpha?: number,
-  peFilter?: boolean
+  peFilter?: boolean,
+  sortMode: 'heat' | 'candidate_first' = 'candidate_first',
+  dynamicThemeAlpha: boolean = true,
+  rollingWindowDays?: number,
 ): Promise<AuctionSuperMainForceData> {
   const searchParams = new URLSearchParams({ limit: String(limit) });
 
@@ -288,6 +303,11 @@ export async function fetchAuctionSuperMainForce(
   }
   if (peFilter) {
     searchParams.append('pe_filter', 'true');
+  }
+  searchParams.append('sort_mode', sortMode);
+  searchParams.append('dynamic_theme_alpha', dynamicThemeAlpha ? 'true' : 'false');
+  if (rollingWindowDays !== undefined && rollingWindowDays !== null) {
+    searchParams.append('rolling_window_days', String(rollingWindowDays));
   }
 
   const response = await fetch(

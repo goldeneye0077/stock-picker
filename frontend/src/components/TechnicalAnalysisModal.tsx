@@ -6,6 +6,7 @@ import { fetchStockHistoryForRealtime } from '../services/stockService';
 import KLineChart from './KLineChart';
 import { useAuth } from '../context/AuthContext';
 import { addToWatchlist } from '../services/authService';
+import { A_SHARE_COLORS } from '../utils/constants';
 
 const { Text, Title } = Typography;
 
@@ -258,7 +259,7 @@ export default function TechnicalAnalysisModal({
             title="当前价" 
             value={priceText} 
             precision={2} 
-            valueStyle={{ color: changePercentForColor > 0 ? '#cf1322' : changePercentForColor < 0 ? '#3f8600' : '#666', fontSize: 20, fontWeight: 650 }}
+            valueStyle={{ color: changePercentForColor > 0 ? A_SHARE_COLORS.RISE : changePercentForColor < 0 ? A_SHARE_COLORS.FALL : '#666', fontSize: 20, fontWeight: 650 }}
             suffix="元"
           />
         </Col>
@@ -267,7 +268,7 @@ export default function TechnicalAnalysisModal({
             title="涨跌额" 
             value={changeAmountText} 
             precision={2} 
-            valueStyle={{ color: changeAmount > 0 ? '#cf1322' : changeAmount < 0 ? '#3f8600' : '#666', fontSize: 16 }}
+            valueStyle={{ color: changeAmount > 0 ? A_SHARE_COLORS.RISE : changeAmount < 0 ? A_SHARE_COLORS.FALL : '#666', fontSize: 16 }}
             suffix="元"
           />
         </Col>
@@ -275,7 +276,7 @@ export default function TechnicalAnalysisModal({
           <Statistic 
             title="涨跌幅" 
             value={changeText} 
-            valueStyle={{ color: changePercentForColor > 0 ? '#cf1322' : changePercentForColor < 0 ? '#3f8600' : '#666', fontSize: 16 }}
+            valueStyle={{ color: changePercentForColor > 0 ? A_SHARE_COLORS.RISE : changePercentForColor < 0 ? A_SHARE_COLORS.FALL : '#666', fontSize: 16 }}
           />
         </Col>
         <Col span={3}>
@@ -284,11 +285,11 @@ export default function TechnicalAnalysisModal({
         </Col>
         <Col span={3}>
           <div style={{ fontSize: 12, color: 'var(--sq-text-tertiary)' }}>最高</div>
-          <div style={{ fontSize: 14, fontWeight: 500, color: '#cf1322' }}>{highPrice > 0 ? highPrice.toFixed(2) : '-'}</div>
+          <div style={{ fontSize: 14, fontWeight: 500, color: A_SHARE_COLORS.RISE }}>{highPrice > 0 ? highPrice.toFixed(2) : '-'}</div>
         </Col>
         <Col span={3}>
           <div style={{ fontSize: 12, color: 'var(--sq-text-tertiary)' }}>最低</div>
-          <div style={{ fontSize: 14, fontWeight: 500, color: '#3f8600' }}>{lowPrice > 0 ? lowPrice.toFixed(2) : '-'}</div>
+          <div style={{ fontSize: 14, fontWeight: 500, color: A_SHARE_COLORS.FALL }}>{lowPrice > 0 ? lowPrice.toFixed(2) : '-'}</div>
         </Col>
         <Col span={3}>
           <div style={{ fontSize: 12, color: 'var(--sq-text-tertiary)' }}>成交量</div>

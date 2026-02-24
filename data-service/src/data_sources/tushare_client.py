@@ -620,8 +620,20 @@ class TushareClient(DataSource):
             return None
 
         try:
+            s = str(trade_date or "").strip()
+            if len(s) >= 10 and "-" in s:
+                td = datetime.strptime(s[:10], "%Y-%m-%d").strftime("%Y%m%d")
+            elif len(s) == 8 and s.isdigit():
+                td = s
+            else:
+                parsed = pd.to_datetime(s, errors="coerce")
+                if pd.isna(parsed):
+                    td = datetime.now().strftime("%Y%m%d")
+                else:
+                    td = parsed.strftime("%Y%m%d")
+
             df = self.pro.daily_basic(
-                trade_date=trade_date,
+                trade_date=td,
                 fields=(
                     "ts_code,trade_date,close,"
                     "turnover_rate,turnover_rate_f,volume_ratio,"
@@ -631,7 +643,7 @@ class TushareClient(DataSource):
             )
 
             if df is None or df.empty:
-                logger.warning(f"No daily_basic data for date {trade_date}")
+                logger.warning(f"No daily_basic data for date {td}")
                 return None
 
             if "trade_date" in df.columns:
@@ -661,7 +673,7 @@ class TushareClient(DataSource):
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors="coerce")
 
-            logger.info(f"Retrieved {len(df)} daily_basic records for date {trade_date}")
+            logger.info(f"Retrieved {len(df)} daily_basic records for date {td}")
             return df
         except Exception as e:
             logger.error(f"Error fetching daily_basic for date {trade_date}: {e}")

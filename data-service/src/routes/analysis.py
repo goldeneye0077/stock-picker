@@ -5,8 +5,12 @@ from loguru import logger
 from datetime import datetime, timedelta, date
 import math
 import pandas as pd
+from typing import Any
 
 router = APIRouter()
+
+_SUPER_MAIN_FORCE_TUNE_CACHE: dict[str, tuple[datetime, dict[str, Any]]] = {}
+_SUPER_MAIN_FORCE_TUNE_CACHE_TTL_SECONDS = 600
 
 def _parse_trade_date_param(value: str | None) -> date | None:
     if value is None:
@@ -983,6 +987,9 @@ async def get_auction_super_main_force(
     min_room_to_limit_pct: float = Query(2.0, ge=0.0, le=30.0),
     theme_alpha: float = Query(0.25, ge=0.0, le=0.5),
     pe_filter: bool = Query(False),
+    sort_mode: str = Query("heat"),
+    dynamic_theme_alpha: bool = Query(True),
+    rolling_window_days: int = Query(20, ge=5, le=120),
 ):
     try:
         def compute_rank_scores(values: list[float]) -> list[float]:
@@ -1051,6 +1058,453 @@ async def get_auction_super_main_force(
             if v < mid:
                 return (v - low) / (mid - low)
             return (high - v) / (high - mid)
+
+        def normalize_weights(
+            raw_weights: dict[str, float],
+            default_weights: dict[str, float],
+            min_weight: float = 0.005,
+        ) -> dict[str, float]:
+            keys = list(default_weights.keys())
+            prepared: dict[str, float] = {}
+            for key in keys:
+                v = float(raw_weights.get(key, 0.0) or 0.0)
+                if not math.isfinite(v):
+                    v = 0.0
+                prepared[key] = max(v, min_weight)
+
+            s = sum(prepared.values())
+            if s <= 0:
+                return dict(default_weights)
+            return {k: prepared[k] / s for k in keys}
+
+        def blend_weights(
+            default_weights: dict[str, float],
+            tuned_weights: dict[str, float],
+            tuned_strength: float = 0.65,
+        ) -> dict[str, float]:
+            alpha = max(0.0, min(1.0, float(tuned_strength)))
+            mixed = {
+                key: float(default_weights.get(key, 0.0)) * (1.0 - alpha)
+                + float(tuned_weights.get(key, 0.0)) * alpha
+                for key in default_weights.keys()
+            }
+            return normalize_weights(mixed, default_weights)
+
+        def infer_limit_pct(stock_code: str) -> float:
+            code = str(stock_code or "")
+            if code.startswith(("300", "301", "688", "689")):
+                return 20.0
+            if code.startswith(("8", "4")):
+                return 30.0
+            return 10.0
+
+        def resolve_bucket(limit_pct: float, denom_mv: float) -> str:
+            if limit_pct >= 19.9:
+                return "20cm"
+            if denom_mv >= 1e10:
+                return "10cm_large"
+            return "10cm_small"
+
+        def get_bucket_params(bucket: str, room_floor: float) -> dict[str, float]:
+            if bucket == "20cm":
+                return {
+                    "gap_low": 7.5,
+                    "gap_mid": 12.0,
+                    "gap_high": 18.5,
+                    "vr_low": 1.2,
+                    "vr_mid": 3.0,
+                    "vr_high": 10.0,
+                    "room_low": max(room_floor, 2.5),
+                    "room_mid": 5.0,
+                    "room_high": 10.5,
+                    "amount_min": 6e7,
+                    "amount_mid": 2.5e8,
+                    "fs_low": 0.0015,
+                    "fs_mid": 0.0055,
+                    "fs_high": 0.02,
+                    "default_breakout_threshold": 0.63,
+                }
+            if bucket == "10cm_large":
+                return {
+                    "gap_low": 5.0,
+                    "gap_mid": 7.2,
+                    "gap_high": 9.0,
+                    "vr_low": 1.0,
+                    "vr_mid": 2.2,
+                    "vr_high": 7.0,
+                    "room_low": max(room_floor, 1.8),
+                    "room_mid": 3.8,
+                    "room_high": 6.5,
+                    "amount_min": 8e7,
+                    "amount_mid": 4e8,
+                    "fs_low": 0.001,
+                    "fs_mid": 0.0035,
+                    "fs_high": 0.015,
+                    "default_breakout_threshold": 0.60,
+                }
+            return {
+                "gap_low": 6.2,
+                "gap_mid": 8.2,
+                "gap_high": 9.8,
+                "vr_low": 1.2,
+                "vr_mid": 3.0,
+                "vr_high": 12.0,
+                "room_low": max(room_floor, 1.5),
+                "room_mid": 3.5,
+                "room_high": 7.0,
+                "amount_min": 3e7,
+                "amount_mid": 1.5e8,
+                "fs_low": 0.002,
+                "fs_mid": 0.008,
+                "fs_high": 0.03,
+                "default_breakout_threshold": 0.62,
+            }
+
+        def weighted_score(components: dict[str, float], weights: dict[str, float]) -> float:
+            return sum(float(components.get(k, 0.0) or 0.0) * float(weights.get(k, 0.0) or 0.0) for k in weights.keys())
+
+        def calc_fbeta(tp: int, fp: int, fn: int, beta: float = 0.5) -> float:
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+            b2 = beta * beta
+            denom = (b2 * precision + recall)
+            if denom <= 0:
+                return 0.0
+            return (1.0 + b2) * precision * recall / denom
+
+        async def load_rolling_tune_profile(db_conn, end_date: str, window_days: int) -> dict[str, Any]:
+            default_breakout_weights = {
+                "gap_score": 0.34,
+                "vr_score": 0.26,
+                "room_score": 0.18,
+                "amount_score": 0.12,
+                "fs_score": 0.10,
+            }
+            default_heat_weights = {
+                "volume_ratio_rank": 0.35,
+                "gap_rank": 0.25,
+                "fund_strength_rank": 0.20,
+                "volume_density_rank": 0.15,
+                "turnover_rank": 0.05,
+            }
+            default_profile: dict[str, Any] = {
+                "breakout_weights": default_breakout_weights,
+                "breakout_threshold": 0.62,
+                "heat_weights": default_heat_weights,
+                "market_regime": "neutral",
+                "market_hit_rate": 0.0,
+                "theme_alpha_multiplier": 1.0,
+                "window_days_used": 0,
+            }
+
+            cache_key = f"{end_date}|{window_days}|{min_room_to_limit_pct:.2f}"
+            cache = _SUPER_MAIN_FORCE_TUNE_CACHE.get(cache_key)
+            if cache:
+                ts, profile = cache
+                if (datetime.now() - ts).total_seconds() <= _SUPER_MAIN_FORCE_TUNE_CACHE_TTL_SECONDS:
+                    return profile
+
+            cursor = await db_conn.execute(
+                """
+                SELECT DISTINCT DATE(snapshot_time) AS d
+                FROM quote_history
+                WHERE DATE(snapshot_time) < DATE(?)
+                ORDER BY d DESC
+                LIMIT ?
+                """,
+                (end_date, int(window_days)),
+            )
+            date_rows = await cursor.fetchall()
+            trade_days = [str(r["d"]) for r in date_rows if r and r["d"]]
+            if not trade_days:
+                _SUPER_MAIN_FORCE_TUNE_CACHE[cache_key] = (datetime.now(), default_profile)
+                return default_profile
+
+            samples: list[dict[str, Any]] = []
+            for d in trade_days:
+                cursor = await db_conn.execute(
+                    """
+                    SELECT snapshot_time AS st
+                    FROM quote_history
+                    WHERE snapshot_time >= ? AND snapshot_time < ?
+                    GROUP BY snapshot_time
+                    ORDER BY snapshot_time DESC
+                    LIMIT 1
+                    """,
+                    (f"{d} 09:20:00", f"{d} 09:31:00"),
+                )
+                st_row = await cursor.fetchone()
+                snapshot_time = str(st_row["st"]) if st_row and st_row["st"] else ""
+                if not snapshot_time:
+                    cursor = await db_conn.execute(
+                        """
+                        SELECT snapshot_time AS st
+                        FROM quote_history
+                        WHERE DATE(snapshot_time) = DATE(?)
+                        GROUP BY snapshot_time
+                        ORDER BY snapshot_time DESC
+                        LIMIT 1
+                        """,
+                        (d,),
+                    )
+                    st_row = await cursor.fetchone()
+                    snapshot_time = str(st_row["st"]) if st_row and st_row["st"] else ""
+                if not snapshot_time:
+                    continue
+
+                cursor = await db_conn.execute(
+                    """
+                    SELECT
+                        q.stock_code,
+                        q.pre_close,
+                        q.open,
+                        q.close AS quote_close,
+                        q.vol,
+                        q.amount,
+                        COALESCE(db.turnover_rate, 0) AS turnover_rate,
+                        COALESCE(db.volume_ratio, 0) AS volume_ratio,
+                        COALESCE(db.float_share, 0) AS float_share,
+                        db.close AS db_close,
+                        k.close AS k_close,
+                        COALESCE(s.name, '') AS stock_name
+                    FROM quote_history q
+                    LEFT JOIN daily_basic db
+                      ON db.stock_code = q.stock_code
+                     AND db.trade_date = ?
+                    LEFT JOIN klines k
+                      ON k.stock_code = q.stock_code
+                     AND k.date = ?
+                    LEFT JOIN stocks s
+                      ON s.code = q.stock_code
+                    WHERE q.snapshot_time = ?
+                    """,
+                    (d, d, snapshot_time),
+                )
+                rows = await cursor.fetchall()
+                day_samples: list[dict[str, Any]] = []
+                for row in rows:
+                    stock_code = str(row["stock_code"] or "")
+                    if not stock_code or stock_code.startswith("920"):
+                        continue
+
+                    stock_name = str(row["stock_name"] or "").upper()
+                    if "ST" in stock_name:
+                        continue
+
+                    pre_close = float(row["pre_close"] or 0.0)
+                    if pre_close <= 0:
+                        continue
+
+                    price = float(row["open"] or row["quote_close"] or 0.0)
+                    vol = int(row["vol"] or 0)
+                    amount = float(row["amount"] or 0.0)
+                    if vol <= 0 and amount <= 0:
+                        continue
+
+                    close_price_raw = row["db_close"] if row["db_close"] is not None else row["k_close"]
+                    if close_price_raw is None:
+                        continue
+                    close_price = float(close_price_raw or 0.0)
+                    if close_price <= 0:
+                        continue
+
+                    volume_ratio = float(row["volume_ratio"] or 0.0)
+                    turnover_rate = float(row["turnover_rate"] or 0.0)
+                    float_share = float(row["float_share"] or 0.0)
+
+                    gap_ratio = (price - pre_close) / pre_close if pre_close > 0 else 0.0
+                    gap_percent = gap_ratio * 100.0
+                    gap_ratio_processed = 0.0
+                    if gap_ratio > 0:
+                        gap_ratio_processed = 0.05 + (gap_ratio - 0.05) * 0.3 if gap_ratio > 0.05 else gap_ratio
+
+                    volume_ratio_processed = math.log2(1.0 + min(volume_ratio, 20.0)) if volume_ratio > 0 else 0.0
+
+                    denom_mv = float_share * price * 10000.0
+                    fund_strength = 0.0
+                    if denom_mv > 0 and amount > 0:
+                        fund_strength = amount / denom_mv
+                        if fund_strength > 0.1:
+                            fund_strength = 0.1 + (fund_strength - 0.1) * 0.2
+
+                    denom_vol = float_share * 10000.0
+                    volume_density = (vol / denom_vol) if (denom_vol > 0 and vol > 0) else 0.0
+
+                    limit_pct = infer_limit_pct(stock_code)
+                    limit_price = round(pre_close * (1.0 + limit_pct / 100.0) + 1e-9, 2)
+                    auction_limit_up = price > 0 and price >= (limit_price - 0.0001)
+                    room_to_limit_pct = (limit_price - price) / pre_close * 100.0 if (pre_close > 0 and price > 0) else 0.0
+
+                    bucket = resolve_bucket(limit_pct, denom_mv)
+                    bp = get_bucket_params(bucket, min_room_to_limit_pct)
+                    gap_score = score_tri(gap_percent, bp["gap_low"], bp["gap_mid"], bp["gap_high"])
+                    vr_score = score_tri(min(volume_ratio, 20.0), bp["vr_low"], bp["vr_mid"], bp["vr_high"])
+                    room_score = score_tri(room_to_limit_pct, bp["room_low"], bp["room_mid"], bp["room_high"])
+                    amount_score = score_ramp(amount, bp["amount_min"], bp["amount_mid"])
+                    fs_score = score_tri(fund_strength, bp["fs_low"], bp["fs_mid"], bp["fs_high"])
+
+                    close_change_pct = (close_price - pre_close) / pre_close * 100.0
+                    hit_label = close_change_pct >= limit_pct
+
+                    day_samples.append(
+                        {
+                            "date": d,
+                            "auction_limit_up": auction_limit_up,
+                            "room_to_limit_pct": room_to_limit_pct,
+                            "volume_ratio": volume_ratio,
+                            "hit_label": hit_label,
+                            "gap_score": gap_score,
+                            "vr_score": vr_score,
+                            "room_score": room_score,
+                            "amount_score": amount_score,
+                            "fs_score": fs_score,
+                            "volume_ratio_processed": volume_ratio_processed,
+                            "gap_ratio_processed": gap_ratio_processed,
+                            "fund_strength": fund_strength,
+                            "volume_density": volume_density,
+                            "turnover_rate": turnover_rate,
+                        }
+                    )
+
+                if day_samples:
+                    for src_key, dst_key in (
+                        ("volume_ratio_processed", "volume_ratio_rank"),
+                        ("gap_ratio_processed", "gap_rank"),
+                        ("fund_strength", "fund_strength_rank"),
+                        ("volume_density", "volume_density_rank"),
+                        ("turnover_rate", "turnover_rank"),
+                    ):
+                        ranks = compute_rank_scores([float(s.get(src_key) or 0.0) for s in day_samples])
+                        for i, s in enumerate(day_samples):
+                            s[dst_key] = float(ranks[i] if i < len(ranks) else 0.0)
+                    samples.extend(day_samples)
+
+            if not samples:
+                _SUPER_MAIN_FORCE_TUNE_CACHE[cache_key] = (datetime.now(), default_profile)
+                return default_profile
+
+            train_samples = [s for s in samples if not bool(s.get("auction_limit_up"))]
+            if len(train_samples) < 200:
+                profile = dict(default_profile)
+                profile["window_days_used"] = len(trade_days)
+                _SUPER_MAIN_FORCE_TUNE_CACHE[cache_key] = (datetime.now(), profile)
+                return profile
+
+            pos = [s for s in train_samples if bool(s.get("hit_label"))]
+            neg = [s for s in train_samples if not bool(s.get("hit_label"))]
+
+            breakout_weights = dict(default_breakout_weights)
+            if len(pos) >= 20 and len(neg) >= 20:
+                raw = {}
+                for k in default_breakout_weights.keys():
+                    p_mean = sum(float(s.get(k) or 0.0) for s in pos) / len(pos)
+                    n_mean = sum(float(s.get(k) or 0.0) for s in neg) / len(neg)
+                    raw[k] = max(p_mean - n_mean, 0.001)
+                tuned = normalize_weights(raw, default_breakout_weights)
+                breakout_weights = blend_weights(default_breakout_weights, tuned, tuned_strength=0.65)
+
+            eval_samples = [s for s in train_samples if float(s.get("room_to_limit_pct") or 0.0) >= min_room_to_limit_pct]
+            breakout_threshold = 0.62
+            if len(eval_samples) >= 200:
+                best = {
+                    "f": -1.0,
+                    "precision": 0.0,
+                    "recall": 0.0,
+                    "threshold": 0.62,
+                }
+                for step in range(40):
+                    threshold = 0.45 + step * 0.01
+                    tp = fp = fn = 0
+                    pred_pos = 0
+                    for s in eval_samples:
+                        components = {
+                            "gap_score": float(s.get("gap_score") or 0.0),
+                            "vr_score": float(s.get("vr_score") or 0.0),
+                            "room_score": float(s.get("room_score") or 0.0),
+                            "amount_score": float(s.get("amount_score") or 0.0),
+                            "fs_score": float(s.get("fs_score") or 0.0),
+                        }
+                        prob = clamp01(weighted_score(components, breakout_weights))
+                        vr = float(s.get("volume_ratio") or 0.0)
+                        if vr >= 120:
+                            prob *= 0.55
+                        elif vr >= 50:
+                            prob *= 0.70
+                        pred = prob >= threshold
+                        label = bool(s.get("hit_label"))
+                        if pred:
+                            pred_pos += 1
+                            if label:
+                                tp += 1
+                            else:
+                                fp += 1
+                        elif label:
+                            fn += 1
+                    min_pred = max(8, int(len(eval_samples) * 0.004))
+                    if pred_pos < min_pred:
+                        continue
+                    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+                    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+                    f = calc_fbeta(tp, fp, fn, beta=0.5)
+                    if (
+                        f > best["f"]
+                        or (f == best["f"] and precision > best["precision"])
+                        or (f == best["f"] and precision == best["precision"] and recall > best["recall"])
+                    ):
+                        best = {
+                            "f": f,
+                            "precision": precision,
+                            "recall": recall,
+                            "threshold": threshold,
+                        }
+                breakout_threshold = float(best["threshold"])
+
+            heat_weights = dict(default_heat_weights)
+            if len(pos) >= 20 and len(neg) >= 20:
+                raw = {}
+                for k in default_heat_weights.keys():
+                    p_mean = sum(float(s.get(k) or 0.0) for s in pos) / len(pos)
+                    n_mean = sum(float(s.get(k) or 0.0) for s in neg) / len(neg)
+                    raw[k] = max(p_mean - n_mean, 0.001)
+                tuned = normalize_weights(raw, default_heat_weights)
+                heat_weights = blend_weights(default_heat_weights, tuned, tuned_strength=0.60)
+
+            daily_stats: dict[str, tuple[int, int]] = {}
+            for s in train_samples:
+                d = str(s.get("date") or "")
+                if not d:
+                    continue
+                hit = 1 if bool(s.get("hit_label")) else 0
+                total, ok = daily_stats.get(d, (0, 0))
+                daily_stats[d] = (total + 1, ok + hit)
+            daily_hit_rates = [(ok / total) for total, ok in daily_stats.values() if total > 0]
+            market_hit_rate = sum(daily_hit_rates) / len(daily_hit_rates) if daily_hit_rates else 0.0
+            market_regime = "neutral"
+            theme_alpha_multiplier = 1.0
+            if market_hit_rate >= 0.16:
+                market_regime = "hot"
+                theme_alpha_multiplier = 1.35
+            elif market_hit_rate >= 0.12:
+                market_regime = "warm"
+                theme_alpha_multiplier = 1.15
+            elif market_hit_rate <= 0.06:
+                market_regime = "cold"
+                theme_alpha_multiplier = 0.65
+            elif market_hit_rate <= 0.09:
+                market_regime = "cool"
+                theme_alpha_multiplier = 0.82
+
+            profile = {
+                "breakout_weights": breakout_weights,
+                "breakout_threshold": breakout_threshold,
+                "heat_weights": heat_weights,
+                "market_regime": market_regime,
+                "market_hit_rate": market_hit_rate,
+                "theme_alpha_multiplier": theme_alpha_multiplier,
+                "window_days_used": len(trade_days),
+            }
+            _SUPER_MAIN_FORCE_TUNE_CACHE[cache_key] = (datetime.now(), profile)
+            return profile
 
         async with get_database() as db:
             target_date = None
@@ -1189,6 +1643,24 @@ async def get_auction_super_main_force(
 
             trade_date_ret = target_date
             theme_date = trade_date_ret
+            sort_mode_normalized = str(sort_mode or "heat").strip().lower()
+            if sort_mode_normalized not in {"heat", "candidate_first"}:
+                sort_mode_normalized = "heat"
+
+            tune_profile = await load_rolling_tune_profile(
+                db_conn=db,
+                end_date=trade_date_ret,
+                window_days=int(rolling_window_days),
+            )
+            breakout_weights = dict(tune_profile.get("breakout_weights") or {})
+            tuned_breakout_threshold = float(tune_profile.get("breakout_threshold") or 0.62)
+            heat_weights = dict(tune_profile.get("heat_weights") or {})
+            market_regime = str(tune_profile.get("market_regime") or "neutral")
+            market_hit_rate = float(tune_profile.get("market_hit_rate") or 0.0)
+            theme_alpha_multiplier = float(tune_profile.get("theme_alpha_multiplier") or 1.0)
+            effective_theme_alpha = float(theme_alpha)
+            if dynamic_theme_alpha:
+                effective_theme_alpha = max(0.0, min(0.5, effective_theme_alpha * theme_alpha_multiplier))
 
             if stock_codes:
                 placeholders = ",".join(["?"] * len(stock_codes))
@@ -1545,11 +2017,7 @@ async def get_auction_super_main_force(
             if "ST" in upper_name:
                 continue
 
-            limit_pct = 10.0
-            if stock_code.startswith(("300", "301", "688", "689")):
-                limit_pct = 20.0
-            elif stock_code.startswith(("8", "4")):
-                limit_pct = 30.0
+            limit_pct = infer_limit_pct(stock_code)
 
             gap_ratio_processed = 0.0
             if gap_ratio > 0:
@@ -1581,47 +2049,23 @@ async def get_auction_super_main_force(
             if pre_close > 0 and limit_price > 0 and price > 0:
                 room_to_limit_pct = (limit_price - price) / pre_close * 100.0
 
-            bucket = "10cm_small"
-            if limit_pct >= 19.9:
-                bucket = "20cm"
-            elif denom_mv >= 1e10:
-                bucket = "10cm_large"
+            bucket = resolve_bucket(limit_pct, denom_mv)
+            bp = get_bucket_params(bucket, min_room_to_limit_pct)
 
-            if bucket == "20cm":
-                gap_low, gap_mid, gap_high = 7.5, 12.0, 18.5
-                vr_low, vr_mid, vr_high = 1.2, 3.0, 10.0
-                room_low, room_mid, room_high = max(min_room_to_limit_pct, 2.5), 5.0, 10.5
-                amount_min, amount_mid = 6e7, 2.5e8
-                fs_low, fs_mid, fs_high = 0.0015, 0.0055, 0.02
-                breakout_threshold = 0.63
-            elif bucket == "10cm_large":
-                gap_low, gap_mid, gap_high = 5.0, 7.2, 9.0
-                vr_low, vr_mid, vr_high = 1.0, 2.2, 7.0
-                room_low, room_mid, room_high = max(min_room_to_limit_pct, 1.8), 3.8, 6.5
-                amount_min, amount_mid = 8e7, 4e8
-                fs_low, fs_mid, fs_high = 0.001, 0.0035, 0.015
-                breakout_threshold = 0.60
-            else:
-                gap_low, gap_mid, gap_high = 6.2, 8.2, 9.8
-                vr_low, vr_mid, vr_high = 1.2, 3.0, 12.0
-                room_low, room_mid, room_high = max(min_room_to_limit_pct, 1.5), 3.5, 7.0
-                amount_min, amount_mid = 3e7, 1.5e8
-                fs_low, fs_mid, fs_high = 0.002, 0.008, 0.03
-                breakout_threshold = 0.62
+            gap_score_breakout = score_tri(gap_percent, bp["gap_low"], bp["gap_mid"], bp["gap_high"])
+            vr_score_breakout = score_tri(min(volume_ratio, 20.0), bp["vr_low"], bp["vr_mid"], bp["vr_high"])
+            room_score_breakout = score_tri(room_to_limit_pct, bp["room_low"], bp["room_mid"], bp["room_high"])
+            amount_score_breakout = score_ramp(amount, bp["amount_min"], bp["amount_mid"])
+            fs_score_breakout = score_tri(fund_strength, bp["fs_low"], bp["fs_mid"], bp["fs_high"])
 
-            gap_score_breakout = score_tri(gap_percent, gap_low, gap_mid, gap_high)
-            vr_score_breakout = score_tri(min(volume_ratio, 20.0), vr_low, vr_mid, vr_high)
-            room_score_breakout = score_tri(room_to_limit_pct, room_low, room_mid, room_high)
-            amount_score_breakout = score_ramp(amount, amount_min, amount_mid)
-            fs_score_breakout = score_tri(fund_strength, fs_low, fs_mid, fs_high)
-
-            breakout_score = (
-                gap_score_breakout * 0.34
-                + vr_score_breakout * 0.26
-                + room_score_breakout * 0.18
-                + amount_score_breakout * 0.12
-                + fs_score_breakout * 0.10
-            )
+            breakout_components = {
+                "gap_score": gap_score_breakout,
+                "vr_score": vr_score_breakout,
+                "room_score": room_score_breakout,
+                "amount_score": amount_score_breakout,
+                "fs_score": fs_score_breakout,
+            }
+            breakout_score = weighted_score(breakout_components, breakout_weights)
 
             if volume_ratio >= 120:
                 breakout_score *= 0.55
@@ -1629,13 +2073,16 @@ async def get_auction_super_main_force(
                 breakout_score *= 0.70
 
             breakout_score = clamp01(breakout_score)
+            bucket_breakout_threshold = clamp01(
+                tuned_breakout_threshold + (float(bp["default_breakout_threshold"]) - 0.62) * 0.5
+            )
 
+            likely_limit_up_prob = breakout_score
             likely_limit_up = (
                 (not auction_limit_up)
-                and gap_percent >= gap_low
-                and volume_ratio >= vr_low
                 and room_to_limit_pct >= min_room_to_limit_pct
-                and breakout_score >= breakout_threshold
+                and likely_limit_up_prob >= bucket_breakout_threshold
+                and gap_percent > 0
             )
 
             exchange = info.get("exchange") or ""
@@ -1693,7 +2140,10 @@ async def get_auction_super_main_force(
                 "pe": pe_value,
                 "peTtm": pe_ttm_value,
                 "likelyLimitUp": likely_limit_up,
+                "likelyLimitUpProb": round(likely_limit_up_prob, 4),
                 "auctionLimitUp": auction_limit_up,
+                "breakoutScore": round(breakout_score, 4),
+                "breakoutThreshold": round(bucket_breakout_threshold, 4),
                 "themeHeatScore": round(theme_heat_score, 6),
                 "themeCode": theme_code,
                 "themeName": theme_name,
@@ -1732,19 +2182,19 @@ async def get_auction_super_main_force(
         items: list[dict] = []
         for idx, item in enumerate(pool):
             base_heat_score = (
-                volume_ratio_scores[idx] * 0.35
-                + gap_scores[idx] * 0.25
-                + fund_strength_scores[idx] * 0.20
-                + volume_density_scores[idx] * 0.15
-                + turnover_scores[idx] * 0.05
+                volume_ratio_scores[idx] * float(heat_weights.get("volume_ratio_rank", 0.35) or 0.35)
+                + gap_scores[idx] * float(heat_weights.get("gap_rank", 0.25) or 0.25)
+                + fund_strength_scores[idx] * float(heat_weights.get("fund_strength_rank", 0.20) or 0.20)
+                + volume_density_scores[idx] * float(heat_weights.get("volume_density_rank", 0.15) or 0.15)
+                + turnover_scores[idx] * float(heat_weights.get("turnover_rank", 0.05) or 0.05)
             ) * 100.0
 
             theme_heat = float(item.get("themeHeatScore") or 0.0)
-            enhance_factor = 1.0 + theme_alpha * theme_heat
+            enhance_factor = 1.0 + effective_theme_alpha * theme_heat
             final_score = base_heat_score * enhance_factor
 
             item["baseHeatScore"] = round(base_heat_score, 2)
-            item["themeAlpha"] = round(theme_alpha, 4)
+            item["themeAlpha"] = round(effective_theme_alpha, 4)
             item["themeEnhanceFactor"] = round(enhance_factor, 6)
             item["heatScore"] = round(final_score, 2)
             item.pop("_volumeRatioProcessed", None)
@@ -1803,7 +2253,17 @@ async def get_auction_super_main_force(
                 }
             }
 
-        items.sort(key=lambda x: x["heatScore"], reverse=True)
+        if sort_mode_normalized == "candidate_first":
+            items.sort(
+                key=lambda x: (
+                    1 if bool(x.get("likelyLimitUp")) else 0,
+                    float(x.get("likelyLimitUpProb") or 0.0),
+                    float(x.get("heatScore") or 0.0),
+                ),
+                reverse=True,
+            )
+        else:
+            items.sort(key=lambda x: float(x.get("heatScore") or 0.0), reverse=True)
         unique_items: list[dict] = []
         seen_codes: set[str] = set()
         for item in items:
@@ -1833,7 +2293,16 @@ async def get_auction_super_main_force(
                     "count": count,
                     "avgHeat": round(avg_heat, 2),
                     "totalAmount": round(total_amount, 2),
-                    "limitUpCandidates": limit_up_candidates
+                    "limitUpCandidates": limit_up_candidates,
+                    "sortMode": sort_mode_normalized,
+                    "marketRegime": market_regime,
+                    "marketHitRate": round(market_hit_rate, 4),
+                    "themeAlphaInput": round(float(theme_alpha), 4),
+                    "themeAlphaEffective": round(float(effective_theme_alpha), 4),
+                    "rollingWindowDays": int(rolling_window_days),
+                    "rollingWindowDaysUsed": int(tune_profile.get("window_days_used") or 0),
+                    "candidateThreshold": round(float(tuned_breakout_threshold), 4),
+                    "algorithmVersion": "super_main_force_v2",
                 }
             }
         }

@@ -15,6 +15,7 @@ import {
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { fetchSectorVolumeData } from '../../services/analysisService';
+import { A_SHARE_COLORS } from '../../utils/constants';
 
 interface SectorData {
   key: string;
@@ -102,14 +103,14 @@ const SectorVolumeCardComponent: React.FC = () => {
       render: (value: number) => (
         <Space>
           <span style={{
-            color: value > 0 ? '#cf1322' : value < 0 ? '#3f8600' : '#666',
+            color: value > 0 ? A_SHARE_COLORS.RISE : value < 0 ? A_SHARE_COLORS.FALL : '#666',
             fontWeight: 'bold'
           }}>
             {value > 0 ? '+' : ''}{value.toFixed(1)}%
           </span>
           {value > 0 ?
-            <RiseOutlined style={{ color: '#cf1322' }} /> :
-            <FallOutlined style={{ color: '#3f8600' }} />
+            <RiseOutlined style={{ color: A_SHARE_COLORS.RISE }} /> :
+            <FallOutlined style={{ color: A_SHARE_COLORS.FALL }} />
           }
         </Space>
       ),
@@ -123,15 +124,15 @@ const SectorVolumeCardComponent: React.FC = () => {
       render: (_, record) => (
         <Space direction="vertical" size={0} style={{ width: '100%' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-            <span style={{ color: '#cf1322' }}>涨 {record.upCount}</span>
-            <span style={{ color: '#3f8600' }}>跌 {record.downCount}</span>
+            <span style={{ color: A_SHARE_COLORS.RISE }}>涨 {record.upCount}</span>
+            <span style={{ color: A_SHARE_COLORS.FALL }}>跌 {record.downCount}</span>
           </div>
           <Progress
             percent={(record.upCount / record.stockCount) * 100}
             size="small"
             showInfo={false}
-            strokeColor="#cf1322"
-            trailColor="#3f8600"
+            strokeColor={A_SHARE_COLORS.RISE}
+            trailColor={A_SHARE_COLORS.FALL}
           />
         </Space>
       )
@@ -142,7 +143,7 @@ const SectorVolumeCardComponent: React.FC = () => {
       key: 'avgChange',
       width: 100,
       render: (value: number) => (
-        <Tag color={value > 0 ? 'red' : value < 0 ? 'green' : 'default'}>
+        <Tag color={value > 0 ? A_SHARE_COLORS.RISE : value < 0 ? A_SHARE_COLORS.FALL : 'default'}>
           {value > 0 ? '+' : ''}{value.toFixed(1)}%
         </Tag>
       ),
@@ -157,7 +158,7 @@ const SectorVolumeCardComponent: React.FC = () => {
           <span style={{ fontWeight: 500 }}>{record.leadingStock}</span>
           <span style={{
             fontSize: '12px',
-            color: record.leadingStockChange > 0 ? '#cf1322' : '#3f8600'
+            color: record.leadingStockChange > 0 ? A_SHARE_COLORS.RISE : A_SHARE_COLORS.FALL
           }}>
             {record.leadingStockChange > 0 ? '+' : ''}{record.leadingStockChange.toFixed(2)}%
           </span>
@@ -226,7 +227,7 @@ const SectorVolumeCardComponent: React.FC = () => {
             value={avgVolumeChange.toFixed(1)}
             suffix="%"
             prefix={avgVolumeChange > 0 ? <RiseOutlined /> : <FallOutlined />}
-            valueStyle={{ color: avgVolumeChange > 0 ? '#cf1322' : '#3f8600' }}
+            valueStyle={{ color: avgVolumeChange > 0 ? A_SHARE_COLORS.RISE : A_SHARE_COLORS.FALL }}
           />
         </Col>
         <Col span={6}>
@@ -234,7 +235,7 @@ const SectorVolumeCardComponent: React.FC = () => {
             title="活跃板块"
             value={activeSectors}
             suffix="个"
-            valueStyle={{ color: '#cf1322' }}
+            valueStyle={{ color: A_SHARE_COLORS.RISE }}
           />
         </Col>
         <Col span={6}>
@@ -242,7 +243,7 @@ const SectorVolumeCardComponent: React.FC = () => {
             title="弱势板块"
             value={weakSectors}
             suffix="个"
-            valueStyle={{ color: '#3f8600' }}
+            valueStyle={{ color: A_SHARE_COLORS.FALL }}
           />
         </Col>
       </Row>

@@ -238,8 +238,8 @@ export const MESSAGE_DURATION = {
  */
 export const COLORS = {
   // 涨跌颜色
-  UP: '#cf1322',      // 涨 - 红色
-  DOWN: '#3f8600',    // 跌 - 绿色
+  UP: '#f53f3f',      // 涨 - 红色
+  DOWN: '#00b578',    // 跌 - 绿色
   FLAT: '#666',       // 平 - 灰色
 
   // 主题色
@@ -264,7 +264,15 @@ export const COLORS = {
 } as const;
 
 /**
- * 默认日期格式
+ * A-share direction colors (rise=red, fall=green)
+ */
+export const A_SHARE_COLORS = {
+  RISE: COLORS.UP,
+  FALL: COLORS.DOWN
+} as const;
+
+/**
+ * Date formats
  */
 export const DATE_FORMATS = {
   DATE: 'YYYY-MM-DD',

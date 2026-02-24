@@ -15,6 +15,7 @@ import {
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { fetchHotSectorStocksData } from '../../services/analysisService';
+import { A_SHARE_COLORS } from '../../utils/constants';
 
 const { Panel } = Collapse;
 
@@ -113,7 +114,7 @@ const HotSectorStocksCardComponent: React.FC = () => {
       key: 'changePercent',
       width: 90,
       render: (value: number) => (
-        <Tag color={value > 0 ? 'red' : value < 0 ? 'green' : 'default'}>
+        <Tag color={value > 0 ? A_SHARE_COLORS.RISE : value < 0 ? A_SHARE_COLORS.FALL : 'default'}>
           {value > 0 ? '+' : ''}{value.toFixed(2)}%
         </Tag>
       ),
@@ -125,7 +126,7 @@ const HotSectorStocksCardComponent: React.FC = () => {
       key: 'volumeRatio',
       width: 80,
       render: (value: number) => (
-        <span style={{ color: value > 2 ? '#cf1322' : '#666' }}>
+        <span style={{ color: value > 2 ? A_SHARE_COLORS.RISE : '#666' }}>
           {value.toFixed(2)}
         </span>
       ),
@@ -137,7 +138,7 @@ const HotSectorStocksCardComponent: React.FC = () => {
       key: 'mainFundFlow',
       width: 100,
       render: (value: number) => (
-        <span style={{ color: value > 0 ? '#cf1322' : value < 0 ? '#3f8600' : '#666' }}>
+        <span style={{ color: value > 0 ? A_SHARE_COLORS.RISE : value < 0 ? A_SHARE_COLORS.FALL : '#666' }}>
           {value > 0 ? '+' : ''}{(value / 10000).toFixed(0)}万
         </span>
       ),
@@ -149,7 +150,7 @@ const HotSectorStocksCardComponent: React.FC = () => {
       key: 'score',
       width: 90,
       render: (value: number) => (
-        <Tag color={value > 5 ? 'red' : value > 3 ? 'orange' : 'blue'}>
+        <Tag color={value > 5 ? A_SHARE_COLORS.RISE : value > 3 ? 'orange' : 'blue'}>
           {value.toFixed(1)}
         </Tag>
       ),
@@ -250,7 +251,7 @@ const HotSectorStocksCardComponent: React.FC = () => {
                       <Tag color="blue">
                         涨跌: {sector.sectorPctChange > 0 ? '+' : ''}{sector.sectorPctChange.toFixed(2)}%
                       </Tag>
-                      <Tag color={sector.sectorMoneyFlow > 0 ? 'red' : 'green'}>
+                      <Tag color={sector.sectorMoneyFlow > 0 ? A_SHARE_COLORS.RISE : A_SHARE_COLORS.FALL}>
                         资金: {(sector.sectorMoneyFlow / 100000000).toFixed(2)}亿
                       </Tag>
                     </Space>

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Card, Table, Tag } from 'antd';
 import dayjs from 'dayjs';
 import { fetchSectorAnalysis } from '../../services/analysisService';
+import { A_SHARE_COLORS } from '../../utils/constants';
 
 export const SectorAnalysisCard: React.FC = () => {
     const [data, setData] = useState<any[]>([]);
@@ -33,7 +34,7 @@ export const SectorAnalysisCard: React.FC = () => {
             dataIndex: 'avgChange',
             key: 'avgChange',
             render: (val: number) => (
-                <span style={{ color: val > 0 ? '#cf1322' : (val < 0 ? '#3f8600' : undefined) }}>
+                <span style={{ color: val > 0 ? A_SHARE_COLORS.RISE : (val < 0 ? A_SHARE_COLORS.FALL : undefined) }}>
                     {val ? val.toFixed(2) : '0.00'}%
                 </span>
             ),
@@ -44,7 +45,7 @@ export const SectorAnalysisCard: React.FC = () => {
             dataIndex: 'netMainFlow',
             key: 'netMainFlow',
             render: (val: number) => (
-                <span style={{ color: val > 0 ? '#cf1322' : (val < 0 ? '#3f8600' : undefined) }}>
+                <span style={{ color: val > 0 ? A_SHARE_COLORS.RISE : (val < 0 ? A_SHARE_COLORS.FALL : undefined) }}>
                     {val ? (val / 100000000).toFixed(2) : '0.00'}亿
                 </span>
             ),
@@ -57,7 +58,7 @@ export const SectorAnalysisCard: React.FC = () => {
                 <span>
                     {record.leaderName}
                     {record.leaderChange !== undefined && (
-                        <Tag color={record.leaderChange > 0 ? 'red' : 'green'} style={{ marginLeft: 8 }}>
+                        <Tag color={record.leaderChange > 0 ? A_SHARE_COLORS.RISE : A_SHARE_COLORS.FALL} style={{ marginLeft: 8 }}>
                             {record.leaderChange.toFixed(2)}%
                         </Tag>
                     )}

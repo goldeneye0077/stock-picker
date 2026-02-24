@@ -407,11 +407,26 @@ async def update_auction_from_tushare_task(
                 )
 
                 if turnover_rate > 0 or volume_ratio > 0 or float_share > 0:
+                    # Do a partial upsert so auction refresh will not wipe existing
+                    # valuation/close fields (pe, pe_ttm, close, etc.) in daily_basic.
                     await db.execute(
                         """
-                        INSERT OR REPLACE INTO daily_basic (
+                        INSERT INTO daily_basic (
                             stock_code, trade_date, turnover_rate, volume_ratio, float_share
                         ) VALUES (?, ?, ?, ?, ?)
+                        ON CONFLICT(stock_code, trade_date) DO UPDATE SET
+                            turnover_rate = CASE
+                                WHEN excluded.turnover_rate > 0 THEN excluded.turnover_rate
+                                ELSE daily_basic.turnover_rate
+                            END,
+                            volume_ratio = CASE
+                                WHEN excluded.volume_ratio > 0 THEN excluded.volume_ratio
+                                ELSE daily_basic.volume_ratio
+                            END,
+                            float_share = CASE
+                                WHEN excluded.float_share > 0 THEN excluded.float_share
+                                ELSE daily_basic.float_share
+                            END
                         """,
                         (
                             stock_code,

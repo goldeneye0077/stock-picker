@@ -3,6 +3,7 @@ import { Card, Row, Col, Statistic } from 'antd';
 import { ArrowUpOutlined, ArrowDownOutlined, MinusOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { fetchMarketSentiment } from '../../services/analysisService';
+import { A_SHARE_COLORS } from '../../utils/constants';
 
 export const MarketSentimentCard: React.FC = () => {
     const [data, setData] = useState<any>(null);
@@ -29,7 +30,7 @@ export const MarketSentimentCard: React.FC = () => {
                     <Statistic
                         title="上涨"
                         value={data.upCount}
-                        valueStyle={{ color: '#cf1322' }}
+                        valueStyle={{ color: A_SHARE_COLORS.RISE }}
                         prefix={<ArrowUpOutlined />}
                         suffix={`(${upPercent.toFixed(1)}%)`}
                     />
@@ -38,7 +39,7 @@ export const MarketSentimentCard: React.FC = () => {
                     <Statistic
                         title="下跌"
                         value={data.downCount}
-                        valueStyle={{ color: '#3f8600' }}
+                        valueStyle={{ color: A_SHARE_COLORS.FALL }}
                         prefix={<ArrowDownOutlined />}
                         suffix={`(${downPercent.toFixed(1)}%)`}
                     />
@@ -52,9 +53,9 @@ export const MarketSentimentCard: React.FC = () => {
                 </Col>
             </Row>
             <div style={{ marginTop: 16, display: 'flex' }}>
-                <div style={{ width: `${upPercent}%`, height: 8, background: '#cf1322', borderRadius: '4px 0 0 4px' }} />
+                <div style={{ width: `${upPercent}%`, height: 8, background: A_SHARE_COLORS.RISE, borderRadius: '4px 0 0 4px' }} />
                 <div style={{ width: `${100 - upPercent - downPercent}%`, height: 8, background: '#d9d9d9' }} />
-                <div style={{ width: `${downPercent}%`, height: 8, background: '#3f8600', borderRadius: '0 4px 4px 0' }} />
+                <div style={{ width: `${downPercent}%`, height: 8, background: A_SHARE_COLORS.FALL, borderRadius: '0 4px 4px 0' }} />
             </div>
             <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
                 <Col span={12}>
@@ -63,7 +64,7 @@ export const MarketSentimentCard: React.FC = () => {
                         value={data.avgChange}
                         precision={2}
                         suffix="%"
-                        valueStyle={{ color: data.avgChange > 0 ? '#cf1322' : (data.avgChange < 0 ? '#3f8600' : undefined) }}
+                        valueStyle={{ color: data.avgChange > 0 ? A_SHARE_COLORS.RISE : (data.avgChange < 0 ? A_SHARE_COLORS.FALL : undefined) }}
                     />
                 </Col>
                 <Col span={12}>

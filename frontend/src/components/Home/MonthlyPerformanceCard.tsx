@@ -10,6 +10,7 @@ import {
     CrownOutlined,
 } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
+import { A_SHARE_COLORS } from '../../utils/constants';
 
 type MonthlyLimitUpRecord = {
     tradeDate: string;
@@ -390,7 +391,7 @@ const MonthlyPerformanceCard: React.FC<MonthlyPerformanceCardProps> = ({
                                     </Tooltip>
                                     <Tooltip title="当日买入盈亏">
                                         <Tag
-                                            color={star.profitPercent >= 0 ? 'red' : 'green'}
+                                            color={star.profitPercent >= 0 ? A_SHARE_COLORS.RISE : A_SHARE_COLORS.FALL}
                                             style={{ fontWeight: 600 }}
                                         >
                                             盈利 {star.profitPercent >= 0 ? '+' : ''}{star.profitPercent.toFixed(1)}%

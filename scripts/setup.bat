@@ -33,14 +33,25 @@ if not exist "data" mkdir data
 
 :: Copy environment files
 echo Setting up environment files...
-if not exist "backend\.env" copy "backend\.env.example" "backend\.env" >nul
-if not exist "data-service\.env" copy "data-service\.env.example" "data-service\.env" >nul
+if not exist "backend\.env" (
+    echo PORT=3000> "backend\.env"
+    echo NODE_ENV=development>> "backend\.env"
+    echo FRONTEND_URL=http://localhost:3001>> "backend\.env"
+    echo DATABASE_PATH=../data/stock_picker.db>> "backend\.env"
+    echo REDIS_URL=redis://localhost:6379>> "backend\.env"
+)
+if not exist "data-service\.env" (
+    echo PORT=8001> "data-service\.env"
+    echo ENV=development>> "data-service\.env"
+    echo TUSHARE_TOKEN=your_tushare_token_here>> "data-service\.env"
+    echo AUTO_COLLECT_ON_STARTUP=1>> "data-service\.env"
+)
 
 echo.
 echo Setup completed successfully!
 echo.
 echo Next steps:
-echo 1. Configure your Tushare token in backend\.env and data-service\.env
+echo 1. Configure your Tushare token in data-service\.env
 echo 2. Run 'npm run dev' to start all services
 echo 3. Visit http://localhost:3001 for frontend
 echo 4. API available at http://localhost:3000

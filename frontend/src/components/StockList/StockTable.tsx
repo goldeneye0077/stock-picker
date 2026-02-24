@@ -9,6 +9,7 @@ import { Button, Table, Tag, Typography, Tooltip } from 'antd';
 import { LineChartOutlined, BarChartOutlined, StarOutlined, StarFilled } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { StockItem } from '../../services/stockService';
+import { A_SHARE_COLORS } from '../../utils/constants';
 
 const { Text } = Typography;
 
@@ -97,7 +98,7 @@ const StockTableComponent: React.FC<StockTableProps> = ({
       sorter: (a, b) => (a.changeAmount || 0) - (b.changeAmount || 0),
       render: (val: number) => {
         if (val === undefined || val === null) return '-';
-        const color = val > 0 ? '#cf1322' : val < 0 ? '#3f8600' : '#666';
+        const color = val > 0 ? A_SHARE_COLORS.RISE : val < 0 ? A_SHARE_COLORS.FALL : '#666';
         return (
           <Text style={{ color }}>
             {val > 0 ? '+' : ''}
@@ -114,9 +115,9 @@ const StockTableComponent: React.FC<StockTableProps> = ({
       sorter: (a, b) => parseNumber(a.change) - parseNumber(b.change),
       render: (change: string) => {
         const color = change.startsWith('+')
-          ? '#cf1322'
+          ? A_SHARE_COLORS.RISE
           : change.startsWith('-')
-          ? '#3f8600'
+          ? A_SHARE_COLORS.FALL
           : '#666';
         return <Text style={{ color }}>{change}</Text>;
       }

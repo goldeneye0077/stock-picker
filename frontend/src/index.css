@@ -21,10 +21,10 @@
   /* Accents */
   --sq-primary: #1D61FF;
   /* Electric Blue */
-  --sq-rise: #10B981;
-  /* Emerald Green for gains */
-  --sq-fall: #EF4444;
-  /* Coral Red for losses */
+  --sq-rise: #f53f3f;
+  /* A-share rise: red */
+  --sq-fall: #00b578;
+  /* A-share fall: green */
   --sq-warning: #F59E0B;
   /* Amber for warnings */
   --sq-neutral: #94A3B8;

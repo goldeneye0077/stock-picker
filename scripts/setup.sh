@@ -28,13 +28,29 @@ mkdir -p data
 
 # Copy environment files
 echo "⚙️  Setting up environment files..."
-cp backend/.env.example backend/.env
-cp data-service/.env.example data-service/.env
+if [ ! -f backend/.env ]; then
+  cat > backend/.env <<'EOF'
+PORT=3000
+NODE_ENV=development
+FRONTEND_URL=http://localhost:3001
+DATABASE_PATH=../data/stock_picker.db
+REDIS_URL=redis://localhost:6379
+EOF
+fi
+
+if [ ! -f data-service/.env ]; then
+  cat > data-service/.env <<'EOF'
+PORT=8001
+ENV=development
+TUSHARE_TOKEN=your_tushare_token_here
+AUTO_COLLECT_ON_STARTUP=1
+EOF
+fi
 
 echo "✅ Setup completed successfully!"
 echo ""
 echo "📝 Next steps:"
-echo "1. Configure your Tushare token in backend/.env and data-service/.env"
+echo "1. Configure your Tushare token in data-service/.env"
 echo "2. Run 'npm run dev' to start all services"
 echo "3. Visit http://localhost:3001 for frontend"
 echo "4. API available at http://localhost:3000"

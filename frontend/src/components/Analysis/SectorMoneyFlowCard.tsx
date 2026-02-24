@@ -16,6 +16,7 @@ import type { ColumnsType } from 'antd/es/table';
 import { fetchSectorMoneyflowData } from '../../services/analysisService';
 import type { FundFlowParams } from '../../services/analysisService';
 import dayjs, { Dayjs } from 'dayjs';
+import { A_SHARE_COLORS } from '../../utils/constants';
 
 const { RangePicker } = DatePicker;
 
@@ -137,7 +138,7 @@ const SectorMoneyFlowCardComponent: React.FC = () => {
       key: 'pct_change',
       width: 90,
       render: (value: number) => (
-        <Tag color={value > 0 ? 'red' : value < 0 ? 'green' : 'default'}>
+        <Tag color={value > 0 ? A_SHARE_COLORS.RISE : value < 0 ? A_SHARE_COLORS.FALL : 'default'}>
           {value > 0 ? '+' : ''}{value.toFixed(2)}%
         </Tag>
       ),
@@ -150,7 +151,7 @@ const SectorMoneyFlowCardComponent: React.FC = () => {
       width: 120,
       render: (value: number) => (
         <span style={{
-          color: value > 0 ? '#cf1322' : value < 0 ? '#3f8600' : '#666',
+          color: value > 0 ? A_SHARE_COLORS.RISE : value < 0 ? A_SHARE_COLORS.FALL : '#666',
           fontWeight: 'bold'
         }}>
           {value > 0 ? '+' : ''}{(value / 100000000).toFixed(2)}亿
@@ -165,7 +166,7 @@ const SectorMoneyFlowCardComponent: React.FC = () => {
       key: 'buy_elg_amount',
       width: 100,
       render: (value: number) => (
-        <span style={{ color: value > 0 ? '#cf1322' : '#3f8600' }}>
+        <span style={{ color: value > 0 ? A_SHARE_COLORS.RISE : A_SHARE_COLORS.FALL }}>
           {value > 0 ? '+' : ''}{(value / 100000000).toFixed(2)}亿
         </span>
       ),
@@ -177,7 +178,7 @@ const SectorMoneyFlowCardComponent: React.FC = () => {
       key: 'buy_lg_amount',
       width: 100,
       render: (value: number) => (
-        <span style={{ color: value > 0 ? '#cf1322' : '#3f8600' }}>
+        <span style={{ color: value > 0 ? A_SHARE_COLORS.RISE : A_SHARE_COLORS.FALL }}>
           {value > 0 ? '+' : ''}{(value / 100000000).toFixed(2)}亿
         </span>
       ),
@@ -189,7 +190,7 @@ const SectorMoneyFlowCardComponent: React.FC = () => {
       key: 'buy_md_amount',
       width: 100,
       render: (value: number) => (
-        <span style={{ color: value > 0 ? '#cf1322' : '#3f8600' }}>
+        <span style={{ color: value > 0 ? A_SHARE_COLORS.RISE : A_SHARE_COLORS.FALL }}>
           {value > 0 ? '+' : ''}{(value / 100000000).toFixed(2)}亿
         </span>
       ),
@@ -201,7 +202,7 @@ const SectorMoneyFlowCardComponent: React.FC = () => {
       key: 'buy_sm_amount',
       width: 100,
       render: (value: number) => (
-        <span style={{ color: value > 0 ? '#cf1322' : '#3f8600' }}>
+        <span style={{ color: value > 0 ? A_SHARE_COLORS.RISE : A_SHARE_COLORS.FALL }}>
           {value > 0 ? '+' : ''}{(value / 100000000).toFixed(2)}亿
         </span>
       ),
