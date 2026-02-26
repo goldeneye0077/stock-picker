@@ -265,31 +265,40 @@ const SuperMainForce: React.FC = () => {
       key: 'gapPercent',
       width: 110,
       sorter: (a, b) => a.gapPercent - b.gapPercent,
-      render: (val: number) => (
-        <span className="sq-mono" style={{ color: A_SHARE_COLORS.RISE }}>
-          {val.toFixed(2)}%
-        </span>
-      ),
+      render: (val: number) => {
+        const value = Number(val);
+        if (!Number.isFinite(value)) {
+          return <span className="sq-neutral sq-mono">-</span>;
+        }
+        const color = value > 0 ? A_SHARE_COLORS.RISE : value < 0 ? A_SHARE_COLORS.FALL : '#666';
+        return (
+          <span className="sq-mono" style={{ color }}>
+            {value.toFixed(2)}%
+          </span>
+        );
+      },
     },
     {
       title: '当日盈亏',
       key: 'dailyProfit',
       width: 110,
       render: (_: unknown, record: AuctionSuperMainForceItem) => {
-        const rawChangePercent = Number(record.changePercent);
-        const derivedChangePercent = (() => {
-          const close = Number(record.close);
-          const preClose = Number(record.preClose);
-          if (!Number.isFinite(close) || !Number.isFinite(preClose) || preClose === 0) return undefined;
-          return ((close - preClose) / preClose) * 100;
-        })();
-        const closeChangePercent = Number.isFinite(rawChangePercent)
-          ? rawChangePercent
-          : derivedChangePercent;
-        if (closeChangePercent === undefined || !Number.isFinite(closeChangePercent)) {
+        const close = Number(record.close);
+        const auctionPrice = Number(record.price);
+        let v: number | undefined;
+        if (Number.isFinite(close) && Number.isFinite(auctionPrice) && auctionPrice > 0) {
+          // 当日盈亏口径：集合竞价成交价买入 -> 当日(或当前)价格
+          v = ((close - auctionPrice) / auctionPrice) * 100;
+        } else {
+          const rawChangePercent = Number(record.changePercent);
+          if (Number.isFinite(rawChangePercent)) {
+            // 兼容旧数据：缺少 close 时使用昨收口径近似
+            v = rawChangePercent - Number(record.gapPercent || 0);
+          }
+        }
+        if (v === undefined || !Number.isFinite(v)) {
           return <span className="sq-neutral sq-mono">-</span>;
         }
-        const v = closeChangePercent - Number(record.gapPercent || 0);
         const pnlColor = v >= 0 ? A_SHARE_COLORS.RISE : A_SHARE_COLORS.FALL;
         return (
           <span className="sq-mono" style={{ color: pnlColor }}>

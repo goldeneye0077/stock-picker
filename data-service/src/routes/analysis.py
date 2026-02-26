@@ -3,6 +3,7 @@ from ..utils.database import get_database
 from ..data_sources.tushare_client import TushareClient
 from loguru import logger
 from datetime import datetime, timedelta, date
+from zoneinfo import ZoneInfo
 import math
 import pandas as pd
 from typing import Any
@@ -1174,18 +1175,24 @@ async def get_auction_super_main_force(
 
         async def load_rolling_tune_profile(db_conn, end_date: str, window_days: int) -> dict[str, Any]:
             default_breakout_weights = {
-                "gap_score": 0.34,
-                "vr_score": 0.26,
-                "room_score": 0.18,
-                "amount_score": 0.12,
-                "fs_score": 0.10,
+                "gap_score": 0.24,
+                "vr_score": 0.18,
+                "room_score": 0.13,
+                "amount_score": 0.09,
+                "fs_score": 0.08,
+                "kline_momentum": 0.12,
+                "fund_flow_hist": 0.08,
+                "gap_vr_synergy": 0.04,
+                "fund_room_synergy": 0.04,
             }
             default_heat_weights = {
-                "volume_ratio_rank": 0.35,
-                "gap_rank": 0.25,
-                "fund_strength_rank": 0.20,
-                "volume_density_rank": 0.15,
-                "turnover_rank": 0.05,
+                "volume_ratio_rank": 0.28,
+                "gap_rank": 0.20,
+                "fund_strength_rank": 0.16,
+                "volume_density_rank": 0.10,
+                "turnover_rank": 0.04,
+                "kline_momentum_rank": 0.12,
+                "fund_flow_hist_rank": 0.10,
             }
             default_profile: dict[str, Any] = {
                 "breakout_weights": default_breakout_weights,
@@ -1401,7 +1408,7 @@ async def get_auction_super_main_force(
                     n_mean = sum(float(s.get(k) or 0.0) for s in neg) / len(neg)
                     raw[k] = max(p_mean - n_mean, 0.001)
                 tuned = normalize_weights(raw, default_breakout_weights)
-                breakout_weights = blend_weights(default_breakout_weights, tuned, tuned_strength=0.65)
+                breakout_weights = blend_weights(default_breakout_weights, tuned, tuned_strength=0.45)
 
             eval_samples = [s for s in train_samples if float(s.get("room_to_limit_pct") or 0.0) >= min_room_to_limit_pct]
             breakout_threshold = 0.62
@@ -1412,8 +1419,8 @@ async def get_auction_super_main_force(
                     "recall": 0.0,
                     "threshold": 0.62,
                 }
-                for step in range(40):
-                    threshold = 0.45 + step * 0.01
+                for step in range(100):
+                    threshold = 0.40 + step * 0.005
                     tp = fp = fn = 0
                     pred_pos = 0
                     for s in eval_samples:
@@ -1445,6 +1452,9 @@ async def get_auction_super_main_force(
                         continue
                     precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
                     recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+                    # P2-1: 精确率下界约束，低于8%直接跳过
+                    if precision < 0.08:
+                        continue
                     f = calc_fbeta(tp, fp, fn, beta=0.5)
                     if (
                         f > best["f"]
@@ -1467,7 +1477,7 @@ async def get_auction_super_main_force(
                     n_mean = sum(float(s.get(k) or 0.0) for s in neg) / len(neg)
                     raw[k] = max(p_mean - n_mean, 0.001)
                 tuned = normalize_weights(raw, default_heat_weights)
-                heat_weights = blend_weights(default_heat_weights, tuned, tuned_strength=0.60)
+                heat_weights = blend_weights(default_heat_weights, tuned, tuned_strength=0.40)
 
             daily_stats: dict[str, tuple[int, int]] = {}
             for s in train_samples:
@@ -1640,6 +1650,8 @@ async def get_auction_super_main_force(
             theme_coverage = 0.0
             closing_info_map: dict[str, dict] = {}
             ths_industry_map: dict[str, str] = {}
+            prev_kline_map: dict[str, list[dict]] = {}  # P0-1: 前5日K线
+            fund_flow_hist_map: dict[str, dict] = {}    # P0-2: 资金流向历史
 
             trade_date_ret = target_date
             theme_date = trade_date_ret
@@ -1817,6 +1829,105 @@ async def get_auction_super_main_force(
                         closing_info_map[stock] = {
                             "close_price": float(row["close_price"]),
                         }
+
+                # 盘中场景：当天的 daily_basic/klines 可能尚未落地，回退到实时行情 close/change_percent。
+                missing_codes = [c for c in stock_codes if c not in closing_info_map]
+                if missing_codes:
+                    today_shanghai = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d")
+                    if trade_date_ret == today_shanghai:
+                        placeholders_ci3 = ",".join(["?"] * len(missing_codes))
+                        cursor = await db.execute(
+                            f"""
+                            SELECT stock_code as stock, close as close_price, change_percent
+                            FROM realtime_quotes
+                            WHERE stock_code IN ({placeholders_ci3})
+                              AND close IS NOT NULL
+                              AND close > 0
+                            """,
+                            (*missing_codes,),
+                        )
+                        ci_rows = await cursor.fetchall()
+                        for row in ci_rows:
+                            stock = str(row["stock"] or "")
+                            if not stock:
+                                continue
+                            if row["close_price"] is None:
+                                continue
+                            change_percent_val = None
+                            if row["change_percent"] is not None:
+                                try:
+                                    change_percent_val = float(row["change_percent"])
+                                except Exception:
+                                    change_percent_val = None
+                            closing_info_map[stock] = {
+                                "close_price": float(row["close_price"]),
+                                "change_percent": change_percent_val,
+                            }
+
+                # --- P0-1: 查询前5日K线数据 ---
+                cursor = await db.execute(
+                    f"""
+                    SELECT stock_code, date, open, high, low, close, volume, amount
+                    FROM klines
+                    WHERE stock_code IN ({placeholders})
+                      AND date < ?
+                    ORDER BY stock_code, date DESC
+                    """,
+                    (*stock_codes, trade_date_ret),
+                )
+                kline_rows = await cursor.fetchall()
+                _kline_counts: dict[str, int] = {}
+                for row in kline_rows:
+                    code = str(row["stock_code"] or "")
+                    if not code:
+                        continue
+                    cnt = _kline_counts.get(code, 0)
+                    if cnt >= 5:
+                        continue
+                    _kline_counts[code] = cnt + 1
+                    lst = prev_kline_map.get(code)
+                    if lst is None:
+                        lst = []
+                        prev_kline_map[code] = lst
+                    lst.append({
+                        "date": row["date"],
+                        "open": float(row["open"] or 0),
+                        "high": float(row["high"] or 0),
+                        "low": float(row["low"] or 0),
+                        "close": float(row["close"] or 0),
+                        "volume": int(row["volume"] or 0),
+                        "amount": float(row["amount"] or 0),
+                    })
+
+                # --- P0-2: 查询近5日主力资金流向 ---
+                cursor = await db.execute(
+                    f"""
+                    SELECT stock_code,
+                           SUM(main_fund_flow) as cum_main,
+                           SUM(institutional_flow) as cum_inst,
+                           COUNT(*) as flow_days,
+                           SUM(CASE WHEN main_fund_flow > 0 THEN 1 ELSE 0 END) as pos_days,
+                           AVG(COALESCE(large_order_ratio, 0)) as avg_large_order
+                    FROM fund_flow
+                    WHERE stock_code IN ({placeholders})
+                      AND date >= DATE(?, '-7 days') AND date < ?
+                    GROUP BY stock_code
+                    """,
+                    (*stock_codes, trade_date_ret, trade_date_ret),
+                )
+                ff_rows = await cursor.fetchall()
+                for row in ff_rows:
+                    code = str(row["stock_code"] or "")
+                    if not code:
+                        continue
+                    flow_days = int(row["flow_days"] or 0)
+                    fund_flow_hist_map[code] = {
+                        "cum_main": float(row["cum_main"] or 0),
+                        "cum_inst": float(row["cum_inst"] or 0),
+                        "flow_days": flow_days,
+                        "flow_consistency": float(row["pos_days"] or 0) / max(flow_days, 1),
+                        "avg_large_order": float(row["avg_large_order"] or 0),
+                    }
 
             if theme_alpha > 0:
                 cursor = await db.execute(
@@ -2002,7 +2113,13 @@ async def get_auction_super_main_force(
             close_price_raw = closing_info.get("close_price")
             close_price = float(close_price_raw) if close_price_raw is not None else None
             change_percent_close = None
+            if closing_info.get("change_percent") is not None:
+                try:
+                    change_percent_close = float(closing_info.get("change_percent"))
+                except Exception:
+                    change_percent_close = None
             if pre_close > 0 and close_price is not None and close_price > 0:
+                # 优先使用 pre_close 重新计算，保证口径一致。
                 change_percent_close = (close_price - pre_close) / pre_close * 100.0
 
             gap_percent = 0.0
@@ -2049,6 +2166,54 @@ async def get_auction_super_main_force(
             if pre_close > 0 and limit_price > 0 and price > 0:
                 room_to_limit_pct = (limit_price - price) / pre_close * 100.0
 
+            # --- P0-1: 前日K线形态特征 ---
+            prev_klines = prev_kline_map.get(stock_code, [])
+            prev_limit_up = False
+            consecutive_up_days = 0
+            recent_volatility = 0.0
+            prev_1d_change_pct = 0.0
+            if prev_klines:
+                # 前日涨跌幅
+                pk0 = prev_klines[0]  # 最近一天
+                if pk0["open"] > 0:
+                    prev_1d_change_pct = (pk0["close"] - pk0["open"]) / pk0["open"] * 100.0
+                # 前日是否涨停
+                prev_limit_up = prev_1d_change_pct >= (limit_pct - 0.5)
+                # 连续阳线天数
+                for pk in prev_klines:
+                    if pk["close"] > pk["open"]:
+                        consecutive_up_days += 1
+                    else:
+                        break
+                # 近5日振幅
+                if len(prev_klines) >= 2:
+                    highs = [pk["high"] for pk in prev_klines]
+                    lows = [pk["low"] for pk in prev_klines]
+                    base = prev_klines[-1]["close"]
+                    if base > 0:
+                        recent_volatility = (max(highs) - min(lows)) / base
+
+            # P0-1 breakout 子分数
+            prev_limit_up_score = 1.0 if prev_limit_up else 0.0
+            consecutive_score = clamp01(score_ramp(float(consecutive_up_days), 0.5, 3.5))
+            volatility_score = clamp01(score_ramp(recent_volatility, 0.03, 0.15))
+            kline_momentum_score = (prev_limit_up_score * 0.50
+                                    + consecutive_score * 0.30
+                                    + volatility_score * 0.20)
+
+            # --- P0-2: 主力资金历史特征 ---
+            ff_hist = fund_flow_hist_map.get(stock_code, {})
+            cum_main_flow = float(ff_hist.get("cum_main", 0))
+            flow_consistency = float(ff_hist.get("flow_consistency", 0))
+            avg_large_order = float(ff_hist.get("avg_large_order", 0))
+            # 归一化: 累计主力净流入 / 流通市值
+            main_flow_strength = 0.0
+            if denom_mv > 0 and cum_main_flow > 0:
+                main_flow_strength = min(cum_main_flow / denom_mv, 0.1)
+            fund_flow_hist_score = (score_ramp(main_flow_strength, 0.0, 0.02) * 0.40
+                                    + flow_consistency * 0.35
+                                    + score_ramp(avg_large_order, 0.0, 0.3) * 0.25)
+
             bucket = resolve_bucket(limit_pct, denom_mv)
             bp = get_bucket_params(bucket, min_room_to_limit_pct)
 
@@ -2058,19 +2223,36 @@ async def get_auction_super_main_force(
             amount_score_breakout = score_ramp(amount, bp["amount_min"], bp["amount_mid"])
             fs_score_breakout = score_tri(fund_strength, bp["fs_low"], bp["fs_mid"], bp["fs_high"])
 
+            # P2-3: 特征交互项
+            gap_vr_synergy = gap_score_breakout * vr_score_breakout
+            fund_room_synergy = fs_score_breakout * room_score_breakout
+
             breakout_components = {
                 "gap_score": gap_score_breakout,
                 "vr_score": vr_score_breakout,
                 "room_score": room_score_breakout,
                 "amount_score": amount_score_breakout,
                 "fs_score": fs_score_breakout,
+                "kline_momentum": kline_momentum_score,
+                "fund_flow_hist": fund_flow_hist_score,
+                "gap_vr_synergy": gap_vr_synergy,
+                "fund_room_synergy": fund_room_synergy,
             }
             breakout_score = weighted_score(breakout_components, breakout_weights)
 
-            if volume_ratio >= 120:
-                breakout_score *= 0.55
-            elif volume_ratio >= 50:
-                breakout_score *= 0.70
+            # P2-2: 分桶渐进式量比惩罚
+            if bucket == "20cm":
+                _vr_pen_lo, _vr_pen_hi = 80.0, 150.0
+            elif bucket == "10cm_large":
+                _vr_pen_lo, _vr_pen_hi = 60.0, 120.0
+            else:
+                _vr_pen_lo, _vr_pen_hi = 50.0, 100.0
+            if volume_ratio >= _vr_pen_hi:
+                _pen_ratio = min((volume_ratio - _vr_pen_hi) / 100.0, 1.0)
+                breakout_score *= 0.55 + 0.15 * (1.0 - _pen_ratio)
+            elif volume_ratio >= _vr_pen_lo:
+                _pen_ratio = (volume_ratio - _vr_pen_lo) / (_vr_pen_hi - _vr_pen_lo)
+                breakout_score *= 1.0 - _pen_ratio * 0.30
 
             breakout_score = clamp01(breakout_score)
             bucket_breakout_threshold = clamp01(
@@ -2147,10 +2329,18 @@ async def get_auction_super_main_force(
                 "themeHeatScore": round(theme_heat_score, 6),
                 "themeCode": theme_code,
                 "themeName": theme_name,
+                "prevLimitUp": prev_limit_up,
+                "consecutiveUpDays": consecutive_up_days,
+                "klineMomentumScore": round(kline_momentum_score, 4),
+                "fundFlowHistScore": round(fund_flow_hist_score, 4),
+                "mainFlowStrength": round(main_flow_strength, 6),
+                "flowConsistency": round(flow_consistency, 4),
                 "_volumeRatioProcessed": volume_ratio_processed,
                 "_gapProcessed": gap_ratio_processed,
                 "_fundStrengthProcessed": fund_strength,
                 "_volumeDensityProcessed": volume_density,
+                "_klineMomentum": kline_momentum_score,
+                "_fundFlowHist": fund_flow_hist_score,
             }
             if change_percent_close is not None:
                 item["close"] = round(float(close_price or 0.0), 3)
@@ -2178,15 +2368,19 @@ async def get_auction_super_main_force(
         fund_strength_scores = compute_rank_scores([float(i.get("_fundStrengthProcessed") or 0.0) for i in pool])
         volume_density_scores = compute_rank_scores([float(i.get("_volumeDensityProcessed") or 0.0) for i in pool])
         turnover_scores = compute_rank_scores([float(i.get("turnoverRate") or 0.0) for i in pool])
+        kline_momentum_scores = compute_rank_scores([float(i.get("_klineMomentum") or 0.0) for i in pool])
+        fund_flow_hist_scores = compute_rank_scores([float(i.get("_fundFlowHist") or 0.0) for i in pool])
 
         items: list[dict] = []
         for idx, item in enumerate(pool):
             base_heat_score = (
-                volume_ratio_scores[idx] * float(heat_weights.get("volume_ratio_rank", 0.35) or 0.35)
-                + gap_scores[idx] * float(heat_weights.get("gap_rank", 0.25) or 0.25)
-                + fund_strength_scores[idx] * float(heat_weights.get("fund_strength_rank", 0.20) or 0.20)
-                + volume_density_scores[idx] * float(heat_weights.get("volume_density_rank", 0.15) or 0.15)
-                + turnover_scores[idx] * float(heat_weights.get("turnover_rank", 0.05) or 0.05)
+                volume_ratio_scores[idx] * float(heat_weights.get("volume_ratio_rank", 0.28) or 0.28)
+                + gap_scores[idx] * float(heat_weights.get("gap_rank", 0.20) or 0.20)
+                + fund_strength_scores[idx] * float(heat_weights.get("fund_strength_rank", 0.16) or 0.16)
+                + volume_density_scores[idx] * float(heat_weights.get("volume_density_rank", 0.10) or 0.10)
+                + turnover_scores[idx] * float(heat_weights.get("turnover_rank", 0.04) or 0.04)
+                + kline_momentum_scores[idx] * float(heat_weights.get("kline_momentum_rank", 0.12) or 0.12)
+                + fund_flow_hist_scores[idx] * float(heat_weights.get("fund_flow_hist_rank", 0.10) or 0.10)
             ) * 100.0
 
             theme_heat = float(item.get("themeHeatScore") or 0.0)
@@ -2201,6 +2395,8 @@ async def get_auction_super_main_force(
             item.pop("_gapProcessed", None)
             item.pop("_fundStrengthProcessed", None)
             item.pop("_volumeDensityProcessed", None)
+            item.pop("_klineMomentum", None)
+            item.pop("_fundFlowHist", None)
 
             if exclude_auction_limit_up and bool(item.get("auctionLimitUp")):
                 continue
@@ -2302,7 +2498,7 @@ async def get_auction_super_main_force(
                     "rollingWindowDays": int(rolling_window_days),
                     "rollingWindowDaysUsed": int(tune_profile.get("window_days_used") or 0),
                     "candidateThreshold": round(float(tuned_breakout_threshold), 4),
-                    "algorithmVersion": "super_main_force_v2",
+                    "algorithmVersion": "super_main_force_v3",
                 }
             }
         }
