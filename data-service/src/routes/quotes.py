@@ -1,8 +1,12 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Request, Query
-from typing import Optional, List
-from datetime import datetime, timedelta
+from typing import Optional, List, Dict, Any, Callable
+from datetime import datetime, timedelta, date
 from zoneinfo import ZoneInfo
 import logging
+import asyncio
+import inspect
+import uuid
+import copy
 
 from ..data_sources.akshare_client import AKShareClient
 from ..data_sources.tushare_client import TushareClient
@@ -10,6 +14,106 @@ from ..utils.database import get_database
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _now_sh_iso() -> str:
+    return datetime.now(ZoneInfo("Asia/Shanghai")).isoformat()
+
+
+def _new_backfill_status() -> Dict[str, Any]:
+    return {
+        "taskId": None,
+        "status": "idle",  # idle | running | completed | failed
+        "message": "No backfill task started",
+        "startedAt": None,
+        "updatedAt": _now_sh_iso(),
+        "finishedAt": None,
+        "range": None,
+        "lookbackDays": None,
+        "force": None,
+        "progress": {
+            "currentDay": 0,
+            "totalDays": 0,
+            "percent": 0,
+            "currentTradeDate": None,
+            "inserted": 0,
+            "daysWithData": 0,
+            "daysWithoutData": 0,
+        },
+        "result": None,
+        "error": None,
+    }
+
+
+_auction_backfill_status: Dict[str, Any] = _new_backfill_status()
+_auction_backfill_lock = asyncio.Lock()
+
+
+async def _get_backfill_status_snapshot() -> Dict[str, Any]:
+    async with _auction_backfill_lock:
+        return copy.deepcopy(_auction_backfill_status)
+
+
+async def _set_backfill_running(task_id: str, range_data: Dict[str, Any], lookback_days: int, force: bool) -> None:
+    async with _auction_backfill_lock:
+        _auction_backfill_status.clear()
+        _auction_backfill_status.update(
+            {
+                "taskId": task_id,
+                "status": "running",
+                "message": "Backfill task started",
+                "startedAt": _now_sh_iso(),
+                "updatedAt": _now_sh_iso(),
+                "finishedAt": None,
+                "range": range_data,
+                "lookbackDays": int(lookback_days),
+                "force": bool(force),
+                "progress": {
+                    "currentDay": 0,
+                    "totalDays": 0,
+                    "percent": 0,
+                    "currentTradeDate": None,
+                    "inserted": 0,
+                    "daysWithData": 0,
+                    "daysWithoutData": 0,
+                },
+                "result": None,
+                "error": None,
+            }
+        )
+
+
+async def _update_backfill_progress(payload: Dict[str, Any]) -> None:
+    async with _auction_backfill_lock:
+        progress = _auction_backfill_status.get("progress") or {}
+        progress.update(
+            {
+                "currentDay": int(payload.get("currentDay") or 0),
+                "totalDays": int(payload.get("totalDays") or 0),
+                "percent": int(payload.get("percent") or 0),
+                "currentTradeDate": payload.get("currentTradeDate"),
+                "inserted": int(payload.get("inserted") or 0),
+                "daysWithData": int(payload.get("daysWithData") or 0),
+                "daysWithoutData": int(payload.get("daysWithoutData") or 0),
+            }
+        )
+        _auction_backfill_status["progress"] = progress
+        _auction_backfill_status["message"] = payload.get(
+            "message",
+            f"Backfilling {progress.get('currentDay', 0)}/{progress.get('totalDays', 0)}",
+        )
+        _auction_backfill_status["updatedAt"] = _now_sh_iso()
+
+
+async def _set_backfill_finished(status: str, message: str, result: Optional[Dict[str, Any]] = None, error: Optional[str] = None) -> None:
+    async with _auction_backfill_lock:
+        _auction_backfill_status["status"] = status
+        _auction_backfill_status["message"] = message
+        _auction_backfill_status["result"] = result
+        _auction_backfill_status["error"] = error
+        now_iso = _now_sh_iso()
+        _auction_backfill_status["updatedAt"] = now_iso
+        _auction_backfill_status["finishedAt"] = now_iso
 
 def _infer_ts_code(stock_code: str) -> str:
     code = str(stock_code or "").strip()
@@ -26,6 +130,164 @@ def _row_get(row: dict, key: str):
         if str(k).lower() == key:
             return v
     return None
+
+
+def _parse_trade_date(value: Optional[str]) -> Optional[date]:
+    if not value:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    try:
+        if len(s) >= 10 and "-" in s:
+            return datetime.strptime(s[:10], "%Y-%m-%d").date()
+        if len(s) == 8 and s.isdigit():
+            return datetime.strptime(s, "%Y%m%d").date()
+    except Exception:
+        return None
+    return None
+
+
+async def backfill_auction_history_task(
+    tushare_client: TushareClient,
+    end_date_dt: date,
+    lookback_days: int = 365,
+    force: bool = True,
+    progress_callback: Optional[Callable[[Dict[str, Any]], Any]] = None,
+) -> dict:
+    start_date_dt = end_date_dt - timedelta(days=max(1, int(lookback_days)))
+    start_str = start_date_dt.strftime("%Y-%m-%d")
+    end_str = end_date_dt.strftime("%Y-%m-%d")
+
+    cal_df = await tushare_client.get_trade_cal(
+        start_date=start_date_dt.strftime("%Y%m%d"),
+        end_date=end_date_dt.strftime("%Y%m%d"),
+    )
+    if cal_df is None or cal_df.empty:
+        logger.warning(f"No trade calendar for backfill range: {start_str} ~ {end_str}")
+        return {
+            "success": False,
+            "startDate": start_str,
+            "endDate": end_str,
+            "tradingDays": 0,
+            "daysWithData": 0,
+            "daysWithoutData": 0,
+            "inserted": 0,
+        }
+
+    trading_days: list[str] = []
+    for _, row in cal_df.iterrows():
+        try:
+            is_open = int(row.get("is_open") or 0)
+        except Exception:
+            is_open = 0
+        if is_open != 1:
+            continue
+
+        cal_date_val = row.get("cal_date")
+        parsed_day: date | None = None
+        if hasattr(cal_date_val, "to_pydatetime"):
+            cal_date_val = cal_date_val.to_pydatetime()
+        if isinstance(cal_date_val, datetime):
+            parsed_day = cal_date_val.date()
+        elif isinstance(cal_date_val, date):
+            parsed_day = cal_date_val
+        else:
+            parsed_day = _parse_trade_date(str(cal_date_val))
+        if parsed_day:
+            trading_days.append(parsed_day.strftime("%Y-%m-%d"))
+
+    trading_days = sorted(set(trading_days))
+    if not trading_days:
+        if progress_callback:
+            progress_payload = {
+                "currentDay": 0,
+                "totalDays": 0,
+                "percent": 100,
+                "currentTradeDate": None,
+                "inserted": 0,
+                "daysWithData": 0,
+                "daysWithoutData": 0,
+                "message": "No trading days in selected range",
+            }
+            maybe_awaitable = progress_callback(progress_payload)
+            if inspect.isawaitable(maybe_awaitable):
+                await maybe_awaitable
+        return {
+            "success": True,
+            "startDate": start_str,
+            "endDate": end_str,
+            "tradingDays": 0,
+            "daysWithData": 0,
+            "daysWithoutData": 0,
+            "inserted": 0,
+        }
+
+    inserted_total = 0
+    days_with_data = 0
+    days_without_data = 0
+    total_days = len(trading_days)
+    logger.info(
+        f"Start auction history backfill: {start_str} ~ {end_str}, days={total_days}, force={force}"
+    )
+    if progress_callback:
+        start_payload = {
+            "currentDay": 0,
+            "totalDays": total_days,
+            "percent": 0,
+            "currentTradeDate": None,
+            "inserted": 0,
+            "daysWithData": 0,
+            "daysWithoutData": 0,
+            "message": f"Backfill started, {total_days} trading days",
+        }
+        maybe_awaitable = progress_callback(start_payload)
+        if inspect.isawaitable(maybe_awaitable):
+            await maybe_awaitable
+
+    for idx, trade_day in enumerate(trading_days, start=1):
+        inserted = await update_auction_from_tushare_task(
+            tushare_client=tushare_client,
+            trade_date=trade_day,
+            force=force,
+        )
+        inserted_int = int(inserted or 0)
+        inserted_total += inserted_int
+        if inserted_int > 0:
+            days_with_data += 1
+        else:
+            days_without_data += 1
+
+        if progress_callback:
+            percent = int((idx / total_days) * 100) if total_days > 0 else 100
+            progress_payload = {
+                "currentDay": idx,
+                "totalDays": total_days,
+                "percent": percent,
+                "currentTradeDate": trade_day,
+                "inserted": inserted_total,
+                "daysWithData": days_with_data,
+                "daysWithoutData": days_without_data,
+                "message": f"Backfilling {idx}/{total_days} ({trade_day})",
+            }
+            maybe_awaitable = progress_callback(progress_payload)
+            if inspect.isawaitable(maybe_awaitable):
+                await maybe_awaitable
+
+        if idx % 20 == 0 or idx == total_days:
+            logger.info(
+                f"Auction history backfill progress: {idx}/{total_days}, inserted={inserted_total}"
+            )
+
+    return {
+        "success": True,
+        "startDate": start_str,
+        "endDate": end_str,
+        "tradingDays": total_days,
+        "daysWithData": days_with_data,
+        "daysWithoutData": days_without_data,
+        "inserted": inserted_total,
+    }
 
 
 @router.post("/update-realtime")
@@ -306,6 +568,132 @@ async def update_auction_from_tushare(
         "task": "update_auction_from_tushare",
     }
 
+
+@router.get("/backfill-auction-year/status")
+async def get_backfill_auction_year_status():
+    status = await _get_backfill_status_snapshot()
+    return {
+        "success": True,
+        "status": "success",
+        "data": status,
+    }
+
+
+async def _run_backfill_auction_year_task(
+    tushare_client: TushareClient,
+    end_date_dt: date,
+    lookback_days: int,
+    force: bool,
+):
+    try:
+        stats = await backfill_auction_history_task(
+            tushare_client=tushare_client,
+            end_date_dt=end_date_dt,
+            lookback_days=lookback_days,
+            force=force,
+            progress_callback=_update_backfill_progress,
+        )
+        if stats.get("success", True):
+            await _set_backfill_finished(
+                status="completed",
+                message="Backfill task completed",
+                result=stats,
+            )
+        else:
+            await _set_backfill_finished(
+                status="completed",
+                message="Backfill task completed with warnings",
+                result=stats,
+            )
+    except Exception as exc:
+        logger.error(f"Backfill auction year task failed: {exc}", exc_info=True)
+        await _set_backfill_finished(
+            status="failed",
+            message="Backfill task failed",
+            error=str(exc),
+        )
+
+
+@router.post("/backfill-auction-year")
+async def backfill_auction_year(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    end_date: Optional[str] = Query(None),
+    lookback_days: int = Query(365, ge=30, le=730),
+    force: bool = Query(True),
+    sync: bool = Query(False),
+):
+    """Backfill auction snapshots in the previous year (trading days only)."""
+    tushare_client: TushareClient = request.app.state.tushare_client
+    if not tushare_client or not tushare_client.is_available():
+        raise HTTPException(status_code=503, detail="Tushare source unavailable")
+
+    end_date_dt = _parse_trade_date(end_date)
+    if not end_date_dt:
+        end_date_dt = datetime.now(ZoneInfo("Asia/Shanghai")).date()
+    start_date_dt = end_date_dt - timedelta(days=max(1, int(lookback_days)))
+
+    range_data = {
+        "startDate": start_date_dt.strftime("%Y-%m-%d"),
+        "endDate": end_date_dt.strftime("%Y-%m-%d"),
+        "lookbackDays": int(lookback_days),
+    }
+
+    status_snapshot = await _get_backfill_status_snapshot()
+    if status_snapshot.get("status") == "running":
+        return {
+            "success": True,
+            "status": "running",
+            "message": "Backfill task is already running",
+            "task": "backfill_auction_year",
+            "data": {
+                "range": status_snapshot.get("range") or range_data,
+                "job": status_snapshot,
+            },
+        }
+
+    task_id = uuid.uuid4().hex
+    await _set_backfill_running(task_id, range_data, lookback_days, force)
+
+    if sync:
+        await _run_backfill_auction_year_task(
+            tushare_client=tushare_client,
+            end_date_dt=end_date_dt,
+            lookback_days=lookback_days,
+            force=force,
+        )
+        final_status = await _get_backfill_status_snapshot()
+        return {
+            "success": True,
+            "status": "success",
+            "message": final_status.get("message") or "Backfill task completed",
+            "task": "backfill_auction_year",
+            "data": {
+                "taskId": task_id,
+                "range": range_data,
+                "job": final_status,
+                "stats": final_status.get("result"),
+            },
+        }
+
+    background_tasks.add_task(
+        _run_backfill_auction_year_task,
+        tushare_client,
+        end_date_dt,
+        lookback_days,
+        force,
+    )
+    return {
+        "success": True,
+        "status": "success",
+        "message": "Backfill task started",
+        "task": "backfill_auction_year",
+        "data": {
+            "taskId": task_id,
+            "range": range_data,
+            "job": await _get_backfill_status_snapshot(),
+        },
+    }
 
 async def update_auction_from_tushare_task(
     tushare_client: TushareClient,
@@ -915,3 +1303,4 @@ async def get_realtime_quotes_batch(
     except Exception as e:
         logger.error(f"批量获取实时行情失败: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+

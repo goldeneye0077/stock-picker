@@ -36,6 +36,9 @@ const Settings: React.FC = () => {
   const [loadingMultiSource, setLoadingMultiSource] = useState(false);
   const [loadingQuality, setLoadingQuality] = useState(false);
   const [collecting, setCollecting] = useState(false);
+  const [backfillingAuctionYear, setBackfillingAuctionYear] = useState(false);
+  const [backfillStatus, setBackfillStatus] = useState<any>(null);
+  const [loadingBackfillStatus, setLoadingBackfillStatus] = useState(false);
   const [progressModalVisible, setProgressModalVisible] = useState(false);
   const [progress, setProgress] = useState(0);
   const [currentStep, setCurrentStep] = useState('');
@@ -62,6 +65,12 @@ const Settings: React.FC = () => {
   const dsPut = useCallback((path: string, body?: any) => {
     return axios.put(`${DATA_SERVICE_URL}${path}`, body, buildAuthConfig());
   }, [buildAuthConfig]);
+
+  const isBackfillRunning = backfillStatus?.status === 'running';
+  const backfillProgress = backfillStatus?.progress || {};
+  const backfillProgressPercent = Number(backfillProgress?.percent || 0);
+  const backfillCurrentDay = Number(backfillProgress?.currentDay || 0);
+  const backfillTotalDays = Number(backfillProgress?.totalDays || 0);
 
   const onFinish = async (values: any) => {
     try {
@@ -183,6 +192,24 @@ const Settings: React.FC = () => {
     }
   }, [dsGet]);
 
+  const fetchBackfillStatus = useCallback(async (silent: boolean = false) => {
+    if (!silent) {
+      setLoadingBackfillStatus(true);
+    }
+    try {
+      const response = await dsGet('/api/quotes/backfill-auction-year/status');
+      if (response?.data?.success) {
+        setBackfillStatus(response.data.data);
+      }
+    } catch (error) {
+      console.error('获取集合竞价补全状态失败:', error);
+    } finally {
+      if (!silent) {
+        setLoadingBackfillStatus(false);
+      }
+    }
+  }, [dsGet]);
+
   // 获取配置
   const fetchConfig = useCallback(async () => {
     try {
@@ -274,6 +301,78 @@ const Settings: React.FC = () => {
     }
   };
 
+  const handleBackfillAuctionYear = useCallback(async () => {
+    const loadingKey = 'backfill-auction-year';
+    setBackfillingAuctionYear(true);
+    message.loading({
+      content: '正在提交集合竞价补全任务...',
+      key: loadingKey,
+      duration: 0,
+    });
+
+    try {
+      const response = await dsPost(
+        '/api/quotes/backfill-auction-year?lookback_days=365&force=true&sync=false'
+      );
+
+      if (!response?.data?.success) {
+        message.error({
+          content: '启动补全任务失败',
+          key: loadingKey,
+        });
+        return;
+      }
+
+      const payload = response.data;
+      const range = payload?.data?.range;
+      const job = payload?.data?.job;
+      if (job) {
+        setBackfillStatus(job);
+      }
+
+      if (payload?.status === 'running') {
+        message.info({
+          content: '已有补全任务在后台运行，已切换为状态追踪',
+          key: loadingKey,
+          duration: 3,
+        });
+      } else if (range?.startDate && range?.endDate) {
+        message.success({
+          content: `补全任务已启动：${range.startDate} ~ ${range.endDate}`,
+          key: loadingKey,
+          duration: 3,
+        });
+      } else {
+        message.success({
+          content: '补全任务已启动，后台正在执行',
+          key: loadingKey,
+          duration: 3,
+        });
+      }
+
+      await fetchBackfillStatus(true);
+    } catch (error: any) {
+      if (error?.response?.status === 401) {
+        message.error({
+          content: '补全失败：登录态已失效，请重新登录',
+          key: loadingKey,
+        });
+      } else if (error?.response?.status === 403) {
+        message.error({
+          content: '补全失败：需要管理员权限',
+          key: loadingKey,
+        });
+      } else {
+        message.error({
+          content: `启动补全任务失败: ${error.message}`,
+          key: loadingKey,
+        });
+      }
+    } finally {
+      setBackfillingAuctionYear(false);
+    }
+  }, [dsPost, fetchBackfillStatus]);
+
   // 页面加载时获取状态
   useEffect(() => {
     fetchDataStatus();
@@ -281,8 +380,21 @@ const Settings: React.FC = () => {
     fetchMultiSourceStatus();
     fetchQualityMetrics();
     fetchIncrementalStatus();
+    fetchBackfillStatus();
     fetchConfig();
-  }, [fetchDataStatus, fetchSchedulerStatus, fetchMultiSourceStatus, fetchQualityMetrics, fetchIncrementalStatus, fetchConfig]);
+  }, [fetchConfig, fetchDataStatus, fetchIncrementalStatus, fetchMultiSourceStatus, fetchQualityMetrics, fetchSchedulerStatus, fetchBackfillStatus]);
+
+  useEffect(() => {
+    if (!isBackfillRunning) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      fetchBackfillStatus(true);
+    }, 3000);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [fetchBackfillStatus, isBackfillRunning]);
 
   const refreshAllStatus = useCallback(async () => {
     try {
@@ -292,13 +404,14 @@ const Settings: React.FC = () => {
         fetchMultiSourceStatus(),
         fetchQualityMetrics(),
         fetchIncrementalStatus(),
+        fetchBackfillStatus(true),
         fetchConfig(),
       ]);
       message.success('状态已刷新');
     } catch {
       message.error('状态刷新失败');
     }
-  }, [fetchConfig, fetchDataStatus, fetchIncrementalStatus, fetchMultiSourceStatus, fetchQualityMetrics, fetchSchedulerStatus]);
+  }, [fetchConfig, fetchDataStatus, fetchIncrementalStatus, fetchMultiSourceStatus, fetchQualityMetrics, fetchSchedulerStatus, fetchBackfillStatus]);
 
   return (
     <div className="sq-figma-page">
@@ -311,8 +424,15 @@ const Settings: React.FC = () => {
               <Button icon={<ReloadOutlined />} onClick={refreshAllStatus} style={{ borderRadius: FigmaBorderRadius.lg }}>
                 刷新状态
               </Button>
-              <Button type="primary" icon={<SyncOutlined spin={collecting} />} onClick={handleCollectData} loading={collecting} disabled={collecting} style={{ borderRadius: FigmaBorderRadius.lg }}>
-                立即更新数据
+              <Button
+                type="primary"
+                icon={<DatabaseOutlined />}
+                onClick={handleBackfillAuctionYear}
+                loading={backfillingAuctionYear || isBackfillRunning}
+                disabled={backfillingAuctionYear || isBackfillRunning}
+                style={{ borderRadius: FigmaBorderRadius.lg }}
+              >
+                补全过去一年数据
               </Button>
             </>
           }
@@ -326,15 +446,31 @@ const Settings: React.FC = () => {
           </Space>
         }
         extra={
-          <Space>
+          <Space
+            wrap
+            size={[8, 8]}
+            style={{
+              display: 'flex',
+              justifyContent: 'flex-end',
+              maxWidth: 'min(100%, 760px)',
+            }}
+          >
             <Button
               type="primary"
+              icon={<DatabaseOutlined />}
+              onClick={handleBackfillAuctionYear}
+              loading={backfillingAuctionYear || isBackfillRunning}
+              disabled={backfillingAuctionYear || isBackfillRunning}
+            >
+              补全过去一年数据
+            </Button>
+            <Button
               icon={<SyncOutlined spin={collecting} />}
               onClick={handleCollectData}
               loading={collecting}
               disabled={collecting}
             >
-              立即更新数据
+              快速更新最近数据
             </Button>
             <Button
               icon={<CheckCircleOutlined />}
@@ -452,10 +588,57 @@ const Settings: React.FC = () => {
           {dataStatus && dataStatus.stocks_with_recent_data < dataStatus.total_stocks * 0.8 && (
             <Alert
               message="数据可能已过时"
-              description={`当前只有 ${((dataStatus.stocks_with_recent_data / dataStatus.total_stocks) * 100).toFixed(1)}% 的股票有最近7天的数据，建议点击"立即更新数据"按钮刷新。`}
+              description={`当前只有 ${((dataStatus.stocks_with_recent_data / dataStatus.total_stocks) * 100).toFixed(1)}% 的股票有最近7天的数据，建议点击"快速更新最近数据"按钮刷新。`}
               type="warning"
               showIcon
               style={{ marginTop: '16px' }}
+            />
+          )}
+
+          {backfillStatus && backfillStatus.status !== 'idle' && (
+            <Alert
+              message={
+                <Space>
+                  <DatabaseOutlined />
+                  集合竞价补全任务
+                </Space>
+              }
+              description={
+                <div>
+                  <div style={{ marginBottom: 8 }}>
+                    状态：
+                    {backfillStatus.status === 'running' && '运行中'}
+                    {backfillStatus.status === 'completed' && '已完成'}
+                    {backfillStatus.status === 'failed' && '失败'}
+                    {backfillStatus.status !== 'running' && backfillStatus.status !== 'completed' && backfillStatus.status !== 'failed' && backfillStatus.status}
+                    {' | '}
+                    最近更新：{formatShanghaiDateTime(backfillStatus.updatedAt)}
+                  </div>
+                  <Progress
+                    percent={Math.max(0, Math.min(100, backfillProgressPercent))}
+                    status={backfillStatus.status === 'failed' ? 'exception' : backfillStatus.status === 'completed' ? 'success' : 'active'}
+                    size="small"
+                  />
+                  <div style={{ marginTop: 8, color: '#b4c2d3' }}>
+                    {backfillTotalDays > 0 ? `进度 ${backfillCurrentDay}/${backfillTotalDays}` : '正在初始化任务...'}
+                    {backfillProgress?.currentTradeDate ? `，当前交易日 ${backfillProgress.currentTradeDate}` : ''}
+                    {typeof backfillProgress?.inserted === 'number' ? `，累计写入 ${backfillProgress.inserted} 条` : ''}
+                  </div>
+                  {backfillStatus?.error && (
+                    <div style={{ marginTop: 6, color: '#ff7875' }}>
+                      失败原因：{backfillStatus.error}
+                    </div>
+                  )}
+                </div>
+              }
+              type={backfillStatus.status === 'failed' ? 'error' : backfillStatus.status === 'completed' ? 'success' : 'info'}
+              showIcon
+              style={{ marginTop: '16px' }}
+              action={
+                <Button size="small" loading={loadingBackfillStatus} onClick={() => fetchBackfillStatus()}>
+                  刷新补全状态
+                </Button>
+              }
             />
           )}
         </Spin>
@@ -987,3 +1170,4 @@ const Settings: React.FC = () => {
 };
 
 export default Settings;
+

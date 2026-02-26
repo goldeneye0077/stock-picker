@@ -56,7 +56,14 @@ class AdvancedSelectionAnalyzer:
                 available_days = int(row[0] or 0) if row else 0
                 if available_days <= 0:
                     return []
-                required_days = 20 if available_days >= 20 else max(5, int(round(available_days * 0.8)))
+                if available_days >= 20:
+                    required_days = 20
+                elif available_days >= 6:
+                    required_days = max(5, int(round(available_days * 0.8)))
+                else:
+                    # Sparse dataset fallback: keep analyzer usable in fresh environments.
+                    required_days = max(3, int(round(available_days * 0.75)))
+                required_days = min(required_days, available_days)
                 try:
                     cutoff_date = (datetime.fromisoformat(str(max_date)) - timedelta(days=120)).strftime('%Y-%m-%d')
                 except Exception:
@@ -135,7 +142,7 @@ class AdvancedSelectionAnalyzer:
 
                 rows = await cursor.fetchall()
 
-                if not rows or len(rows) < 6:
+                if not rows or len(rows) < 3:
                     return None
 
                 # 转换为DataFrame
@@ -163,7 +170,7 @@ class AdvancedSelectionAnalyzer:
         factors = {}
 
         try:
-            if len(df) < 6:
+            if len(df) < 3:
                 return factors
 
             closes = df['close'].values
@@ -243,14 +250,14 @@ class AdvancedSelectionAnalyzer:
 
             # 6. 趋势斜率（20日线性回归）
             trend_window = min(20, len(closes))
-            if trend_window >= 6:
+            if trend_window >= 3:
                 x = np.arange(trend_window)
                 y = closes[-trend_window:]
                 slope, _ = np.polyfit(x, y, 1)
                 factors['trend_slope'] = slope / closes[-trend_window] * 100  # 百分比斜率
 
             # 7. 趋势R²（趋势稳定性）
-            if trend_window >= 6:
+            if trend_window >= 3:
                 x = np.arange(trend_window)
                 y = closes[-trend_window:]
                 slope, intercept = np.polyfit(x, y, 1)
@@ -278,7 +285,7 @@ class AdvancedSelectionAnalyzer:
                 factors['max_drawdown'] = max_drawdown * 100  # 百分比
 
             # 10. 价格位置（相对于20日高低点）
-            if trend_window >= 6:
+            if trend_window >= 3:
                 high_window = np.max(closes[-trend_window:])
                 low_window = np.min(closes[-trend_window:])
                 price_position = (closes[-1] - low_window) / (high_window - low_window) if (high_window - low_window) > 0 else 0.5
@@ -289,9 +296,10 @@ class AdvancedSelectionAnalyzer:
                 factors['is_price_breakout'] = 1.0 if closes[-1] >= high_window * 0.95 else 0.0
                 
             # 12. 成交量突破
-            if len(volumes) >= 6:
+            if len(volumes) >= 3:
                 # 过去5日均量 (不含今日)
-                vol_avg_5d = np.mean(volumes[-6:-1])
+                lookback = min(5, len(volumes) - 1)
+                vol_avg_5d = np.mean(volumes[-(lookback + 1):-1])
                 # 今日成交量 > 过去5日均量 * 1.5
                 factors['is_volume_breakout'] = 1.0 if (vol_avg_5d > 0 and volumes[-1] > vol_avg_5d * 1.2) else 0.0
                 factors['vol_avg_5d'] = vol_avg_5d  # 保存5日均量用于展示
@@ -914,7 +922,7 @@ class AdvancedSelectionAnalyzer:
 
             # 1. 获取价格数据
             price_data = await self._get_price_data(raw_code, days=60)
-            if price_data is None or len(price_data) < 6:
+            if price_data is None or len(price_data) < 3:
                 logger.warning(f"股票 {stock_code} 数据不足，跳过分析")
                 return None
 

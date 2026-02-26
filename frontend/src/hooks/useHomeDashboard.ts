@@ -45,12 +45,20 @@ export interface StrategyPerformance {
   winRate: number | null;
 }
 
+export interface YieldCurve {
+  dates: string[];
+  values: number[];
+  benchmarkValues?: number[];
+  benchmarkLabel?: string;
+}
+
 export interface DashboardData {
   platform: PlatformMetrics;
   market: MarketData;
   today: TodayMetrics;
   hotSectors: HotSector[];
   strategy: StrategyPerformance;
+  yieldCurve: YieldCurve;
   meta: {
     timestamp: string;
     dataSource: string;

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+﻿import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Spin } from 'antd';
 import ReactECharts from 'echarts-for-react';
@@ -224,7 +224,7 @@ const Home: React.FC = () => {
         <div className="sq-home__main-col">
           <div className="sq-home__content">
             <div className="sq-home__container">
-              <section className="sq-home__hero-card" style={{ backgroundImage: `url(${heroBg})` }} aria-label="首页介绍">
+              <section className="sq-home__hero-card" style={{ backgroundImage: `url(${heroBg})` }} aria-label="棣栭〉浠嬬粛">
                 <div className="sq-home__hero-overlay" aria-hidden="true" />
                 <div className="sq-home__hero-inner">
                   <div className="sq-home__hero-left">
@@ -232,18 +232,18 @@ const Home: React.FC = () => {
                       <span className="sq-home__badge sq-home__badge--new">New v2.0</span>
                       <span className="sq-home__badge sq-home__badge--live">
                         <span className="sq-home__badge-dot" aria-hidden="true" />
-                        实时数据更新中                      </span>
+                        瀹炴椂鏁版嵁鏇存柊涓?                      </span>
                     </div>
 
                     <h1 className="sq-home__hero-title">
-                      <span>智能量化</span>
-                      <span>决策系统</span>
+                      <span>鏅鸿兘閲忓寲</span>
+                      <span>鍐崇瓥绯荤粺</span>
                     </h1>
 
                     <p className="sq-home__hero-desc">
-                      基于多因子模型的超强主力追踪，帮助您在 4,000+ 股票中快速锁定交易机会。AI 驱动的策略回测，实时监控市场动态。                    </p>
+                      鍩轰簬澶氬洜瀛愭ā鍨嬬殑瓒呭己涓诲姏杩借釜锛屽府鍔╂偍鍦?4,000+ 鑲＄エ涓揩閫熼攣瀹氫氦鏄撴満浼氥€侫I 椹卞姩鐨勭瓥鐣ュ洖娴嬶紝瀹炴椂鐩戞帶甯傚満鍔ㄦ€併€?                    </p>
 
-                    <div className="sq-home__hero-metrics" aria-label="平台指标">
+                    <div className="sq-home__hero-metrics" aria-label="骞冲彴鎸囨爣">
                       <div className="sq-home__hero-metric">
                         <div className="sq-home__hero-metric-value">
                           {loading
@@ -252,44 +252,44 @@ const Home: React.FC = () => {
                               ? `${dashboardData.platform.totalStocks.toLocaleString()}+`
                               : NO_DATA_TEXT)}
                         </div>
-                        <div className="sq-home__hero-metric-label">覆盖股票</div>
+                        <div className="sq-home__hero-metric-label">瑕嗙洊鑲＄エ</div>
                       </div>
                       <div className="sq-home__hero-metric">
                         <div className="sq-home__hero-metric-value">
                           {loading ? <Spin size="small" /> : formatPercent(dashboardData?.platform.dataAccuracy)}
                         </div>
-                        <div className="sq-home__hero-metric-label">数据准确率</div>
+                        <div className="sq-home__hero-metric-label">鏁版嵁鍑嗙‘鐜?/div>
                       </div>
                       <div className="sq-home__hero-metric">
                         <div className="sq-home__hero-metric-value">
                           {loading ? <Spin size="small" /> : formatText(dashboardData?.platform.responseTime)}
                         </div>
-                        <div className="sq-home__hero-metric-label">响应延迟</div>
+                        <div className="sq-home__hero-metric-label">鍝嶅簲寤惰繜</div>
                       </div>
                     </div>
 
                     <div className="sq-home__hero-actions">
                       <button type="button" className="sq-home__btn sq-home__btn--primary" onClick={() => navigate('/super-main-force')}>
-                        进入超强主力
+                        杩涘叆瓒呭己涓诲姏
                       </button>
                       <button type="button" className="sq-home__btn sq-home__btn--ghost" onClick={() => navigate('/stocks')}>
-                        浏览全部股票
+                        娴忚鍏ㄩ儴鑲＄エ
                       </button>
                     </div>
                   </div>
 
-                  <div className="sq-home__hero-right" aria-label="策略曲线">
+                  <div className="sq-home__hero-right" aria-label="绛栫暐鏇茬嚎">
                     <div className="sq-home__chart-card">
                       <div className="sq-home__chart-head">
                         <div className="sq-home__chart-meta">
-                          <div className="sq-home__chart-label">策略收益曲线</div>
+                          <div className="sq-home__chart-label">绛栫暐鏀剁泭鏇茬嚎</div>
                           <div className="sq-home__chart-value">
                             {loading ? <Spin size="small" /> : formatPercent(dashboardData?.strategy.totalReturn, 1, true)}
                           </div>
                         </div>
-                        <div className="sq-home__chart-filters" aria-label="曲线范围">
-                          <span className="sq-home__chip">30天</span>
-                          <span className="sq-home__chip sq-home__chip--active">实时</span>
+                        <div className="sq-home__chart-filters" aria-label="鏇茬嚎鑼冨洿">
+                          <span className="sq-home__chip">30澶?/span>
+                          <span className="sq-home__chip sq-home__chip--active">瀹炴椂</span>
                         </div>
                       </div>
                       <div className="sq-home__chart-body" aria-hidden="true">
@@ -311,10 +311,10 @@ const Home: React.FC = () => {
                           <span className="sq-home__chart-pill-value">
                             {loading ? <Spin size="small" /> : formatPercent(dashboardData?.strategy.todayReturn, 1, true)}
                           </span>
-                          <span className="sq-home__chart-pill-label">今日收益</span>
+                          <span className="sq-home__chart-pill-label">浠婃棩鏀剁泭</span>
                         </div>
                         <div className="sq-home__chart-stat">
-                          <span className="sq-home__chart-stat-label">夏普比率:</span>
+                          <span className="sq-home__chart-stat-label">澶忔櫘姣旂巼:</span>
                           <span className="sq-home__chart-stat-value">
                             {loading ? <Spin size="small" /> : formatNumber(dashboardData?.strategy.sharpeRatio)}
                           </span>
@@ -325,11 +325,11 @@ const Home: React.FC = () => {
                 </div>
               </section>
 
-              <section className="sq-home__kpis" aria-label="关键指标">
+              <section className="sq-home__kpis" aria-label="鍏抽敭鎸囨爣">
                 <div className="sq-home__kpi sq-home__kpi--rose">
                   <div className="sq-home__kpi-head">
                     <div className="sq-home__kpi-title-row">
-                      <div className="sq-home__kpi-title">今日入选</div>
+                      <div className="sq-home__kpi-title">浠婃棩鍏ラ€?/div>
                       <span className="sq-home__kpi-dot" aria-hidden="true" />
                     </div>
                     <span className="sq-home__kpi-icon" aria-hidden="true">
@@ -344,7 +344,7 @@ const Home: React.FC = () => {
                   </div>
                   <div className="sq-home__kpi-foot">
                     <span className="sq-home__kpi-foot-text sq-home__kpi-foot-text--accent">
-                      较昨日 {formatSignedNumber(dashboardData?.today.selectedChange)}
+                      杈冩槰鏃?{formatSignedNumber(dashboardData?.today.selectedChange)}
                     </span>
                     <span className="sq-home__kpi-pill">
                       {formatPercent(dashboardData?.today.selectedChangePercent, 1, true)}
@@ -354,7 +354,7 @@ const Home: React.FC = () => {
                 <div className="sq-home__kpi sq-home__kpi--magenta">
                   <div className="sq-home__kpi-head">
                     <div className="sq-home__kpi-title-row">
-                      <div className="sq-home__kpi-title">昨日策略胜率</div>
+                      <div className="sq-home__kpi-title">鏄ㄦ棩绛栫暐鑳滅巼</div>
                     </div>
                     <span className="sq-home__kpi-icon" aria-hidden="true">
                       <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -369,10 +369,10 @@ const Home: React.FC = () => {
                     {loading ? <Spin size="small" /> : formatPercent(dashboardData?.today.winRate)}
                   </div>
                   <div className="sq-home__kpi-foot">
-                    <span className="sq-home__kpi-foot-text sq-home__kpi-foot-text--accent">策略胜率</span>
+                    <span className="sq-home__kpi-foot-text sq-home__kpi-foot-text--accent">绛栫暐鑳滅巼</span>
                     <span className="sq-home__kpi-pill">
                       {isFiniteNumber(dashboardData?.today.winRate)
-                        ? (dashboardData.today.winRate > 60 ? '优秀' : '一般')
+                        ? (dashboardData.today.winRate > 60 ? '浼樼' : '涓€鑸?)
                         : NO_DATA_TEXT}
                     </span>
                   </div>
@@ -380,7 +380,7 @@ const Home: React.FC = () => {
                 <div className="sq-home__kpi sq-home__kpi--amber">
                   <div className="sq-home__kpi-head">
                     <div className="sq-home__kpi-title-row">
-                      <div className="sq-home__kpi-title">市场情绪</div>
+                      <div className="sq-home__kpi-title">甯傚満鎯呯华</div>
                     </div>
                     <span className="sq-home__kpi-icon" aria-hidden="true">
                       <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -409,7 +409,7 @@ const Home: React.FC = () => {
                 <div className="sq-home__kpi sq-home__kpi--emerald">
                   <div className="sq-home__kpi-head">
                     <div className="sq-home__kpi-title-row">
-                      <div className="sq-home__kpi-title">全A成交额</div>
+                      <div className="sq-home__kpi-title">鍏ˋ鎴愪氦棰?/div>
                     </div>
                     <span className="sq-home__kpi-icon" aria-hidden="true">
                       <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -424,7 +424,7 @@ const Home: React.FC = () => {
                   <div className="sq-home__kpi-foot">
                     <span className="sq-home__kpi-foot-text sq-home__kpi-foot-text--accent">
                       {isFiniteNumber(dashboardData?.market.turnoverChange)
-                        ? `${dashboardData.market.turnoverChange >= 0 ? '放量' : '缩量'} ${Math.abs(dashboardData.market.turnoverChange).toFixed(1)}%`
+                        ? `${dashboardData.market.turnoverChange >= 0 ? '鏀鹃噺' : '缂╅噺'} ${Math.abs(dashboardData.market.turnoverChange).toFixed(1)}%`
                         : NO_DATA_TEXT}
                     </span>
                     <span className="sq-home__kpi-pill">
@@ -434,7 +434,7 @@ const Home: React.FC = () => {
                 </div>
               </section>
 
-              <section className="sq-home__grid" aria-label="详细信息">
+              <section className="sq-home__grid" aria-label="鐑偣涓庣瓥鐣?>
                 <div className="sq-home__card sq-home__card--hot" style={{ backgroundImage: `url(${hotFundsBg})` }}>
                   <div className="sq-home__card-overlay" aria-hidden="true" />
                   <div className="sq-home__card-inner">
@@ -458,14 +458,14 @@ const Home: React.FC = () => {
                         </span>
                         <div className="sq-home__card-head-text">
                           <div className="sq-home__card-title-row">
-                            <h2 className="sq-home__card-title">实时热点资金</h2>
+                            <h2 className="sq-home__card-title">瀹炴椂鐑偣璧勯噾</h2>
                             <span className="sq-home__pill sq-home__pill--live">LIVE</span>
                           </div>
-                          <p className="sq-home__card-subtitle">追踪主力动向，把握板块机会</p>
+                          <p className="sq-home__card-subtitle">杩借釜涓诲姏鍔ㄥ悜锛屾妸鎻℃澘鍧楁満浼?/p>
                         </div>
                       </div>
                       <button type="button" className="sq-home__link-btn" onClick={() => navigate('/super-main-force')}>
-                        查看更多
+                        鏌ョ湅鏇村
                         <span className="sq-home__link-btn-icon" aria-hidden="true">
                           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
                             <path d="M5.3 2.6 9.7 7l-4.4 4.4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
@@ -474,14 +474,14 @@ const Home: React.FC = () => {
                       </button>
                     </div>
 
-                    <div className="sq-home__table-wrap" role="region" aria-label="热点资金表格">
+                    <div className="sq-home__table-wrap" role="region" aria-label="鐑偣璧勯噾琛ㄦ牸">
                       <table className="sq-home__table">
                         <thead>
                           <tr>
-                            <th scope="col">板块</th>
-                            <th scope="col">涨跌幅</th>
-                            <th scope="col">主力净流入</th>
-                            <th scope="col">领涨个股</th>
+                            <th scope="col">鏉垮潡</th>
+                            <th scope="col">娑ㄨ穼骞?/th>
+                            <th scope="col">涓诲姏鍑€娴佸叆</th>
+                            <th scope="col">棰嗘定涓偂</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -547,42 +547,42 @@ const Home: React.FC = () => {
                         </svg>
                       </span>
                       <div className="sq-home__strategy-head-text">
-                        <h2 className="sq-home__card-title">超强主力 · 近月战绩</h2>
+                        <h2 className="sq-home__card-title">瓒呭己涓诲姏 路 杩戞湀鎴樼哗</h2>
                         <p className="sq-home__card-subtitle">
                           {(() => {
-                            if (monthlySummary.periodText) return `（${monthlySummary.periodText}）`;
+                            if (monthlySummary.periodText) return `锛?{monthlySummary.periodText}锛塦;
                             const tradeDate = monthlyStatsData?.tradeDate;
-                            if (tradeDate) return `（${tradeDate}）`;
-                            return `（${NO_DATA_TEXT}）`;
+                            if (tradeDate) return `锛?{tradeDate}锛塦;
+                            return `锛?{NO_DATA_TEXT}锛塦;
                           })()}
                         </p>
                       </div>
                     </div>
 
-                    {/* 核心统计数据 */}
-                    <div className="sq-home__strategy-chips" aria-label="月度统计指标">
+                    {/* 鏍稿績缁熻鏁版嵁 */}
+                    <div className="sq-home__strategy-chips" aria-label="鏈堝害缁熻鎸囨爣">
                       <span className="sq-home__chip sq-home__chip--danger">
-                        超强主力 {monthlyStatsLoading ? <Spin size="small" /> : formatPercent(monthlySummary.superRate)}
+                        瓒呭己涓诲姏 {monthlyStatsLoading ? <Spin size="small" /> : formatPercent(monthlySummary.superRate)}
                       </span>
                       <span className="sq-home__chip sq-home__chip--info">
-                        全市场 {monthlyStatsLoading ? <Spin size="small" /> : formatPercent(monthlySummary.marketRate)}
+                        鍏ㄥ競鍦?{monthlyStatsLoading ? <Spin size="small" /> : formatPercent(monthlySummary.marketRate)}
                       </span>
                       {isFiniteNumber(monthlySummary.multiplier) ? (
                         <span className="sq-home__chip sq-home__chip--active">
-                          领先 {monthlySummary.multiplier.toFixed(1)}x
+                          棰嗗厛 {monthlySummary.multiplier.toFixed(1)}x
                         </span>
                       ) : null}
                     </div>
 
-                    <div className="sq-home__strategy-visual" aria-label={'\u6DA8\u505C\u547D\u4E2D\u7387\u5BF9\u6BD4'}>
+                    <div className="sq-home__strategy-visual" aria-label="娑ㄥ仠鍛戒腑鐜囧姣?>
                       <div className="sq-home__strategy-visual-inner">
                         <div className="sq-home__strategy-visual-left">
-                          <div className="sq-home__strategy-visual-label">{'\u6DA8\u505C\u547D\u4E2D\u7387'}</div>
+                          <div className="sq-home__strategy-visual-label">娑ㄥ仠鍛戒腑鐜?/div>
                           <div className="sq-home__strategy-visual-value">
                             {monthlyStatsLoading ? <Spin size="small" /> : formatPercent(monthlySummary.superRate)}
                           </div>
                           <div className="sq-home__strategy-visual-sub">
-                            {(monthlySummary.periodText || monthlyStatsData?.tradeDate || NO_DATA_TEXT)} ·{' '}
+                            {(monthlySummary.periodText || monthlyStatsData?.tradeDate || NO_DATA_TEXT)} 路{' '}
                             {monthlyStatsLoading ? <Spin size="small" /> : formatDays(monthlyStatsData?.period.days)}
                           </div>
                         </div>
@@ -601,7 +601,7 @@ const Home: React.FC = () => {
                                     <div className="sq-home__strategy-bar-fill sq-home__strategy-bar-fill--primary" style={{ height: `${superHeight}%` }} />
                                   </div>
                                   <div className="sq-home__strategy-bar-meta">
-                                    <span className="sq-home__strategy-bar-name">超强主力</span>
+                                    <span className="sq-home__strategy-bar-name">瓒呭己涓诲姏</span>
                                     <span className="sq-home__strategy-bar-value">{formatPercent(monthlySummary.superRate)}</span>
                                   </div>
                                 </div>
@@ -610,7 +610,7 @@ const Home: React.FC = () => {
                                     <div className="sq-home__strategy-bar-fill sq-home__strategy-bar-fill--muted" style={{ height: `${marketHeight}%` }} />
                                   </div>
                                   <div className="sq-home__strategy-bar-meta">
-                                    <span className="sq-home__strategy-bar-name">全市场</span>
+                                    <span className="sq-home__strategy-bar-name">鍏ㄥ競鍦?/span>
                                     <span className="sq-home__strategy-bar-value">{formatPercent(monthlySummary.marketRate)}</span>
                                   </div>
                                 </div>
@@ -621,40 +621,34 @@ const Home: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* 详细统计 */}
+                    {/* 璇︾粏缁熻 */}
                     <div className="sq-home__strategy-stats" style={{ marginTop: 12 }}>
                       <div className="sq-home__mini">
-                        <div className="sq-home__mini-label">累计入选</div>
+                        <div className="sq-home__mini-label">鍏ラ€夎偂绁?/div>
                         <div className="sq-home__mini-value">
                           {monthlyStatsLoading ? <Spin size="small" /> : formatNumber(monthlyStatsData?.statistics.selectedCount)}
                         </div>
                       </div>
                       <div className="sq-home__mini">
-                        <div className="sq-home__mini-label">涨停个数</div>
+                        <div className="sq-home__mini-label">娑ㄥ仠鏁?/div>
                         <div className="sq-home__mini-value sq-home__mini-value--up">
                           {monthlyStatsLoading ? <Spin size="small" /> : formatNumber(monthlyStatsData?.statistics.limitUpCount)}
                         </div>
                       </div>
                       <div className="sq-home__mini">
-                        <div className="sq-home__mini-label">平均盈利涨幅</div>
-                        <div className={`sq-home__mini-value ${isFiniteNumber(monthlyStatsData?.statistics?.comparison?.superMainForce) && monthlyStatsData.statistics.comparison.superMainForce >= 0 ? 'sq-home__mini-value--up' : 'sq-home__mini-value--down'}`}>
-                          {monthlyStatsLoading ? <Spin size="small" /> : formatPercent(monthlyStatsData?.statistics?.comparison?.superMainForce, 1, true)}
-                        </div>
-                      </div>
-                      <div className="sq-home__mini">
-                        <div className="sq-home__mini-label">统计天数</div>
+                        <div className="sq-home__mini-label">缁熻澶╂暟</div>
                         <div className="sq-home__mini-value">
                           {monthlyStatsLoading ? <Spin size="small" /> : formatDays(monthlyStatsData?.period.days)}
                         </div>
                       </div>
                     </div>
 
-                    {/* 金银铜牌 */}
+                    {/* 閲戦摱閾滅墝 */}
                     {hasAnyMedal && monthlyStatsData?.medals && (
                       <div className="sq-home__strategy-stats" style={{ marginTop: 8 }}>
                         {monthlyStatsData.medals.gold && (
                           <div className="sq-home__mini" style={{ flex: 1 }}>
-                            <div className="sq-home__mini-label" style={{ color: '#FFD700' }}>🥇 金牌</div>
+                            <div className="sq-home__mini-label" style={{ color: '#FFD700' }}>馃 閲戠墝</div>
                             <div className="sq-home__mini-value" style={{ fontSize: 12 }}>
                               {monthlyStatsData.medals.gold.name}
                               <span style={{ marginLeft: 4, color: 'var(--sq-text-tertiary)' }}>
@@ -663,25 +657,25 @@ const Home: React.FC = () => {
                             </div>
                             <div className="sq-home__mini-meta">
                               <span className="sq-home__mini-pill sq-home__mini-pill--blue">
-                                竞价{formatSignedPercent(monthlyStatsData.medals.gold.auctionChange)}
+                                绔炰环{formatSignedPercent(monthlyStatsData.medals.gold.auctionChange)}
                               </span>
                               <span
                                 className={
                                   monthlyStatsData.medals.gold.profit !== null &&
-                                    monthlyStatsData.medals.gold.profit !== undefined &&
-                                    monthlyStatsData.medals.gold.profit < 0
+                                  monthlyStatsData.medals.gold.profit !== undefined &&
+                                  monthlyStatsData.medals.gold.profit < 0
                                     ? 'sq-home__mini-pill sq-home__mini-pill--down'
                                     : 'sq-home__mini-pill sq-home__mini-pill--up'
                                 }
                               >
-                                盈利{formatSignedPercent(monthlyStatsData.medals.gold.profit)}
+                                鐩堝埄{formatSignedPercent(monthlyStatsData.medals.gold.profit)}
                               </span>
                             </div>
                           </div>
                         )}
                         {monthlyStatsData.medals.silver && (
                           <div className="sq-home__mini" style={{ flex: 1 }}>
-                            <div className="sq-home__mini-label" style={{ color: '#C0C0C0' }}>🥈 银牌</div>
+                            <div className="sq-home__mini-label" style={{ color: '#C0C0C0' }}>馃 閾剁墝</div>
                             <div className="sq-home__mini-value" style={{ fontSize: 12 }}>
                               {monthlyStatsData.medals.silver.name}
                               <span style={{ marginLeft: 4, color: 'var(--sq-text-tertiary)' }}>
@@ -690,25 +684,25 @@ const Home: React.FC = () => {
                             </div>
                             <div className="sq-home__mini-meta">
                               <span className="sq-home__mini-pill sq-home__mini-pill--blue">
-                                竞价{formatSignedPercent(monthlyStatsData.medals.silver.auctionChange)}
+                                绔炰环{formatSignedPercent(monthlyStatsData.medals.silver.auctionChange)}
                               </span>
                               <span
                                 className={
                                   monthlyStatsData.medals.silver.profit !== null &&
-                                    monthlyStatsData.medals.silver.profit !== undefined &&
-                                    monthlyStatsData.medals.silver.profit < 0
+                                  monthlyStatsData.medals.silver.profit !== undefined &&
+                                  monthlyStatsData.medals.silver.profit < 0
                                     ? 'sq-home__mini-pill sq-home__mini-pill--down'
                                     : 'sq-home__mini-pill sq-home__mini-pill--up'
                                 }
                               >
-                                盈利{formatSignedPercent(monthlyStatsData.medals.silver.profit)}
+                                鐩堝埄{formatSignedPercent(monthlyStatsData.medals.silver.profit)}
                               </span>
                             </div>
                           </div>
                         )}
                         {monthlyStatsData.medals.bronze && (
                           <div className="sq-home__mini" style={{ flex: 1 }}>
-                            <div className="sq-home__mini-label" style={{ color: '#CD7F32' }}>🥉 铜牌</div>
+                            <div className="sq-home__mini-label" style={{ color: '#CD7F32' }}>馃 閾滅墝</div>
                             <div className="sq-home__mini-value" style={{ fontSize: 12 }}>
                               {monthlyStatsData.medals.bronze.name}
                               <span style={{ marginLeft: 4, color: 'var(--sq-text-tertiary)' }}>
@@ -717,18 +711,18 @@ const Home: React.FC = () => {
                             </div>
                             <div className="sq-home__mini-meta">
                               <span className="sq-home__mini-pill sq-home__mini-pill--blue">
-                                竞价{formatSignedPercent(monthlyStatsData.medals.bronze.auctionChange)}
+                                绔炰环{formatSignedPercent(monthlyStatsData.medals.bronze.auctionChange)}
                               </span>
                               <span
                                 className={
                                   monthlyStatsData.medals.bronze.profit !== null &&
-                                    monthlyStatsData.medals.bronze.profit !== undefined &&
-                                    monthlyStatsData.medals.bronze.profit < 0
+                                  monthlyStatsData.medals.bronze.profit !== undefined &&
+                                  monthlyStatsData.medals.bronze.profit < 0
                                     ? 'sq-home__mini-pill sq-home__mini-pill--down'
                                     : 'sq-home__mini-pill sq-home__mini-pill--up'
                                 }
                               >
-                                盈利{formatSignedPercent(monthlyStatsData.medals.bronze.profit)}
+                                鐩堝埄{formatSignedPercent(monthlyStatsData.medals.bronze.profit)}
                               </span>
                             </div>
                           </div>
@@ -753,13 +747,13 @@ const Home: React.FC = () => {
                           />
                         </svg>
                       </span>
-                      查看详情
+                      鏌ョ湅璇︽儏
                     </button>
                   </div>
                 </div>
               </section>
 
-              <section className="sq-home__features" aria-label="核心能力">
+              <section className="sq-home__features" aria-label="鏍稿績鑳藉姏">
                 <article className="sq-home__feature-card">
                   <img
                     className="sq-home__feature-bg"
@@ -771,7 +765,7 @@ const Home: React.FC = () => {
                   />
                   <div className="sq-home__feature-overlay" aria-hidden="true" />
                   <div className="sq-home__feature-inner">
-                    <span className="sq-home__feature-badge sq-home__feature-badge--danger">核心功能</span>
+                    <span className="sq-home__feature-badge sq-home__feature-badge--danger">鏍稿績鍔熻兘</span>
                     <div className="sq-home__feature-head">
                       <span className="sq-home__feature-icon" aria-hidden="true">
                         <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -789,12 +783,12 @@ const Home: React.FC = () => {
                           />
                         </svg>
                       </span>
-                      <h2 className="sq-home__feature-title">实时市场追踪</h2>
+                      <h2 className="sq-home__feature-title">瀹炴椂甯傚満杩借釜</h2>
                     </div>
-                    <p className="sq-home__feature-desc">L2 行情深度追踪，毫秒级数据更新，精准把握市场变化</p>
-                    <div className="sq-home__feature-tags" aria-label="功能标签">
-                      <span className="sq-home__feature-tag">实时数据</span>
-                      <span className="sq-home__feature-tag">智能预警</span>
+                    <p className="sq-home__feature-desc">L2 绾ц鎯呮暟鎹紝姣绾у搷搴旓紝鎹曟崏姣忎竴涓氦鏄撴満浼?/p>
+                    <div className="sq-home__feature-tags" aria-label="鍔熻兘鏍囩">
+                      <span className="sq-home__feature-tag">瀹炴椂鏁版嵁</span>
+                      <span className="sq-home__feature-tag">鏅鸿兘棰勮</span>
                     </div>
                   </div>
                 </article>
@@ -810,7 +804,7 @@ const Home: React.FC = () => {
                   />
                   <div className="sq-home__feature-overlay" aria-hidden="true" />
                   <div className="sq-home__feature-inner">
-                    <span className="sq-home__feature-badge sq-home__feature-badge--purple">数据分析</span>
+                    <span className="sq-home__feature-badge sq-home__feature-badge--purple">鏁版嵁鍒嗘瀽</span>
                     <div className="sq-home__feature-head">
                       <span className="sq-home__feature-icon sq-home__feature-icon--purple" aria-hidden="true">
                         <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -827,31 +821,31 @@ const Home: React.FC = () => {
                           />
                         </svg>
                       </span>
-                      <h2 className="sq-home__feature-title">智能数据分析</h2>
+                      <h2 className="sq-home__feature-title">鏅鸿兘鏁版嵁鍒嗘瀽</h2>
                     </div>
-                    <p className="sq-home__feature-desc">AI 驱动的智能数据分析，助力科学决策</p>
-                    <div className="sq-home__feature-tags" aria-label="功能标签">
-                      <span className="sq-home__feature-tag">深度学习</span>
-                      <span className="sq-home__feature-tag">实时回测</span>
+                    <p className="sq-home__feature-desc">AI 椹卞姩鐨勫缁村害鏁版嵁鍒嗘瀽锛屾繁搴︽寲鎺樺競鍦鸿寰?/p>
+                    <div className="sq-home__feature-tags" aria-label="鍔熻兘鏍囩">
+                      <span className="sq-home__feature-tag">娣卞害瀛︿範</span>
+                      <span className="sq-home__feature-tag">鍙鍖?/span>
                     </div>
                   </div>
                 </article>
               </section>
 
-              <section className="sq-home__insights" aria-label="市场洞察">
+              <section className="sq-home__insights" aria-label="甯傚満娲炲療">
                 <div className="sq-home__section-head">
                   <div className="sq-home__section-title">
                     <div className="sq-home__section-title-row">
-                      <h2 className="sq-home__section-heading">市场洞察</h2>
-                      <span className="sq-home__live-pill" aria-label="实时更新">
+                      <h2 className="sq-home__section-heading">甯傚満娲炲療</h2>
+                      <span className="sq-home__live-pill" aria-label="瀹炴椂鏇存柊">
                         <span className="sq-home__live-dot" aria-hidden="true" />
                         LIVE
                       </span>
                     </div>
-                    <p className="sq-home__section-subtitle">实时追踪市场动态，深度解读热点事件</p>
+                    <p className="sq-home__section-subtitle">瀹炴椂杩借釜甯傚満鍔ㄦ€侊紝娣卞害瑙ｈ鐑偣浜嬩欢</p>
                   </div>
                   <button type="button" className="sq-home__section-btn" onClick={() => navigate('/stocks')}>
-                    查看全部
+                    鏌ョ湅鍏ㄩ儴
                     <span className="sq-home__section-btn-icon" aria-hidden="true">
                       <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <path d="M5.3 2.6 9.7 7l-4.4 4.4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
@@ -875,13 +869,13 @@ const Home: React.FC = () => {
                       <span className="sq-home__insight-tag">{NO_DATA_TEXT}</span>
                       <h3 className="sq-home__insight-title">{NO_DATA_TEXT}</h3>
                       <p className="sq-home__insight-desc">{NO_DATA_TEXT}</p>
-                      <div className="sq-home__insight-meta" aria-label="文章信息">
+                      <div className="sq-home__insight-meta" aria-label="鏂囩珷淇℃伅">
                         <span className="sq-home__insight-meta-item">{NO_DATA_TEXT}</span>
                       </div>
                     </div>
                   </article>
 
-                  <div className="sq-home__insight-side" aria-label="更多洞察">
+                  <div className="sq-home__insight-side" aria-label="鏇村娲炲療">
                     {marketInsightCards.length === 0 ? (
                       <article className="sq-home__insight-item">
                         <div className="sq-home__insight-item-body">
