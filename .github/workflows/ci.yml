@@ -650,7 +650,7 @@ jobs:
           docker compose -f "${DEPLOY_DIR}/docker-compose.yml" up -d --remove-orphans --no-build --no-deps backend data-service frontend
           docker compose -f "${DEPLOY_DIR}/docker-compose.yml" ps
 
-          for i in $(seq 1 60); do
+          for i in $(seq 1 150); do
             backend_h="$(docker inspect -f '{{.State.Health.Status}}' stock-picker-backend 2>/dev/null || true)"
             data_h="$(docker inspect -f '{{.State.Health.Status}}' stock-picker-data-service 2>/dev/null || true)"
             frontend_h="$(docker inspect -f '{{.State.Health.Status}}' stock-picker-frontend 2>/dev/null || true)"

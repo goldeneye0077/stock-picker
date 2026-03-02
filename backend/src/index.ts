@@ -266,9 +266,34 @@ async function shutdown(signal: string): Promise<void> {
 process.on('SIGTERM', () => { void shutdown('SIGTERM'); });
 process.on('SIGINT', () => { void shutdown('SIGINT'); });
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function initDatabaseWithRetry(): Promise<void> {
+  const maxAttempts = Math.max(1, Number(process.env.DB_INIT_MAX_ATTEMPTS || 30));
+  const retryDelayMs = Math.max(1000, Number(process.env.DB_INIT_RETRY_DELAY_MS || 5000));
+
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      await initDatabase();
+      return;
+    } catch (error) {
+      lastError = error;
+      console.error(`[database] init attempt ${attempt}/${maxAttempts} failed:`, error);
+      if (attempt < maxAttempts) {
+        await sleep(retryDelayMs);
+      }
+    }
+  }
+
+  throw lastError;
+}
+
 async function startServer() {
   try {
-    await initDatabase();
+    await initDatabaseWithRetry();
     console.log('Database initialized successfully');
 
     try {

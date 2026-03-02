@@ -98,13 +98,36 @@ def _env_int(value: str | None, default: int) -> int:
     except Exception:
         return default
 
+
+async def init_database_with_retry() -> None:
+    max_attempts = max(1, _env_int(os.getenv("DB_INIT_MAX_ATTEMPTS"), 30))
+    retry_seconds = max(1, _env_int(os.getenv("DB_INIT_RETRY_SEC"), 5))
+    last_error: Exception | None = None
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            await init_database()
+            return
+        except Exception as exc:  # pragma: no cover - startup resiliency
+            last_error = exc
+            logger.warning(
+                f"Database init attempt {attempt}/{max_attempts} failed: {exc}"
+            )
+            if attempt < max_attempts:
+                await asyncio.sleep(retry_seconds)
+
+    raise RuntimeError(
+        f"Database initialization failed after {max_attempts} attempts"
+    ) from last_error
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting Stock Picker Data Service...")
 
     # Initialize database
-    await init_database()
+    await init_database_with_retry()
     logger.info("Database initialized")
 
     # Initialize data sources
