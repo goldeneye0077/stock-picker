@@ -535,6 +535,7 @@ jobs:
           SSH_HOST="${{ secrets.DEPLOY_SSH_HOST }}"
           mkdir -p "${DEPLOY_DIR}"
           mkdir -p "${DEPLOY_DIR}/scripts"
+          mkdir -p "${DEPLOY_DIR}/scripts/migrate"
           mkdir -p "${DEPLOY_DIR}/data"
           mkdir -p "${DEPLOY_DIR}/data-service"
           ROOT_ENV="${DEPLOY_DIR}/.env"
@@ -572,7 +573,7 @@ jobs:
         username: ${{ secrets.DEPLOY_SSH_USER }}
         key: ${{ secrets.DEPLOY_SSH_KEY }}
         port: ${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}
-        source: "docker-compose.yml"
+        source: "docker-compose.yml,scripts/migrate/timescaledb_schema.sql"
         target: "/home/${{ secrets.DEPLOY_SSH_USER }}/stock-picker"
     - name: Deploy by SSH
       if: steps.check.outputs.enabled == 'true'
