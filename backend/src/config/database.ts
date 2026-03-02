@@ -1,18 +1,19 @@
-﻿import sqlite3 from 'sqlite3';
-import path from 'path';
-import fs from 'fs';
+﻿import { Pool } from 'pg';
 import crypto from 'crypto';
+import { convertSqliteQuery } from './sqliteCompat';
 
-function resolveSqlitePath(): string {
-  const url = process.env.DATABASE_URL;
-  if (url && url.startsWith('sqlite:')) {
-    const raw = url.slice('sqlite:'.length);
-    if (raw.startsWith('///')) {
-      return raw.slice(2);
-    }
-    return raw;
+function resolveDatabaseUrl(): string {
+  const explicit = (process.env.DATABASE_URL || '').trim();
+  if (explicit) {
+    return explicit;
   }
-  return path.resolve(__dirname, '../../..', 'data', 'stock_picker.db');
+
+  const timescale = (process.env.TIMESCALE_URL || '').trim();
+  if (timescale) {
+    return timescale;
+  }
+
+  return 'postgresql://postgres:postgres@timescaledb:5432/stock_picker';
 }
 
 function isProductionEnvironment(): boolean {
@@ -50,66 +51,55 @@ function resolveBootstrapAdminPassword(adminPassword: string): string {
   return generated;
 }
 
-const dbPath = resolveSqlitePath();
-
-// 纭繚鏁版嵁鐩綍瀛樺湪
-const dataDir = path.dirname(dbPath);
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
-}
-
-// Enable verbose mode for debugging
-sqlite3.verbose();
+const databaseUrl = resolveDatabaseUrl();
 
 export class Database {
-  private db: sqlite3.Database;
+  private readonly pool: Pool;
 
   constructor() {
-    this.db = new sqlite3.Database(dbPath);
+    this.pool = new Pool({
+      connectionString: databaseUrl,
+      max: Number(process.env.DB_POOL_MAX || 16),
+      idleTimeoutMillis: Number(process.env.DB_POOL_IDLE_TIMEOUT_MS || 30000),
+      connectionTimeoutMillis: Number(process.env.DB_CONNECT_TIMEOUT_MS || 8000),
+    });
+
+    this.pool.on('error', (error) => {
+      console.error('[database] pool error:', error);
+    });
   }
 
   async run(sql: string, params: any[] = []): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.db.run(sql, params, function (err) {
-        if (err) {
-          reject(err);
-        } else {
-          resolve();
-        }
-      });
-    });
+    const converted = convertSqliteQuery(sql, params);
+    if (converted.skip) {
+      return;
+    }
+    await this.pool.query(converted.text, converted.values);
   }
 
   async get(sql: string, params: any[] = []): Promise<any> {
-    return new Promise((resolve, reject) => {
-      this.db.get(sql, params, (err, row) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(row);
-        }
-      });
-    });
+    const converted = convertSqliteQuery(sql, params);
+    if (converted.skip) {
+      return undefined;
+    }
+    const result = await this.pool.query(converted.text, converted.values);
+    return result.rows[0];
   }
 
   async all(sql: string, params: any[] = []): Promise<any[]> {
-    return new Promise((resolve, reject) => {
-      this.db.all(sql, params, (err, rows) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(rows);
-        }
-      });
-    });
+    const converted = convertSqliteQuery(sql, params);
+    if (converted.skip) {
+      return [];
+    }
+    const result = await this.pool.query(converted.text, converted.values);
+    return result.rows;
   }
 
-  close(): void {
-    this.db.close();
+  async close(): Promise<void> {
+    await this.pool.end();
   }
 }
 
-// Singleton instance
 let database: Database;
 
 export function getDatabase(): Database {
@@ -118,7 +108,6 @@ export function getDatabase(): Database {
   }
   return database;
 }
-
 export async function initDatabase(): Promise<void> {
   const db = getDatabase();
 
@@ -156,7 +145,7 @@ export async function initDatabase(): Promise<void> {
       high REAL NOT NULL,
       low REAL NOT NULL,
       close REAL NOT NULL,
-      volume INTEGER NOT NULL,
+      volume BIGINT NOT NULL,
       amount REAL NOT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (stock_code) REFERENCES stocks (code),
@@ -170,7 +159,7 @@ export async function initDatabase(): Promise<void> {
       stock_code TEXT NOT NULL,
       date TEXT NOT NULL,
       volume_ratio REAL NOT NULL,
-      avg_volume_20 INTEGER NOT NULL,
+      avg_volume_20 BIGINT NOT NULL,
       is_volume_surge BOOLEAN DEFAULT FALSE,
       analysis_result TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -201,7 +190,7 @@ export async function initDatabase(): Promise<void> {
       signal_type TEXT NOT NULL,
       confidence REAL NOT NULL,
       price REAL NOT NULL,
-      volume INTEGER NOT NULL,
+      volume BIGINT NOT NULL,
       analysis_data TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (stock_code) REFERENCES stocks (code)
@@ -220,11 +209,11 @@ export async function initDatabase(): Promise<void> {
       high REAL,
       low REAL,
       close REAL,
-      vol INTEGER,
+      vol BIGINT,
       amount REAL,
-      num INTEGER,
-      ask_volume1 INTEGER,
-      bid_volume1 INTEGER,
+      num BIGINT,
+      ask_volume1 BIGINT,
+      bid_volume1 BIGINT,
       change_percent REAL,
       change_amount REAL,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -242,14 +231,24 @@ export async function initDatabase(): Promise<void> {
       high REAL,
       low REAL,
       close REAL,
-      vol INTEGER,
+      vol BIGINT,
       amount REAL,
-      num INTEGER,
+      num BIGINT,
       change_percent REAL,
       snapshot_time DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (stock_code) REFERENCES stocks (code)
     )
   `);
+
+  await db.run('ALTER TABLE klines ALTER COLUMN volume TYPE BIGINT');
+  await db.run('ALTER TABLE volume_analysis ALTER COLUMN avg_volume_20 TYPE BIGINT');
+  await db.run('ALTER TABLE buy_signals ALTER COLUMN volume TYPE BIGINT');
+  await db.run('ALTER TABLE realtime_quotes ALTER COLUMN vol TYPE BIGINT');
+  await db.run('ALTER TABLE realtime_quotes ALTER COLUMN num TYPE BIGINT');
+  await db.run('ALTER TABLE realtime_quotes ALTER COLUMN ask_volume1 TYPE BIGINT');
+  await db.run('ALTER TABLE realtime_quotes ALTER COLUMN bid_volume1 TYPE BIGINT');
+  await db.run('ALTER TABLE quote_history ALTER COLUMN vol TYPE BIGINT');
+  await db.run('ALTER TABLE quote_history ALTER COLUMN num TYPE BIGINT');
 
   // 姣忔棩鎸囨爣琛紙鎶€鏈垎鏋愭寚鏍囷級
   await db.run(`
@@ -452,7 +451,8 @@ export async function initDatabase(): Promise<void> {
   const adminPassword = (process.env.ADMIN_PASSWORD || '').trim();
 
   const adminCount = await db.get('SELECT COUNT(*) as cnt FROM users WHERE is_admin = 1');
-  if ((adminCount?.cnt || 0) === 0) {
+  const adminCountValue = Number(adminCount?.cnt ?? 0);
+  if (adminCountValue === 0) {
     const initialPassword = resolveBootstrapAdminPassword(adminPassword);
     const salt = crypto.randomBytes(16).toString('hex');
     const hash = crypto.pbkdf2Sync(initialPassword, salt, 120000, 32, 'sha256').toString('hex');
@@ -500,4 +500,5 @@ export async function initDatabase(): Promise<void> {
 
   console.log('Database tables created successfully');
 }
+
 

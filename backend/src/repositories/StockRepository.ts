@@ -7,10 +7,60 @@ import { BaseRepository } from './BaseRepository';
 import { Stock, StockDetails, KLine, VolumeAnalysis, BuySignal, RealtimeQuote } from './types';
 
 export class StockRepository extends BaseRepository {
+  private buildLimitOffsetClause(limit?: number, offset?: number): { clause: string; params: any[] } {
+    const clauseParts: string[] = [];
+    const params: any[] = [];
+
+    if (typeof limit === 'number') {
+      clauseParts.push('LIMIT ?');
+      params.push(limit);
+    }
+
+    if (typeof offset === 'number') {
+      clauseParts.push('OFFSET ?');
+      params.push(offset);
+    }
+
+    return {
+      clause: clauseParts.length > 0 ? ` ${clauseParts.join(' ')}` : '',
+      params,
+    };
+  }
+
+  async countAll(): Promise<number> {
+    const row = await this.queryOne<{ total: number | string }>('SELECT COUNT(*) as total FROM stocks');
+    return Number(row?.total ?? 0);
+  }
+
+  async countFiltered(search?: string, codes?: string[]): Promise<number> {
+    if (Array.isArray(codes) && codes.length === 0) return 0;
+
+    const whereParts: string[] = [];
+    const params: any[] = [];
+
+    if (codes && codes.length > 0) {
+      whereParts.push(`s.code IN (${codes.map(() => '?').join(', ')})`);
+      params.push(...codes);
+    }
+    if (search) {
+      whereParts.push(`(s.code LIKE ? OR s.name LIKE ?)`);
+      const pattern = `%${search}%`;
+      params.push(pattern, pattern);
+    }
+
+    const whereClause = whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : '';
+    const row = await this.queryOne<{ total: number | string }>(
+      `SELECT COUNT(*) as total FROM stocks s ${whereClause}`,
+      params
+    );
+    return Number(row?.total ?? 0);
+  }
+
   /**
    * 获取所有股票列表（包含最新行情）
    */
-  async findAll(): Promise<Stock[]> {
+  async findAll(limit?: number, offset?: number): Promise<Stock[]> {
+    const { clause: limitOffsetClause, params } = this.buildLimitOffsetClause(limit, offset);
     const sql = `
       SELECT s.*,
              CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
@@ -50,8 +100,8 @@ export class StockRepository extends BaseRepository {
                ELSE (k.close - k.open)
              END as change_amount,
              CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
-               THEN rq.updated_at
-               ELSE k.date
+               THEN CAST(rq.updated_at AS TEXT)
+               ELSE CAST(k.date AS TEXT)
              END as quote_time,
              k.date as quote_date,
              va.volume_ratio,
@@ -75,12 +125,13 @@ export class StockRepository extends BaseRepository {
         FROM buy_signals
       ) bs ON s.code = bs.stock_code AND bs.rn = 1
       ORDER BY s.code
+      ${limitOffsetClause}
     `;
 
-    return this.query<Stock>(sql);
+    return this.query<Stock>(sql, params);
   }
 
-  async findAllFiltered(search?: string, codes?: string[]): Promise<Stock[]> {
+  async findAllFiltered(search?: string, codes?: string[], limit?: number, offset?: number): Promise<Stock[]> {
     if (Array.isArray(codes) && codes.length === 0) return [];
 
     const whereParts: string[] = [];
@@ -97,6 +148,7 @@ export class StockRepository extends BaseRepository {
     }
 
     const whereClause = whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : '';
+    const { clause: limitOffsetClause, params: limitOffsetParams } = this.buildLimitOffsetClause(limit, offset);
 
     const sql = `
       SELECT s.*,
@@ -137,8 +189,8 @@ export class StockRepository extends BaseRepository {
                ELSE (k.close - k.open)
              END as change_amount,
              CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
-               THEN rq.updated_at
-               ELSE k.date
+               THEN CAST(rq.updated_at AS TEXT)
+               ELSE CAST(k.date AS TEXT)
              END as quote_time,
              k.date as quote_date,
              va.volume_ratio,
@@ -163,9 +215,10 @@ export class StockRepository extends BaseRepository {
       ) bs ON s.code = bs.stock_code AND bs.rn = 1
       ${whereClause}
       ORDER BY s.code
+      ${limitOffsetClause}
     `;
 
-    return this.query<Stock>(sql, params);
+    return this.query<Stock>(sql, [...params, ...limitOffsetParams]);
   }
 
   /**
@@ -269,8 +322,8 @@ export class StockRepository extends BaseRepository {
                ELSE (k.close - k.open)
              END as change_amount,
              CASE WHEN rq.updated_at IS NOT NULL AND DATE(rq.updated_at) = DATE('now')
-               THEN rq.updated_at
-               ELSE k.date
+               THEN CAST(rq.updated_at AS TEXT)
+               ELSE CAST(k.date AS TEXT)
              END as quote_time,
              k.date as quote_date,
              va.volume_ratio,

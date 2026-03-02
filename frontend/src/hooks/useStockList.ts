@@ -14,10 +14,32 @@ import {
   type StockItem
 } from '../services/stockService';
 
+const DEFAULT_PAGE = 1;
+const DEFAULT_PAGE_SIZE = 20;
+
+function normalizePage(value: number | undefined): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_PAGE;
+  return Math.max(DEFAULT_PAGE, Math.floor(value));
+}
+
+function normalizePageSize(value: number | undefined): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_PAGE_SIZE;
+  return Math.max(1, Math.floor(value));
+}
+
+function buildInitialParams(initialParams: StockListParams): StockListParams {
+  return {
+    ...initialParams,
+    page: normalizePage(initialParams.page),
+    pageSize: normalizePageSize(initialParams.pageSize)
+  };
+}
+
 export function useStockList(initialParams: StockListParams = {}) {
   const [data, setData] = useState<StockItem[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [params, setParams] = useState<StockListParams>(initialParams);
+  const [params, setParams] = useState<StockListParams>(() => buildInitialParams(initialParams));
   const [searchQuery, setSearchQuery] = useState('');
   const [searchOptions, setSearchOptions] = useState<any[]>([]);
 
@@ -26,11 +48,13 @@ export function useStockList(initialParams: StockListParams = {}) {
     setLoading(true);
     try {
       const result = await fetchStockList(params);
-      setData(result);
+      setData(result.items);
+      setTotal(result.total);
     } catch (error) {
       console.error('Error fetching stock list:', error);
       message.error('获取股票列表失败');
       setData([]);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
@@ -60,12 +84,31 @@ export function useStockList(initialParams: StockListParams = {}) {
 
   // 更新参数
   const updateParams = useCallback((newParams: Partial<StockListParams>) => {
-    setParams((prev) => ({ ...prev, ...newParams }));
+    setParams((prev) => {
+      const next: StockListParams = {
+        ...prev,
+        ...newParams
+      };
+
+      const filterChanged = (
+        Object.prototype.hasOwnProperty.call(newParams, 'date') ||
+        Object.prototype.hasOwnProperty.call(newParams, 'search') ||
+        Object.prototype.hasOwnProperty.call(newParams, 'codes')
+      );
+      if (filterChanged && !Object.prototype.hasOwnProperty.call(newParams, 'page')) {
+        next.page = DEFAULT_PAGE;
+      }
+
+      next.page = normalizePage(next.page);
+      next.pageSize = normalizePageSize(next.pageSize);
+
+      return next;
+    });
   }, []);
 
   // 重置参数
   const resetParams = useCallback(() => {
-    setParams(initialParams);
+    setParams(buildInitialParams(initialParams));
     setSearchQuery('');
     setSearchOptions([]);
   }, [initialParams]);
@@ -77,6 +120,7 @@ export function useStockList(initialParams: StockListParams = {}) {
 
   return {
     data,
+    total,
     loading,
     params,
     searchQuery,
@@ -91,7 +135,7 @@ export function useStockList(initialParams: StockListParams = {}) {
 
 /**
  * 股票详情 Hook
- * 管理单个股票的详情数据
+ * 管理单个股票详情和技术分析
  */
 export function useStockDetail() {
   const [detail, setDetail] = useState<any>(null);
@@ -145,3 +189,4 @@ export function useStockDetail() {
     reset
   };
 }
+

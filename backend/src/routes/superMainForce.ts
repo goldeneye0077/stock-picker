@@ -1,5 +1,5 @@
 import express from 'express';
-import { AnalysisRepository } from '../repositories';
+import { AnalysisRepository, SuperMainForceStatsSource } from '../repositories';
 import { asyncHandler } from '../middleware/errorHandler';
 import { sendSuccess } from '../utils/responseHelper';
 
@@ -17,19 +17,36 @@ function shiftDate(date: string, days: number): string {
  * GET /api/analysis/super-main-force/monthly
  */
 router.get('/monthly', asyncHandler(async (_req, res) => {
-  const hasSuperMainForceTable = await analysisRepo.hasSuperMainForceTable();
-
+  const detectedSource = await analysisRepo.resolveSuperMainForceSource();
+  let statsSource: SuperMainForceStatsSource | null = detectedSource;
   let tradeDate: string | null = null;
-  if (hasSuperMainForceTable) {
-    tradeDate = await analysisRepo.getLatestSuperMainForceTradeDate();
+  if (detectedSource) {
+    tradeDate = await analysisRepo.getLatestSuperMainForceTradeDate(detectedSource);
   }
 
   if (!tradeDate) {
     tradeDate = await analysisRepo.getLatestQuoteTradeDate();
   }
 
+  if (!tradeDate) {
+    tradeDate = await analysisRepo.getLatestKlineTradeDate();
+  }
+
+  if (!statsSource && tradeDate) {
+    await analysisRepo.backfillSuperMainForceSignalsFromKlines(tradeDate);
+    statsSource = await analysisRepo.resolveSuperMainForceSource();
+  }
+
+  if (!statsSource && tradeDate) {
+    statsSource = 'kline_fallback';
+  }
+
   const startDate = tradeDate ? shiftDate(tradeDate, -29) : null;
   const endDate = tradeDate;
+
+  if (statsSource === 'super_mainforce_signals' && startDate && endDate) {
+    await analysisRepo.backfillSuperMainForceSignalsRange(startDate, endDate);
+  }
 
   let selectedCount: number | null = null;
   let limitUpCount: number | null = null;
@@ -43,8 +60,8 @@ router.get('/monthly', asyncHandler(async (_req, res) => {
     hitRate: number;
   }> = [];
 
-  if (hasSuperMainForceTable && startDate && endDate) {
-    const stats = await analysisRepo.getSuperMainForcePeriodStats(startDate, endDate);
+  if (statsSource && startDate && endDate) {
+    const stats = await analysisRepo.getSuperMainForcePeriodStats(startDate, endDate, statsSource);
     const selectedCountRaw = stats.selectedCount;
     const limitUpCountRaw = stats.limitUpCount;
     const statsDaysRaw = stats.statsDays;
@@ -58,11 +75,13 @@ router.get('/monthly', asyncHandler(async (_req, res) => {
         : null;
     }
 
-    weeklyComparison = await analysisRepo.getSuperMainForceWeeklyComparison(startDate, endDate);
+    weeklyComparison = await analysisRepo.getSuperMainForceWeeklyComparison(startDate, endDate, statsSource);
   }
 
   if (tradeDate) {
-    const marketLimitUpSnapshot = await analysisRepo.getMarketLimitUpSnapshot(tradeDate);
+    const marketLimitUpSnapshot =
+      await analysisRepo.getMarketLimitUpSnapshot(tradeDate) ||
+      await analysisRepo.getMarketLimitUpSnapshotFromKlines(tradeDate);
     if (marketLimitUpSnapshot && marketLimitUpSnapshot.count > 0) {
       marketLimitUpRate = Math.round((marketLimitUpSnapshot.limitUp / marketLimitUpSnapshot.count) * 1000) / 10;
     }
@@ -96,6 +115,7 @@ router.get('/monthly', asyncHandler(async (_req, res) => {
       bronze: null,
     },
     weeklyComparison,
+    dataSource: statsSource || 'none',
   });
 }));
 

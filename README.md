@@ -50,3 +50,35 @@ npm run repo:check-structure
 
 - 检查脚本：`scripts/ops/check-root-structure.js`
 - npm 命令：`npm run repo:check-structure`
+
+## DB Evolution / AI Insights / Realtime Bus (2026-02)
+
+This repo now supports a staged migration path for high-volume time-series workloads:
+
+- TimescaleDB schema: `scripts/migrate/timescaledb_schema.sql`
+- SQLite -> Timescale migration: `scripts/migrate/migrate_sqlite_to_timescale.py`
+- Data-service incremental Timescale sync: `data-service/src/utils/timescale_bridge.py`
+- Backend dashboard hotspot queries run on TimescaleDB only (`turnover`, `yieldCurve`, market overview).
+- Docker Compose includes one-shot schema bootstrap service: `timescaledb-init` (runs `timescaledb_schema.sql` before backend/data-service start).
+- Manual rerun of schema bootstrap: `docker compose up -d --force-recreate timescaledb-init`
+
+New AI market insight pipeline:
+
+- Insight engine: `data-service/src/services/market_insight_engine.py`
+- API routes: `GET /api/market-insights/latest`, `POST /api/market-insights/generate`
+- Stored in PostgreSQL table: `market_insights`
+- Daily scheduler generates post-close market insights automatically.
+
+Realtime event bus:
+
+- Data-service publishes events to Redis channel `MARKET_EVENT_CHANNEL` (default `market:events`)
+- Backend subscribes Redis and broadcasts over WebSocket
+- Frontend Home consumes websocket events and refreshes dashboard data without full-page reload
+
+Recommended environment variables:
+
+- `TIMESCALE_ENABLED=true`
+- `TIMESCALE_URL=postgresql://postgres:postgres@timescaledb:5432/stock_picker`
+- `MARKET_EVENT_CHANNEL=market:events`
+- `REDIS_PUBSUB_ENABLED=true`
+- `VITE_WS_URL=ws://localhost:3100` (optional; auto-derived by default)

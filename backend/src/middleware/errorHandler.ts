@@ -14,6 +14,51 @@ const isDevelopment = process.env.NODE_ENV === 'development';
 import fs from 'fs';
 import path from 'path';
 
+const SENSITIVE_KEYS = new Set([
+  'password',
+  'token',
+  'refreshToken',
+  'accessToken',
+  'authorization',
+  'cookie',
+  'captcha',
+  'secret',
+]);
+
+function isSensitiveKey(key: string): boolean {
+  const normalized = key.toLowerCase();
+  for (const sensitiveKey of SENSITIVE_KEYS) {
+    if (normalized === sensitiveKey.toLowerCase()) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function sanitizeLogPayload(value: unknown, depth: number = 0): unknown {
+  if (value === null || value === undefined) {
+    return value;
+  }
+
+  if (depth > 6) {
+    return '[depth-limited]';
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeLogPayload(item, depth + 1));
+  }
+
+  if (typeof value === 'object') {
+    const sanitized: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      sanitized[key] = isSensitiveKey(key) ? '[REDACTED]' : sanitizeLogPayload(child, depth + 1);
+    }
+    return sanitized;
+  }
+
+  return value;
+}
+
 /**
  * 错误日志记录
  * @param error 错误对象
@@ -25,6 +70,7 @@ function logError(error: Error, req: Request): void {
   const url = req.originalUrl;
   const ip = req.ip;
 
+  const detailsForLog = error instanceof AppError ? sanitizeLogPayload(error.details) : undefined;
   const logMessage = `
 === Error Log ===
 Timestamp: ${timestamp}
@@ -32,25 +78,23 @@ Method: ${method}
 URL: ${url}
 IP: ${ip}
 Message: ${error.message}
-Stack: ${error.stack || 'No stack trace'}
+${detailsForLog !== undefined ? `Details: ${JSON.stringify(detailsForLog)}\n` : ''}Stack: ${error.stack || 'No stack trace'}
 ================
 `;
 
   console.error(logMessage);
 
-  // Write to file
-  try {
-    const logPath = path.join(process.cwd(), 'error.log');
-    fs.appendFileSync(logPath, logMessage);
-  } catch (err) {
+  // Write to file asynchronously to avoid blocking request processing.
+  const logPath = path.join(process.cwd(), 'error.log');
+  void fs.promises.appendFile(logPath, logMessage).catch((err) => {
     console.error('Failed to write to error log file:', err);
-  }
+  });
 
   if (error instanceof AppError) {
     console.error(`Code: ${error.code}`);
     console.error(`Status: ${error.statusCode}`);
-    if (error.details) {
-      console.error(`Details: ${JSON.stringify(error.details)}`);
+    if (detailsForLog !== undefined) {
+      console.error(`Details: ${JSON.stringify(detailsForLog)}`);
     }
   }
 

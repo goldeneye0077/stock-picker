@@ -203,8 +203,8 @@ export class UserRepository extends BaseRepository {
 
   async getSession(token: string): Promise<{ userId: number } | null> {
     const tokenHash = this.hashToken(token);
-    const sql = `SELECT token, user_id, expires_at FROM sessions WHERE token = ? OR token = ? LIMIT 1`;
-    const row = await this.queryOne<{ token: string; user_id: number; expires_at: string }>(sql, [tokenHash, token]);
+    const sql = `SELECT token, user_id, expires_at FROM sessions WHERE token = ? LIMIT 1`;
+    const row = await this.queryOne<{ token: string; user_id: number; expires_at: string }>(sql, [tokenHash]);
     if (!row) return null;
     if (new Date(row.expires_at).getTime() < Date.now()) {
       await this.execute(`DELETE FROM sessions WHERE token = ?`, [row.token]);
@@ -215,7 +215,7 @@ export class UserRepository extends BaseRepository {
 
   async deleteSession(token: string): Promise<void> {
     const tokenHash = this.hashToken(token);
-    await this.execute(`DELETE FROM sessions WHERE token = ? OR token = ?`, [tokenHash, token]);
+    await this.execute(`DELETE FROM sessions WHERE token = ?`, [tokenHash]);
   }
 
   // Refresh Token Methods
@@ -230,8 +230,8 @@ export class UserRepository extends BaseRepository {
 
   async verifyRefreshToken(token: string): Promise<{ userId: number; expiresAt: string } | null> {
     const tokenHash = this.hashToken(token);
-    const sql = `SELECT token, user_id, expires_at FROM refresh_tokens WHERE token = ? OR token = ? LIMIT 1`;
-    const row = await this.queryOne<{ token: string; user_id: number; expires_at: string }>(sql, [tokenHash, token]);
+    const sql = `SELECT token, user_id, expires_at FROM refresh_tokens WHERE token = ? LIMIT 1`;
+    const row = await this.queryOne<{ token: string; user_id: number; expires_at: string }>(sql, [tokenHash]);
     if (!row) return null;
 
     // Check expiration
@@ -245,7 +245,7 @@ export class UserRepository extends BaseRepository {
 
   async deleteRefreshToken(token: string): Promise<void> {
     const tokenHash = this.hashToken(token);
-    await this.execute(`DELETE FROM refresh_tokens WHERE token = ? OR token = ?`, [tokenHash, token]);
+    await this.execute(`DELETE FROM refresh_tokens WHERE token = ?`, [tokenHash]);
   }
 
   async deleteAllRefreshTokens(userId: number): Promise<void> {

@@ -9,6 +9,8 @@ import time
 from pathlib import Path
 from dotenv import load_dotenv
 import asyncio
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 try:
     from .data_sources.tushare_client import TushareClient
@@ -33,6 +35,7 @@ try:
         user_management,
         analytics,
         favorites,
+        market_insights,
     )
     from .scheduler import start_scheduler, stop_scheduler, get_scheduler_status
 except ImportError:
@@ -58,6 +61,7 @@ except ImportError:
         user_management,
         analytics,
         favorites,
+        market_insights,
     )
     from scheduler import start_scheduler, stop_scheduler, get_scheduler_status
 
@@ -78,6 +82,21 @@ def parse_cors_origins(value: str | None) -> list[str]:
 
 def is_production_environment() -> bool:
     return (os.getenv("ENV") or os.getenv("NODE_ENV") or "").strip().lower() == "production"
+
+
+def _env_flag(value: str | None, default: bool = False) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _env_int(value: str | None, default: int) -> int:
+    if value is None:
+        return default
+    try:
+        return int(value.strip())
+    except Exception:
+        return default
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -130,6 +149,78 @@ async def lifespan(app: FastAPI):
             app.state.bootstrap_task = asyncio.create_task(fetch_stocks_task())
             app.state.bootstrap_kline_task = asyncio.create_task(batch_collect_7days_task(True))
 
+    auto_bootstrap_auction = _env_flag(os.getenv("AUTO_BOOTSTRAP_AUCTION_ON_STARTUP"), default=True)
+    if auto_bootstrap_auction:
+        try:
+            from .utils.database import get_database
+        except ImportError:
+            from utils.database import get_database
+
+        try:
+            async with get_database() as db:
+                cursor = await db.execute("SELECT COUNT(*) AS cnt FROM quote_history")
+                row = await cursor.fetchone()
+                quote_history_count = int((row["cnt"] if row else 0) or 0)
+
+                cursor = await db.execute("SELECT MAX(date) AS latest_kline_date FROM klines")
+                kline_row = await cursor.fetchone()
+                latest_kline_date = str((kline_row["latest_kline_date"] if kline_row else "") or "").strip() or None
+        except Exception as e:
+            logger.warning(f"Failed to inspect quote_history bootstrap condition: {e}")
+            quote_history_count = 0
+            latest_kline_date = None
+
+        if quote_history_count == 0:
+            lookback_days = max(1, _env_int(os.getenv("AUCTION_BOOTSTRAP_LOOKBACK_DAYS"), 30))
+            allow_mock = _env_flag(
+                os.getenv("AUCTION_BOOTSTRAP_ALLOW_MOCK"),
+                default=not is_production_environment(),
+            )
+            bootstrap_target_date = latest_kline_date
+
+            async def _bootstrap_quote_history():
+                inserted_total = 0
+                try:
+                    if getattr(tushare_client, "pro", None) is not None:
+                        try:
+                            if bootstrap_target_date:
+                                end_date_dt = datetime.strptime(bootstrap_target_date, "%Y-%m-%d").date()
+                            else:
+                                end_date_dt = datetime.now(ZoneInfo("Asia/Shanghai")).date()
+                            backfill_stats = await quotes.backfill_auction_history_task(
+                                tushare_client=tushare_client,
+                                end_date_dt=end_date_dt,
+                                lookback_days=lookback_days,
+                                force=False,
+                            )
+                            inserted_total = int(backfill_stats.get("inserted") or 0)
+                            logger.info(
+                                f"Auction bootstrap backfill finished: inserted={inserted_total}, range={backfill_stats.get('startDate')}~{backfill_stats.get('endDate')}"
+                            )
+                        except Exception as e:
+                            logger.warning(f"Auction bootstrap via Tushare failed: {e}")
+                    else:
+                        logger.info("Skip Tushare auction bootstrap: Tushare client unavailable")
+
+                    if inserted_total == 0 and allow_mock:
+                        try:
+                            mock_result = await quotes.create_mock_auction_from_daily(bootstrap_target_date)
+                            inserted_total = int(mock_result.get("inserted") or 0)
+                            logger.info(f"Auction bootstrap mock finished: inserted={inserted_total}")
+                        except Exception as e:
+                            logger.warning(f"Auction bootstrap mock failed: {e}")
+
+                    if inserted_total > 0:
+                        try:
+                            from .utils.timescale_bridge import sync_recent_to_timescale
+                        except ImportError:
+                            from utils.timescale_bridge import sync_recent_to_timescale
+                        await sync_recent_to_timescale(days=45)
+                except Exception as e:
+                    logger.error(f"Quote history bootstrap task failed: {e}")
+
+            app.state.bootstrap_auction_task = asyncio.create_task(_bootstrap_quote_history())
+
     logger.info("Data service started successfully")
 
     yield
@@ -180,6 +271,7 @@ app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(user_management.router, prefix="/api/admin", tags=["user-management"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["analytics"])
 app.include_router(favorites.router, prefix="/api/favorites", tags=["favorites"])
+app.include_router(market_insights.router, prefix="/api/market-insights", tags=["market-insights"])
 
 # ==================== API 调用统计中间件 ====================
 

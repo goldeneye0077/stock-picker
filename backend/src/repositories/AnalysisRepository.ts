@@ -6,6 +6,9 @@
 import { BaseRepository } from './BaseRepository';
 import { VolumeAnalysis, FundFlow, BuySignal, MarketOverview, DateRangeOptions } from './types';
 
+export type SuperMainForceSource = 'super_mainforce_signals' | 'auction_super_mainforce';
+export type SuperMainForceStatsSource = SuperMainForceSource | 'kline_fallback';
+
 export class AnalysisRepository extends BaseRepository {
   /**
    * 鑾峰彇甯傚満姒傝鏁版嵁
@@ -101,155 +104,320 @@ export class AnalysisRepository extends BaseRepository {
       previousTurnover: this.asFiniteNumber(summary?.previous_turnover),
     };
   }
-  async hasSuperMainForceTable(): Promise<boolean> {
+  private async hasTable(tableName: SuperMainForceSource): Promise<boolean> {
     const tableCheck = await this.queryOne<{ name: string }>(`
-      SELECT name FROM sqlite_master WHERE type='table' AND name='auction_super_mainforce'
+      SELECT name FROM sqlite_master WHERE type='table' AND name='${tableName}'
     `);
     return Boolean(tableCheck?.name);
   }
 
-  async getLatestSuperMainForceTradeDate(): Promise<string | null> {
+  private async hasAnyRows(tableName: SuperMainForceSource): Promise<boolean> {
+    const row = await this.queryOne<{ stock_code?: string; ts_code?: string }>(
+      `SELECT * FROM ${tableName} LIMIT 1`
+    );
+    return Boolean(row);
+  }
+
+  async resolveSuperMainForceSource(): Promise<SuperMainForceSource | null> {
+    const [hasSignalTable, hasLegacyTable] = await Promise.all([
+      this.hasTable('super_mainforce_signals'),
+      this.hasTable('auction_super_mainforce'),
+    ]);
+
+    if (hasSignalTable && await this.hasAnyRows('super_mainforce_signals')) {
+      return 'super_mainforce_signals';
+    }
+
+    if (hasLegacyTable && await this.hasAnyRows('auction_super_mainforce')) {
+      return 'auction_super_mainforce';
+    }
+
+    return null;
+  }
+
+  async hasSuperMainForceTable(): Promise<boolean> {
+    return (await this.resolveSuperMainForceSource()) !== null;
+  }
+
+  async backfillSuperMainForceSignalsFromKlines(tradeDate: string): Promise<number> {
+    const hasSignalTable = await this.hasTable('super_mainforce_signals');
+    if (!hasSignalTable) {
+      return 0;
+    }
+
+    await this.execute(`
+      INSERT INTO super_mainforce_signals (
+        stock_code,
+        signal_date,
+        s_daily,
+        s_auction,
+        s_open,
+        s_total,
+        advice,
+        created_at
+      )
+      SELECT
+        k.stock_code,
+        TO_CHAR(k.date::date, 'YYYY-MM-DD') as signal_date,
+        ROUND(LEAST(GREATEST(((k.close - k.open) / NULLIF(k.open, 0)) * 5, 0), 1)::numeric, 4) as s_daily,
+        0 as s_auction,
+        0 as s_open,
+        ROUND(LEAST(GREATEST(((k.close - k.open) / NULLIF(k.open, 0)) * 5, 0), 1)::numeric, 4) as s_total,
+        CASE
+          WHEN ((k.close - k.open) / NULLIF(k.open, 0)) >= 0.07 THEN 'strong_buy'
+          WHEN ((k.close - k.open) / NULLIF(k.open, 0)) >= 0.05 THEN 'watchlist'
+          ELSE 'observe'
+        END as advice,
+        NOW() as created_at
+      FROM klines k
+      WHERE k.date::date = ?::date
+        AND k.open > 0
+        AND ((k.close - k.open) / k.open) >= 0.03
+      ON CONFLICT (stock_code, signal_date) DO NOTHING
+    `, [tradeDate]);
+
+    const row = await this.queryOne<{ count: number | string }>(`
+      SELECT COUNT(*) as count
+      FROM super_mainforce_signals
+      WHERE signal_date::date = ?::date
+    `, [tradeDate]);
+
+    return Number(row?.count || 0);
+  }
+
+  async backfillSuperMainForceSignalsRange(startDate: string, endDate: string): Promise<number> {
+    const hasSignalTable = await this.hasTable('super_mainforce_signals');
+    if (!hasSignalTable) {
+      return 0;
+    }
+
+    await this.execute(`
+      INSERT INTO super_mainforce_signals (
+        stock_code,
+        signal_date,
+        s_daily,
+        s_auction,
+        s_open,
+        s_total,
+        advice,
+        created_at
+      )
+      SELECT
+        k.stock_code,
+        TO_CHAR(k.date::date, 'YYYY-MM-DD') as signal_date,
+        ROUND(LEAST(GREATEST(((k.close - k.open) / NULLIF(k.open, 0)) * 5, 0), 1)::numeric, 4) as s_daily,
+        0 as s_auction,
+        0 as s_open,
+        ROUND(LEAST(GREATEST(((k.close - k.open) / NULLIF(k.open, 0)) * 5, 0), 1)::numeric, 4) as s_total,
+        CASE
+          WHEN ((k.close - k.open) / NULLIF(k.open, 0)) >= 0.07 THEN 'strong_buy'
+          WHEN ((k.close - k.open) / NULLIF(k.open, 0)) >= 0.05 THEN 'watchlist'
+          ELSE 'observe'
+        END as advice,
+        NOW() as created_at
+      FROM klines k
+      WHERE k.date::date BETWEEN ?::date AND ?::date
+        AND k.open > 0
+        AND ((k.close - k.open) / k.open) >= 0.03
+      ON CONFLICT (stock_code, signal_date) DO NOTHING
+    `, [startDate, endDate]);
+
+    const row = await this.queryOne<{ count: number | string }>(`
+      SELECT COUNT(*) as count
+      FROM super_mainforce_signals
+      WHERE signal_date::date BETWEEN ?::date AND ?::date
+    `, [startDate, endDate]);
+
+    return Number(row?.count || 0);
+  }
+
+  async getLatestSuperMainForceTradeDate(source?: SuperMainForceSource | null): Promise<string | null> {
+    const resolvedSource = source ?? await this.resolveSuperMainForceSource();
+    if (!resolvedSource) {
+      return null;
+    }
+
     const row = await this.queryOne<{ trade_date: string | null }>(`
-      SELECT MAX(trade_date) as trade_date
-      FROM auction_super_mainforce
+      SELECT
+        MAX(${resolvedSource === 'super_mainforce_signals' ? 'signal_date' : 'trade_date'}::date)::text as trade_date
+      FROM ${resolvedSource}
     `);
     return row?.trade_date || null;
   }
 
   async getLatestQuoteTradeDate(): Promise<string | null> {
     const row = await this.queryOne<{ trade_date: string | null }>(`
-      SELECT date(MAX(snapshot_time)) as trade_date
+      SELECT DATE(MAX(snapshot_time AT TIME ZONE 'Asia/Shanghai'))::text as trade_date
       FROM quote_history
     `);
     return row?.trade_date || null;
   }
 
-  async getSuperMainForcePeriodStats(
-    startDate: string,
-    endDate: string
-  ): Promise<{ selectedCount: number; limitUpCount: number; statsDays: number }> {
-    const [selectedCountResult, limitUpCountResult, statsDaysResult] = await Promise.all([
-      this.queryOne<{ count: number }>(`
-        SELECT COUNT(DISTINCT ts_code) as count
-        FROM auction_super_mainforce
-        WHERE trade_date >= ? AND trade_date <= ?
-      `, [startDate, endDate]),
-      this.queryOne<{ count: number }>(`
+  async getLatestKlineTradeDate(): Promise<string | null> {
+    const row = await this.queryOne<{ trade_date: string | null }>(`
+      SELECT MAX(date::date)::text as trade_date
+      FROM klines
+    `);
+    return row?.trade_date || null;
+  }
+
+  private buildSuperMainForceCandidatesCte(source: SuperMainForceStatsSource): string {
+    if (source === 'super_mainforce_signals') {
+      return `
         WITH candidates AS (
           SELECT DISTINCT
-            s.ts_code,
-            s.trade_date
-          FROM auction_super_mainforce s
-          WHERE s.trade_date >= ? AND s.trade_date <= ?
-        ),
+            signal_date::date as trade_date,
+            stock_code
+          FROM super_mainforce_signals
+          WHERE signal_date::date BETWEEN ?::date AND ?::date
+        )
+      `;
+    }
+
+    if (source === 'auction_super_mainforce') {
+      return `
+        WITH candidates AS (
+          SELECT DISTINCT
+            trade_date::date as trade_date,
+            LEFT(ts_code, 6) as stock_code
+          FROM auction_super_mainforce
+          WHERE trade_date::date BETWEEN ?::date AND ?::date
+        )
+      `;
+    }
+
+    return `
+      WITH candidates AS (
+        SELECT DISTINCT
+          date::date as trade_date,
+          stock_code
+        FROM klines
+        WHERE date::date BETWEEN ?::date AND ?::date
+          AND open > 0
+          AND ((close - open) / open) >= 0.03
+      )
+    `;
+  }
+
+  async getSuperMainForcePeriodStats(
+    startDate: string,
+    endDate: string,
+    source: SuperMainForceStatsSource = 'auction_super_mainforce'
+  ): Promise<{ selectedCount: number; limitUpCount: number; statsDays: number }> {
+    const candidatesCte = this.buildSuperMainForceCandidatesCte(source);
+    const [selectedCountResult, limitUpCountResult, statsDaysResult] = await Promise.all([
+      this.queryOne<{ count: number }>(`
+        ${candidatesCte}
+        SELECT COUNT(DISTINCT stock_code) as count
+        FROM candidates
+      `, [startDate, endDate]),
+      this.queryOne<{ count: number }>(`
+        ${candidatesCte},
         next_trade_day AS (
           SELECT
-            c.ts_code,
+            c.stock_code,
             c.trade_date,
             (
-              SELECT MIN(k1.date)
+              SELECT MIN(k1.date::date)
               FROM klines k1
-              WHERE k1.stock_code = substr(c.ts_code, 1, 6)
-                AND k1.date > c.trade_date
+              WHERE k1.stock_code = c.stock_code
+                AND k1.date::date > c.trade_date
             ) as next_trade_date
           FROM candidates c
         ),
         next_day_perf AS (
           SELECT
-            n.ts_code,
+            n.stock_code,
             (
               SELECT k2.high
               FROM klines k2
-              WHERE k2.stock_code = substr(n.ts_code, 1, 6)
-                AND k2.date = n.next_trade_date
+              WHERE k2.stock_code = n.stock_code
+                AND k2.date::date = n.next_trade_date
+              LIMIT 1
             ) as next_high,
             (
               SELECT k3.close
               FROM klines k3
-              WHERE k3.stock_code = substr(n.ts_code, 1, 6)
-                AND k3.date < n.next_trade_date
-              ORDER BY k3.date DESC
+              WHERE k3.stock_code = n.stock_code
+                AND k3.date::date < n.next_trade_date
+              ORDER BY k3.date::date DESC
               LIMIT 1
             ) as prev_close
           FROM next_trade_day n
           WHERE n.next_trade_date IS NOT NULL
         )
-        SELECT COUNT(DISTINCT ts_code) as count
+        SELECT COUNT(DISTINCT stock_code) as count
         FROM next_day_perf
         WHERE prev_close > 0
           AND ((next_high - prev_close) / prev_close) >= 0.095
       `, [startDate, endDate]),
       this.queryOne<{ count: number }>(`
+        ${candidatesCte}
         SELECT COUNT(DISTINCT trade_date) as count
-        FROM auction_super_mainforce
-        WHERE trade_date >= ? AND trade_date <= ?
+        FROM candidates
       `, [startDate, endDate]),
     ]);
 
     return {
-      selectedCount: selectedCountResult?.count ?? 0,
-      limitUpCount: limitUpCountResult?.count ?? 0,
-      statsDays: statsDaysResult?.count ?? 0,
+      selectedCount: Number(selectedCountResult?.count ?? 0),
+      limitUpCount: Number(limitUpCountResult?.count ?? 0),
+      statsDays: Number(statsDaysResult?.count ?? 0),
     };
   }
 
   async getSuperMainForceWeeklyComparison(
     startDate: string,
-    endDate: string
+    endDate: string,
+    source: SuperMainForceStatsSource = 'auction_super_mainforce'
   ): Promise<Array<{ date: string; selectedCount: number; limitUpCount: number; hitRate: number }>> {
+    const candidatesCte = this.buildSuperMainForceCandidatesCte(source);
     return this.query<{ date: string; selectedCount: number; limitUpCount: number; hitRate: number }>(`
-      WITH daily_selected AS (
+      ${candidatesCte},
+      daily_selected AS (
         SELECT
           trade_date,
-          COUNT(DISTINCT ts_code) as selected_count
-        FROM auction_super_mainforce
-        WHERE trade_date >= ? AND trade_date <= ?
+          COUNT(DISTINCT stock_code) as selected_count
+        FROM candidates
         GROUP BY trade_date
       ),
+      next_trade_day AS (
+        SELECT
+          c.trade_date,
+          c.stock_code,
+          (
+            SELECT MIN(k1.date::date)
+            FROM klines k1
+            WHERE k1.stock_code = c.stock_code
+              AND k1.date::date > c.trade_date
+          ) as next_trade_date
+        FROM candidates c
+      ),
+      next_day_perf AS (
+        SELECT
+          n.trade_date,
+          n.stock_code,
+          (
+            SELECT k2.high
+            FROM klines k2
+            WHERE k2.stock_code = n.stock_code
+              AND k2.date::date = n.next_trade_date
+            LIMIT 1
+          ) as next_high,
+          (
+            SELECT k3.close
+            FROM klines k3
+            WHERE k3.stock_code = n.stock_code
+              AND k3.date::date < n.next_trade_date
+            ORDER BY k3.date::date DESC
+            LIMIT 1
+          ) as prev_close
+        FROM next_trade_day n
+        WHERE n.next_trade_date IS NOT NULL
+      ),
       daily_limit_up AS (
-        WITH candidates AS (
-          SELECT DISTINCT
-            s.trade_date,
-            s.ts_code
-          FROM auction_super_mainforce s
-          WHERE s.trade_date >= ? AND s.trade_date <= ?
-        ),
-        next_trade_day AS (
-          SELECT
-            c.trade_date,
-            c.ts_code,
-            (
-              SELECT MIN(k1.date)
-              FROM klines k1
-              WHERE k1.stock_code = substr(c.ts_code, 1, 6)
-                AND k1.date > c.trade_date
-            ) as next_trade_date
-          FROM candidates c
-        ),
-        next_day_perf AS (
-          SELECT
-            n.trade_date,
-            n.ts_code,
-            (
-              SELECT k2.high
-              FROM klines k2
-              WHERE k2.stock_code = substr(n.ts_code, 1, 6)
-                AND k2.date = n.next_trade_date
-            ) as next_high,
-            (
-              SELECT k3.close
-              FROM klines k3
-              WHERE k3.stock_code = substr(n.ts_code, 1, 6)
-                AND k3.date < n.next_trade_date
-              ORDER BY k3.date DESC
-              LIMIT 1
-            ) as prev_close
-          FROM next_trade_day n
-          WHERE n.next_trade_date IS NOT NULL
-        )
         SELECT
           trade_date,
-          COUNT(DISTINCT ts_code) as limit_up_count
+          COUNT(DISTINCT stock_code) as limit_up_count
         FROM next_day_perf
         WHERE prev_close > 0
           AND ((next_high - prev_close) / prev_close) >= 0.095
@@ -269,28 +437,61 @@ export class AnalysisRepository extends BaseRepository {
         ORDER BY ds.trade_date DESC
         LIMIT 7
       )
-      SELECT date, selectedCount, limitUpCount, hitRate
+      SELECT
+        TO_CHAR(date, 'YYYY-MM-DD') as date,
+        selectedCount as "selectedCount",
+        limitUpCount as "limitUpCount",
+        hitRate as "hitRate"
       FROM merged
       ORDER BY date ASC
-    `, [startDate, endDate, startDate, endDate]);
+    `, [startDate, endDate]).then((rows) => rows.map((row) => ({
+      ...row,
+      selectedCount: Number(row.selectedCount ?? 0),
+      limitUpCount: Number(row.limitUpCount ?? 0),
+      hitRate: Number(row.hitRate ?? 0),
+    })));
   }
 
   async getMarketLimitUpSnapshot(tradeDate: string): Promise<{ count: number; limitUp: number } | null> {
-    const result = await this.queryOne<{ count: number; limit_up: number }>(`
+    const result = await this.queryOne<{ count: number | string; limit_up: number | string }>(`
       SELECT
         COUNT(DISTINCT stock_code) as count,
         SUM(CASE WHEN change_percent >= 9.5 THEN 1 ELSE 0 END) as limit_up
       FROM quote_history
-      WHERE DATE(snapshot_time) = ?
+      WHERE DATE(snapshot_time AT TIME ZONE 'Asia/Shanghai') = ?::date
     `, [tradeDate]);
 
-    if (!result || !result.count) {
+    const count = Number(result?.count || 0);
+    if (!result || count <= 0) {
       return null;
     }
 
     return {
-      count: result.count,
-      limitUp: result.limit_up ?? 0,
+      count,
+      limitUp: Number(result.limit_up || 0),
+    };
+  }
+
+  async getMarketLimitUpSnapshotFromKlines(tradeDate: string): Promise<{ count: number; limitUp: number } | null> {
+    const result = await this.queryOne<{ count: number | string; limit_up: number | string }>(`
+      SELECT
+        COUNT(DISTINCT stock_code) as count,
+        SUM(CASE
+          WHEN open > 0 AND ((close - open) / open) >= 0.095 THEN 1
+          ELSE 0
+        END) as limit_up
+      FROM klines
+      WHERE date::date = ?::date
+    `, [tradeDate]);
+
+    const count = Number(result?.count || 0);
+    if (!result || count <= 0) {
+      return null;
+    }
+
+    return {
+      count,
+      limitUp: Number(result.limit_up || 0),
     };
   }
   async getBuySignals(days: number = 7): Promise<any[]> {
@@ -835,11 +1036,11 @@ export class AnalysisRepository extends BaseRepository {
     if (tradeDate) {
       const row = await this.queryOne<{ trade_date: string; snapshot_time: string }>(
         `
-        SELECT date(substr(snapshot_time, 1, 10)) as trade_date, MAX(snapshot_time) as snapshot_time
+        SELECT DATE(snapshot_time AT TIME ZONE 'Asia/Shanghai')::text as trade_date, MAX(snapshot_time)::text as snapshot_time
         FROM quote_history
-        WHERE date(substr(snapshot_time, 1, 10)) <= ?
-          AND time(substr(snapshot_time, 12)) BETWEEN '09:20:00' AND '09:30:00'
-        GROUP BY trade_date
+        WHERE DATE(snapshot_time AT TIME ZONE 'Asia/Shanghai') <= ?::date
+          AND (snapshot_time AT TIME ZONE 'Asia/Shanghai')::time BETWEEN TIME '09:20:00' AND TIME '09:30:00'
+        GROUP BY DATE(snapshot_time AT TIME ZONE 'Asia/Shanghai')
         ORDER BY trade_date DESC
         LIMIT 1
         `,
@@ -850,10 +1051,10 @@ export class AnalysisRepository extends BaseRepository {
     } else {
       const row = await this.queryOne<{ trade_date: string; snapshot_time: string }>(
         `
-        SELECT date(substr(snapshot_time, 1, 10)) as trade_date, MAX(snapshot_time) as snapshot_time
+        SELECT DATE(snapshot_time AT TIME ZONE 'Asia/Shanghai')::text as trade_date, MAX(snapshot_time)::text as snapshot_time
         FROM quote_history
-        WHERE time(substr(snapshot_time, 12)) BETWEEN '09:20:00' AND '09:30:00'
-        GROUP BY trade_date
+        WHERE (snapshot_time AT TIME ZONE 'Asia/Shanghai')::time BETWEEN TIME '09:20:00' AND TIME '09:30:00'
+        GROUP BY DATE(snapshot_time AT TIME ZONE 'Asia/Shanghai')
         ORDER BY trade_date DESC
         LIMIT 1
         `
@@ -880,9 +1081,9 @@ export class AnalysisRepository extends BaseRepository {
         COALESCE(db0.close, k.close, q.close) as closePrice,
         CASE
           WHEN k.close IS NOT NULL AND k.open IS NOT NULL AND k.open > 0
-            THEN ROUND(((k.close - k.open) / k.open * 100), 2)
+            THEN ROUND((((k.close - k.open) / k.open * 100)::numeric), 2)
           WHEN db0.close IS NOT NULL AND q.pre_close IS NOT NULL AND q.pre_close > 0
-            THEN ROUND(((db0.close - q.pre_close) / q.pre_close * 100), 2)
+            THEN ROUND((((db0.close - q.pre_close) / q.pre_close * 100)::numeric), 2)
           ELSE q.change_percent
         END as changePercent,
         COALESCE(db0.turnover_rate, 0) as turnoverRate,
@@ -933,17 +1134,17 @@ export class AnalysisRepository extends BaseRepository {
     const rows = await this.query<{ stock: string; avgVol: number }>(
       `
       WITH recent_days AS (
-        SELECT DISTINCT date(substr(snapshot_time, 1, 10)) AS d
+        SELECT DISTINCT DATE(snapshot_time AT TIME ZONE 'Asia/Shanghai') AS d
         FROM quote_history
-        WHERE date(substr(snapshot_time, 1, 10)) < ?
-          AND time(substr(snapshot_time, 12)) BETWEEN '09:20:00' AND '09:30:00'
+        WHERE DATE(snapshot_time AT TIME ZONE 'Asia/Shanghai') < ?::date
+          AND (snapshot_time AT TIME ZONE 'Asia/Shanghai')::time BETWEEN TIME '09:20:00' AND TIME '09:30:00'
         ORDER BY d DESC
         LIMIT ?
       )
       SELECT q.stock_code AS stock, AVG(q.vol) AS avgVol
       FROM quote_history q
-      WHERE date(substr(q.snapshot_time, 1, 10)) IN (SELECT d FROM recent_days)
-        AND time(substr(q.snapshot_time, 12)) BETWEEN '09:20:00' AND '09:30:00'
+      WHERE DATE(q.snapshot_time AT TIME ZONE 'Asia/Shanghai') IN (SELECT d FROM recent_days)
+        AND (q.snapshot_time AT TIME ZONE 'Asia/Shanghai')::time BETWEEN TIME '09:20:00' AND TIME '09:30:00'
         AND q.stock_code IN (${placeholders})
       GROUP BY q.stock_code
       `,

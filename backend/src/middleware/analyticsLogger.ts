@@ -49,8 +49,8 @@ export function apiLoggerMiddleware(req: Request, res: Response, next: NextFunct
                 if (bearerToken) {
                     const tokenHash = hashToken(bearerToken);
                     const sessionRow = await db.get(
-                        `SELECT user_id FROM sessions WHERE token = ? OR token = ? LIMIT 1`,
-                        [tokenHash, bearerToken]
+                        `SELECT user_id FROM sessions WHERE token = ? LIMIT 1`,
+                        [tokenHash]
                     );
                     userId = sessionRow?.user_id ?? null;
                 }

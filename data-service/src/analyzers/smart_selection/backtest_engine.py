@@ -4,7 +4,6 @@
 """
 
 import asyncio
-import sqlite3
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -21,9 +20,9 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 try:
-    from ...utils.database import DATABASE_PATH
+    from ...utils.database import DATABASE_PATH, get_database
 except ImportError:
-    from utils.database import DATABASE_PATH
+    from utils.database import DATABASE_PATH, get_database
 
 
 class BacktestEngine:
@@ -45,6 +44,14 @@ class BacktestEngine:
 
         # 初始化智能选股分析器
         self.selection_analyzer = SmartSelectionAnalyzer(self.db_path)
+
+    async def _query_dataframe(self, query: str, params: Tuple[Any, ...] = ()) -> pd.DataFrame:
+        async with get_database() as db:
+            cursor = await db.execute(query, params)
+            rows = await cursor.fetchall()
+        if not rows:
+            return pd.DataFrame()
+        return pd.DataFrame([dict(row) for row in rows])
 
     async def run_backtest(
         self,
@@ -137,15 +144,13 @@ class BacktestEngine:
         """获取交易日历"""
         try:
             logger.info(f"获取交易日历: {start_date} 到 {end_date}, 数据库路径: {self.db_path}")
-            conn = sqlite3.connect(self.db_path)
             query = """
                 SELECT DISTINCT date as trade_date
                 FROM klines
                 WHERE date BETWEEN ? AND ?
                 ORDER BY date
             """
-            df = pd.read_sql_query(query, conn, params=(start_date, end_date))
-            conn.close()
+            df = await self._query_dataframe(query, (start_date, end_date))
 
             dates = df['trade_date'].tolist()
             logger.info(f"获取到 {len(dates)} 个交易日")
@@ -204,7 +209,6 @@ class BacktestEngine:
         这是一个过渡方案，后续需要集成完整的智能选股算法
         """
         try:
-            conn = sqlite3.connect(self.db_path)
 
             # 获取权重配置
             weights = strategy_config.get('weights', {
@@ -229,7 +233,7 @@ class BacktestEngine:
                 LIMIT 50  -- 限制数量提高性能
             """
 
-            df_stocks = pd.read_sql_query(query, conn, params=(current_date, current_date))
+            df_stocks = await self._query_dataframe(query, (current_date, current_date))
             if df_stocks.empty:
                 logger.warning(f"{current_date} 无股票数据")
                 return []
@@ -285,7 +289,6 @@ class BacktestEngine:
                 if overall_score >= min_score:
                     results.append(result)
 
-            conn.close()
 
             max_results = strategy_config.get('max_results', 10)
 
@@ -311,7 +314,6 @@ class BacktestEngine:
     ) -> float:
         """基于历史数据计算技术面评分"""
         try:
-            conn = sqlite3.connect(self.db_path)
 
             # 获取最近5天的K线数据
             query = """
@@ -323,8 +325,7 @@ class BacktestEngine:
                 LIMIT 5
             """
 
-            df = pd.read_sql_query(query, conn, params=(stock_code, current_date))
-            conn.close()
+            df = await self._query_dataframe(query, (stock_code, current_date))
 
             if df.empty or len(df) < 2:
                 return 50.0  # 默认分
@@ -371,7 +372,6 @@ class BacktestEngine:
     ) -> float:
         """基于历史数据计算基本面评分"""
         try:
-            conn = sqlite3.connect(self.db_path)
 
             # 尝试获取基本面数据
             query = """
@@ -383,8 +383,7 @@ class BacktestEngine:
                 LIMIT 1
             """
 
-            df = pd.read_sql_query(query, conn, params=(stock_code, current_date))
-            conn.close()
+            df = await self._query_dataframe(query, (stock_code, current_date))
 
             if df.empty:
                 return 50.0  # 默认分
@@ -580,7 +579,6 @@ class BacktestEngine:
     async def _get_stock_price(self, stock_code: str, date: str) -> float:
         """获取股票价格"""
         try:
-            conn = sqlite3.connect(self.db_path)
             # 优先使用当日收盘价；若当日无数据，回退到最近一个交易日的收盘价（<= 指定日期）
             query = """
                 SELECT close
@@ -589,8 +587,7 @@ class BacktestEngine:
                 ORDER BY date DESC
                 LIMIT 1
             """
-            df = pd.read_sql_query(query, conn, params=(stock_code, date))
-            conn.close()
+            df = await self._query_dataframe(query, (stock_code, date))
 
             if not df.empty:
                 return float(df.iloc[0]['close'])

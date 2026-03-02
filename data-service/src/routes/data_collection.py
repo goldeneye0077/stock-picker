@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import asyncio
 import os
-from .quotes import update_auction_from_tushare_task
+from .quotes import create_mock_auction_from_daily, update_auction_from_tushare_task
 
 router = APIRouter()
 
@@ -67,8 +67,10 @@ class RunScriptRequest(BaseModel):
     """运行脚本请求体"""
     script_name: str
 
-def _env_flag(value: str | None) -> bool:
-    return (value or "").strip().lower() in {"1", "true", "yes", "y", "on"}
+def _env_flag(value: str | None, default: bool = False) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 RUN_SCRIPT_ENABLED = _env_flag(os.getenv("ENABLE_RUN_SCRIPT_ENDPOINT", "0"))
 
@@ -632,20 +634,38 @@ async def batch_collect_7days_task(include_moneyflow: bool = True, include_aucti
         # 7. 批量采集合竞价数据（可选，使用 Tushare stk_auction）
         total_auctions = 0
         if include_auction:
+            allow_mock_auction_fallback = _env_flag(
+                os.getenv("ALLOW_MOCK_AUCTION_FALLBACK"),
+                default=(os.getenv("ENV", "development").strip().lower() != "production"),
+            )
             tushare_client = TushareClient()
             if tushare_client.is_available():
                 logger.info("开始批量采集合竞价数据（Tushare stk_auction）...")
                 for i, trade_date in enumerate(trading_days, 1):
                     logger.info(f"[{i}/{len(trading_days)}] 下载 {trade_date} 集合竞价...")
                     inserted = await update_auction_from_tushare_task(tushare_client, trade_date)
+                    if int(inserted or 0) == 0 and allow_mock_auction_fallback:
+                        try:
+                            mock_result = await create_mock_auction_from_daily(trade_date)
+                            inserted = int((mock_result or {}).get("inserted") or 0)
+                        except Exception as mock_error:
+                            logger.warning(f"Mock auction fallback failed for {trade_date}: {mock_error}")
                     total_auctions += int(inserted or 0)
                     await asyncio.sleep(0.5)
             else:
                 logger.info("Tushare 数据源不可用，跳过集合竞价采集")
 
+        timescale_sync_stats = {"enabled": False, "synced": False}
+        try:
+            from ..utils.timescale_bridge import sync_recent_to_timescale
+            timescale_sync_stats = await sync_recent_to_timescale(days=45)
+        except Exception as sync_error:
+            logger.warning(f"Timescale sync skipped: {sync_error}")
+
         elapsed_time = time_module.time() - start_time
         logger.info(
-            f"批量数据采集完成！K线: {total_klines} 条, 个股资金流向: {total_flows} 条, 大盘资金流向: {total_market_flows} 条, 技术指标: {total_indicators} 条, 集合竞价: {total_auctions} 条, 耗时: {elapsed_time:.1f}秒"
+            f"批量数据采集完成！K线: {total_klines} 条, 个股资金流向: {total_flows} 条, 大盘资金流向: {total_market_flows} 条, "
+            f"技术指标: {total_indicators} 条, 集合竞价: {total_auctions} 条, Timescale同步: {timescale_sync_stats}, 耗时: {elapsed_time:.1f}秒"
         )
 
         try:
@@ -696,14 +716,14 @@ async def get_collection_status(_: dict = Depends(require_admin_or_local)):
             # Count stocks with recent data
             cursor = await db.execute("""
                 SELECT COUNT(DISTINCT stock_code) as count FROM klines
-                WHERE date >= date('now', '-7 days')
+                WHERE CAST(date AS DATE) >= date('now', '-7 days')
             """)
             recent_data_count = await cursor.fetchone()
 
             # Count volume analysis records
             cursor = await db.execute("""
                 SELECT COUNT(*) as count FROM volume_analysis
-                WHERE date >= date('now', '-7 days')
+                WHERE CAST(date AS DATE) >= date('now', '-7 days')
             """)
             analysis_count = await cursor.fetchone()
 
@@ -976,12 +996,12 @@ async def get_data_quality_metrics(days: int = 7, _: dict = Depends(require_admi
     try:
         async with get_database() as db:
             # 获取最近N天的数据质量指标
-            cursor = await db.execute("""
+            cursor = await db.execute(f"""
                 SELECT monitor_date, metric_name, metric_value, status, alert_message, created_at
                 FROM data_quality_monitor
-                WHERE monitor_date >= date('now', ?)
+                WHERE CAST(monitor_date AS DATE) >= date('now', '-{max(1, min(int(days), 365))} days')
                 ORDER BY monitor_date DESC, metric_name
-            """, (f'-{days} days',))
+            """)
 
             rows = await cursor.fetchall()
 
@@ -1002,11 +1022,11 @@ async def get_data_quality_metrics(days: int = 7, _: dict = Depends(require_admi
             # 计算趋势
             trends = {}
             for metric_name in ["overall_score", "kline_coverage", "flow_coverage"]:
-                cursor = await db.execute("""
+                cursor = await db.execute(f"""
                     SELECT metric_value FROM data_quality_monitor
-                    WHERE metric_name = ? AND monitor_date >= date('now', ?)
+                    WHERE metric_name = ? AND CAST(monitor_date AS DATE) >= date('now', '-{max(1, min(int(days), 365))} days')
                     ORDER BY monitor_date
-                """, (metric_name, f'-{days} days'))
+                """, (metric_name,))
 
                 values = [row[0] for row in await cursor.fetchall()]
                 if len(values) >= 2:
@@ -1292,15 +1312,17 @@ async def get_quality_alerts(limit: int = 10, days: int = 7, _: dict = Depends(r
         days: 查询最近N天的记录，默认7天
     """
     try:
+        safe_days = max(1, min(int(days), 365))
+        safe_limit = max(1, min(int(limit), 500))
         async with get_database() as db:
-            cursor = await db.execute("""
+            cursor = await db.execute(f"""
                 SELECT monitor_date, metric_name, metric_value, threshold,
                        status, alert_message, created_at
                 FROM data_quality_monitor
-                WHERE monitor_date >= date('now', ?)
+                WHERE CAST(monitor_date AS DATE) >= date('now', '-{safe_days} days')
                 ORDER BY created_at DESC
-                LIMIT ?
-            """, (f'-{days} days', limit))
+                LIMIT {safe_limit}
+            """)
 
             rows = await cursor.fetchall()
 
@@ -1320,7 +1342,7 @@ async def get_quality_alerts(limit: int = 10, days: int = 7, _: dict = Depends(r
                 "success": True,
                 "data": {
                     "total_alerts": len(alerts),
-                    "days": days,
+                    "days": safe_days,
                     "alerts": alerts
                 }
             }
@@ -1339,14 +1361,15 @@ async def get_quality_trend(days: int = 30, _: dict = Depends(require_admin_or_l
         days: 查询最近N天的趋势，默认30天
     """
     try:
+        safe_days = max(1, min(int(days), 365))
         async with get_database() as db:
             # 获取每日总体评分趋势
-            cursor = await db.execute("""
+            cursor = await db.execute(f"""
                 SELECT monitor_date, metric_value
                 FROM data_quality_monitor
-                WHERE metric_name = 'overall_score' AND monitor_date >= date('now', ?)
+                WHERE metric_name = 'overall_score' AND CAST(monitor_date AS DATE) >= date('now', '-{safe_days} days')
                 ORDER BY monitor_date
-            """, (f'-{days} days',))
+            """)
 
             rows = await cursor.fetchall()
 
@@ -1381,7 +1404,7 @@ async def get_quality_trend(days: int = 30, _: dict = Depends(require_admin_or_l
             return {
                 "success": True,
                 "data": {
-                    "days": days,
+                    "days": safe_days,
                     "trend_data": trend_data,
                     "statistics": {
                         "average_score": round(avg_score, 2),

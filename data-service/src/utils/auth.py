@@ -20,7 +20,11 @@ def _to_iso(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).replace(microsecond=0).isoformat()
 
 
-def _from_iso(value: str) -> datetime:
+def _from_iso(value: str | datetime) -> datetime:
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 

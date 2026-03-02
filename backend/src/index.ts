@@ -4,9 +4,11 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
 import { createServer } from 'http';
-import { WebSocketServer } from 'ws';
+import { WebSocket, WebSocketServer } from 'ws';
 import swaggerUi from 'swagger-ui-express';
 import { initDatabase } from './config/database';
+import { initRedis, getRedisClient, closeRedis } from './config/redis';
+import { checkTimescaleAvailability, closeTimescale } from './config/timescale';
 import { swaggerSpec } from './config/swagger';
 import stockRoutes from './routes/stocks';
 import analysisRoutes from './routes/analysis';
@@ -18,13 +20,18 @@ import dashboardRoutes from './routes/dashboard';
 import superMainForceRoutes from './routes/superMainForce';
 import { authRoutes, adminRoutes } from './routes/auth';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
+import { apiLoggerMiddleware } from './middleware/analyticsLogger';
 
 dotenv.config();
+
+type TrackedWebSocket = WebSocket & { isAlive?: boolean };
+type LiveEvent = Record<string, unknown> & { type: string };
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 const enableSwagger = process.env.ENABLE_SWAGGER !== 'false';
 const isProduction = process.env.NODE_ENV === 'production';
+const marketEventChannel = process.env.MARKET_EVENT_CHANNEL || 'market:events';
 
 function parseCorsOrigins(value?: string): string[] {
   if (!value) return [];
@@ -41,6 +48,51 @@ function parseTrustProxy(value?: string): boolean | number | string {
   if (normalized === 'false') return false;
   if (/^\d+$/.test(normalized)) return Number(normalized);
   return value;
+}
+
+function safeParseJson(raw: string): LiveEvent {
+  try {
+    const payload = JSON.parse(raw);
+    if (payload && typeof payload === 'object' && typeof payload.type === 'string') {
+      return payload as LiveEvent;
+    }
+  } catch (_error) {
+    // Ignore parse error and fallback to plain message wrapper.
+  }
+  return {
+    type: 'market_event',
+    payload: raw,
+  };
+}
+
+function sendSocketMessage(ws: WebSocket, payload: Record<string, unknown>): void {
+  if (ws.readyState !== WebSocket.OPEN) {
+    return;
+  }
+  ws.send(JSON.stringify(payload));
+}
+
+function broadcast(wss: WebSocketServer, payload: Record<string, unknown>): void {
+  const serialized = JSON.stringify(payload);
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(serialized);
+    }
+  });
+}
+
+function attachHeartbeat(wss: WebSocketServer): NodeJS.Timeout {
+  return setInterval(() => {
+    wss.clients.forEach((client) => {
+      const ws = client as TrackedWebSocket;
+      if (ws.isAlive === false) {
+        ws.terminate();
+        return;
+      }
+      ws.isAlive = false;
+      ws.ping();
+    });
+  }, 30000);
 }
 
 // Middleware
@@ -69,9 +121,6 @@ app.use(cors({
 app.use(morgan('combined'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-// Analytics logging middleware (must be after body parsing)
-import { apiLoggerMiddleware } from './middleware/analyticsLogger';
 app.use(apiLoggerMiddleware);
 
 if (enableSwagger) {
@@ -80,7 +129,7 @@ if (enableSwagger) {
     customSiteTitle: '智能选股系统 API 文档'
   }));
 
-  app.get('/api-docs.json', (req, res) => {
+  app.get('/api-docs.json', (_req, res) => {
     res.setHeader('Content-Type', 'application/json');
     res.send(swaggerSpec);
   });
@@ -99,53 +148,155 @@ app.use('/api/home', dashboardRoutes);
 app.use('/api/analysis/super-main-force', superMainForceRoutes);
 
 // Health check
-app.get('/health', (req, res) => {
+app.get('/health', (_req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-// 404 处理 - 必须在所有路由之后
 app.use(notFoundHandler);
-
-// 全局错误处理中间件 - 必须在最后
 app.use(errorHandler);
 
-// Create HTTP server
 const server = createServer(app);
-
-// Create WebSocket server
 const wss = new WebSocketServer({ server });
 
+const heartbeatTimer = attachHeartbeat(wss);
+let redisSubscriber: any = null;
+
 wss.on('connection', (ws) => {
-  console.log('WebSocket client connected');
+  const client = ws as TrackedWebSocket;
+  client.isAlive = true;
 
-  // Send welcome message
-  ws.send(JSON.stringify({
+  sendSocketMessage(client, {
     type: 'welcome',
-    message: 'Connected to Stock Picker WebSocket'
-  }));
-
-  ws.on('message', (message) => {
-    console.log('Received:', message.toString());
+    message: 'Connected to Stock Picker realtime bus',
+    channels: [marketEventChannel],
+    timestamp: new Date().toISOString(),
   });
 
-  ws.on('close', () => {
-    console.log('WebSocket client disconnected');
+  ws.on('pong', () => {
+    client.isAlive = true;
+  });
+
+  ws.on('message', (message) => {
+    const parsed = safeParseJson(message.toString());
+    if (parsed.type === 'ping') {
+      sendSocketMessage(ws, { type: 'pong', timestamp: new Date().toISOString() });
+      return;
+    }
+    if (parsed.type === 'subscribe') {
+      sendSocketMessage(ws, {
+        type: 'subscribed',
+        channels: [marketEventChannel],
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+    sendSocketMessage(ws, {
+      type: 'ack',
+      eventType: parsed.type,
+      timestamp: new Date().toISOString(),
+    });
   });
 });
 
-// Initialize database and start server
+async function startRedisRealtimeBridge(): Promise<void> {
+  const redisClient = getRedisClient();
+  if (!redisClient) {
+    return;
+  }
+
+  redisSubscriber = redisClient.duplicate();
+  await redisSubscriber.connect();
+  await redisSubscriber.subscribe(marketEventChannel, (message: string) => {
+    const event = safeParseJson(message);
+    broadcast(wss, {
+      ...event,
+      channel: marketEventChannel,
+      pushedAt: new Date().toISOString(),
+    });
+  });
+
+  console.log(`[realtime] subscribed channel: ${marketEventChannel}`);
+}
+
+async function stopRedisRealtimeBridge(): Promise<void> {
+  if (!redisSubscriber) {
+    return;
+  }
+  try {
+    await redisSubscriber.unsubscribe(marketEventChannel);
+    await redisSubscriber.quit();
+  } catch (error) {
+    console.error('[realtime] failed to close redis subscriber:', error);
+  } finally {
+    redisSubscriber = null;
+  }
+}
+
+let shuttingDown = false;
+async function shutdown(signal: string): Promise<void> {
+  if (shuttingDown) {
+    return;
+  }
+  shuttingDown = true;
+
+  console.log(`[server] received ${signal}, shutting down...`);
+  clearInterval(heartbeatTimer);
+  wss.clients.forEach((client) => {
+    try {
+      client.close();
+    } catch (_error) {
+      // Ignore close failures.
+    }
+  });
+
+  await stopRedisRealtimeBridge();
+  await closeRedis();
+  await closeTimescale();
+
+  server.close((error?: Error) => {
+    if (error) {
+      console.error('[server] close failed:', error);
+      process.exit(1);
+      return;
+    }
+    process.exit(0);
+  });
+}
+
+process.on('SIGTERM', () => { void shutdown('SIGTERM'); });
+process.on('SIGINT', () => { void shutdown('SIGINT'); });
+
 async function startServer() {
   try {
     await initDatabase();
     console.log('Database initialized successfully');
 
+    try {
+      await initRedis();
+    } catch (error) {
+      console.warn('[redis] unavailable, cache/realtime degraded:', error);
+    }
+
+    try {
+      const tsReady = await checkTimescaleAvailability();
+      console.log(`[timescale] ${tsReady ? 'ready' : 'disabled/unavailable'}`);
+    } catch (error) {
+      console.warn('[timescale] check failed:', error);
+    }
+
+    try {
+      await startRedisRealtimeBridge();
+    } catch (error) {
+      console.warn('[realtime] redis bridge disabled:', error);
+    }
+
     server.listen(PORT, () => {
-      console.log(`🚀 Server running on port ${PORT}`);
-      console.log(`📊 Stock Picker API: http://localhost:${PORT}`);
+      console.log(`Server running on port ${PORT}`);
+      console.log(`Stock Picker API: http://localhost:${PORT}`);
       if (enableSwagger) {
-        console.log(`📚 API Documentation: http://localhost:${PORT}/api-docs`);
+        console.log(`API Documentation: http://localhost:${PORT}/api-docs`);
       }
-      console.log(`🔌 WebSocket: ws://localhost:${PORT}`);
+      console.log(`WebSocket: ws://localhost:${PORT}`);
     });
   } catch (error) {
     console.error('Failed to start server:', error);

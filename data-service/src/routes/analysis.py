@@ -1228,7 +1228,11 @@ async def get_auction_super_main_force(
                 return default_profile
 
             samples: list[dict[str, Any]] = []
+            shanghai_tz = ZoneInfo("Asia/Shanghai")
             for d in trade_days:
+                day_obj = datetime.strptime(d, "%Y-%m-%d").date()
+                day_window_start = datetime.combine(day_obj, datetime.strptime("09:20:00", "%H:%M:%S").time(), tzinfo=shanghai_tz)
+                day_window_end = datetime.combine(day_obj, datetime.strptime("09:31:00", "%H:%M:%S").time(), tzinfo=shanghai_tz)
                 cursor = await db_conn.execute(
                     """
                     SELECT snapshot_time AS st
@@ -1238,10 +1242,10 @@ async def get_auction_super_main_force(
                     ORDER BY snapshot_time DESC
                     LIMIT 1
                     """,
-                    (f"{d} 09:20:00", f"{d} 09:31:00"),
+                    (day_window_start, day_window_end),
                 )
                 st_row = await cursor.fetchone()
-                snapshot_time = str(st_row["st"]) if st_row and st_row["st"] else ""
+                snapshot_time = st_row["st"] if st_row and st_row["st"] else None
                 if not snapshot_time:
                     cursor = await db_conn.execute(
                         """
@@ -1252,10 +1256,10 @@ async def get_auction_super_main_force(
                         ORDER BY snapshot_time DESC
                         LIMIT 1
                         """,
-                        (d,),
+                        (day_obj,),
                     )
                     st_row = await cursor.fetchone()
-                    snapshot_time = str(st_row["st"]) if st_row and st_row["st"] else ""
+                    snapshot_time = st_row["st"] if st_row and st_row["st"] else None
                 if not snapshot_time:
                     continue
 
@@ -1520,18 +1524,9 @@ async def get_auction_super_main_force(
             target_date = None
 
             if trade_date:
-                s = str(trade_date).strip()
-                dt = None
-                try:
-                    if len(s) >= 10 and "-" in s:
-                        dt = datetime.strptime(s[:10], "%Y-%m-%d").date()
-                    elif len(s) == 8 and s.isdigit():
-                        dt = datetime.strptime(s, "%Y%m%d").date()
-                except Exception:
-                    dt = None
-
-                if dt:
-                    target_date = dt.strftime("%Y-%m-%d")
+                parsed_trade_date = _parse_trade_date_param(str(trade_date))
+                if parsed_trade_date:
+                    target_date = parsed_trade_date.strftime("%Y-%m-%d")
 
             if not target_date:
                 cursor = await db.execute(
@@ -1561,7 +1556,7 @@ async def get_auction_super_main_force(
                     FROM quote_history
                     WHERE DATE(snapshot_time) <= DATE(?)
                     """,
-                    (target_date,),
+                    (datetime.strptime(target_date, "%Y-%m-%d").date(),),
                 )
                 row = await cursor.fetchone()
                 if row and row["d"]:
@@ -1569,9 +1564,11 @@ async def get_auction_super_main_force(
 
             data_source = "quote_history"
 
-            desired_snapshot_time = f"{target_date} 09:26:00"
-            window_start = f"{target_date} 09:20:00"
-            window_end = f"{target_date} 09:31:00"
+            shanghai_tz = ZoneInfo("Asia/Shanghai")
+            target_date_obj = datetime.strptime(target_date, "%Y-%m-%d").date()
+            desired_snapshot_time = datetime.combine(target_date_obj, datetime.strptime("09:26:00", "%H:%M:%S").time(), tzinfo=shanghai_tz)
+            window_start = datetime.combine(target_date_obj, datetime.strptime("09:20:00", "%H:%M:%S").time(), tzinfo=shanghai_tz)
+            window_end = datetime.combine(target_date_obj, datetime.strptime("09:31:00", "%H:%M:%S").time(), tzinfo=shanghai_tz)
 
             snapshot_time = desired_snapshot_time
             cursor = await db.execute(
@@ -1587,7 +1584,7 @@ async def get_auction_super_main_force(
             )
             row = await cursor.fetchone()
             if row and row["st"]:
-                snapshot_time = str(row["st"])
+                snapshot_time = row["st"]
             else:
                 cursor = await db.execute(
                     """
@@ -1598,11 +1595,11 @@ async def get_auction_super_main_force(
                     ORDER BY snapshot_time DESC
                     LIMIT 1
                     """,
-                    (target_date,),
+                    (target_date_obj,),
                 )
                 row = await cursor.fetchone()
                 if row and row["st"]:
-                    snapshot_time = str(row["st"])
+                    snapshot_time = row["st"]
             cursor = await db.execute(
                 """
                 SELECT
@@ -1830,39 +1827,7 @@ async def get_auction_super_main_force(
                             "close_price": float(row["close_price"]),
                         }
 
-                # 盘中场景：当天的 daily_basic/klines 可能尚未落地，回退到实时行情 close/change_percent。
-                missing_codes = [c for c in stock_codes if c not in closing_info_map]
-                if missing_codes:
-                    today_shanghai = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d")
-                    if trade_date_ret == today_shanghai:
-                        placeholders_ci3 = ",".join(["?"] * len(missing_codes))
-                        cursor = await db.execute(
-                            f"""
-                            SELECT stock_code as stock, close as close_price, change_percent
-                            FROM realtime_quotes
-                            WHERE stock_code IN ({placeholders_ci3})
-                              AND close IS NOT NULL
-                              AND close > 0
-                            """,
-                            (*missing_codes,),
-                        )
-                        ci_rows = await cursor.fetchall()
-                        for row in ci_rows:
-                            stock = str(row["stock"] or "")
-                            if not stock:
-                                continue
-                            if row["close_price"] is None:
-                                continue
-                            change_percent_val = None
-                            if row["change_percent"] is not None:
-                                try:
-                                    change_percent_val = float(row["change_percent"])
-                                except Exception:
-                                    change_percent_val = None
-                            closing_info_map[stock] = {
-                                "close_price": float(row["close_price"]),
-                                "change_percent": change_percent_val,
-                            }
+                # 盘中场景不回退 realtime_quotes：若当日收盘价尚未落地，则 close/changePercent 留空。
 
                 # --- P0-1: 查询前5日K线数据 ---
                 cursor = await db.execute(
@@ -1910,7 +1875,7 @@ async def get_auction_super_main_force(
                            AVG(COALESCE(large_order_ratio, 0)) as avg_large_order
                     FROM fund_flow
                     WHERE stock_code IN ({placeholders})
-                      AND date >= DATE(?, '-7 days') AND date < ?
+                      AND CAST(date AS DATE) >= DATE(?, '-7 days') AND CAST(date AS DATE) < DATE(?)
                     GROUP BY stock_code
                     """,
                     (*stock_codes, trade_date_ret, trade_date_ret),
@@ -1977,12 +1942,12 @@ async def get_auction_super_main_force(
                                     continue
                                 stock_code = con_code.split(".")[0] if "." in con_code else con_code
                                 con_name = str(r.get("con_name") or "").strip()
-                                desc = str(r.get("desc") or "").strip()
+                                description = str(r.get("desc") or "").strip()
                                 hot_num = float(r.get("hot_num") or 0.0) if pd.notna(r.get("hot_num")) else 0.0
                                 await db.execute(
                                     """
                                     INSERT OR REPLACE INTO kpl_concept_cons
-                                    (trade_date, ts_code, name, stock_code, con_code, con_name, desc, hot_num, created_at)
+                                    (trade_date, ts_code, name, stock_code, con_code, con_name, description, hot_num, created_at)
                                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                                     """,
                                     (
@@ -1992,7 +1957,7 @@ async def get_auction_super_main_force(
                                         stock_code,
                                         con_code,
                                         con_name,
-                                        desc,
+                                        description,
                                         hot_num,
                                     ),
                                 )
@@ -2082,6 +2047,13 @@ async def get_auction_super_main_force(
                             "hot_num": float(r["hot_num"] or 0.0),
                         })
 
+        now_shanghai = datetime.now(ZoneInfo("Asia/Shanghai"))
+        today_shanghai = now_shanghai.strftime("%Y-%m-%d")
+        is_today_before_close = (
+            trade_date_ret == today_shanghai
+            and now_shanghai.strftime("%H:%M:%S") < "15:00:00"
+        )
+
         pool: list[dict] = []
 
         for r in records:
@@ -2113,11 +2085,8 @@ async def get_auction_super_main_force(
             close_price_raw = closing_info.get("close_price")
             close_price = float(close_price_raw) if close_price_raw is not None else None
             change_percent_close = None
-            if closing_info.get("change_percent") is not None:
-                try:
-                    change_percent_close = float(closing_info.get("change_percent"))
-                except Exception:
-                    change_percent_close = None
+            if is_today_before_close:
+                close_price = None
             if pre_close > 0 and close_price is not None and close_price > 0:
                 # 优先使用 pre_close 重新计算，保证口径一致。
                 change_percent_close = (close_price - pre_close) / pre_close * 100.0

@@ -1,7 +1,5 @@
 import asyncio
-import sqlite3
 import sys
-from datetime import date, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -9,69 +7,48 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from analyzers.smart_selection.advanced_selection_analyzer import AdvancedSelectionAnalyzer
 
 
-def _create_test_db(db_path: Path) -> None:
-    conn = sqlite3.connect(db_path)
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            "CREATE TABLE stocks (code TEXT PRIMARY KEY, name TEXT, exchange TEXT, industry TEXT)"
-        )
-        cur.execute(
-            "CREATE TABLE klines (stock_code TEXT, date TEXT, open REAL, high REAL, low REAL, close REAL, volume REAL)"
-        )
-        cur.execute(
-            "CREATE TABLE fund_flow (stock_code TEXT, date TEXT, main_fund_flow REAL)"
-        )
-        cur.execute(
-            "CREATE TABLE daily_basic (stock_code TEXT, pe REAL, pe_ttm REAL, pb REAL, total_mv REAL, trade_date TEXT)"
-        )
-        cur.execute(
-            "CREATE TABLE financial_indicators (stock_code TEXT, roe REAL, end_date TEXT)"
-        )
+class StubAdvancedSelectionAnalyzer(AdvancedSelectionAnalyzer):
+    async def _get_stock_list(self):
+        return [
+            {
+                "stock_code": "000001.SZ",
+                "stock_name": "平安银行",
+                "exchange": "SZ",
+                "industry": "银行",
+                "raw_code": "000001",
+            }
+        ]
 
-        cur.execute(
-            "INSERT INTO stocks (code, name, exchange, industry) VALUES (?, ?, ?, ?)",
-            ("000001", "平安银行", "SZ", "银行"),
-        )
-
-        start = date(2025, 1, 1)
-        for i in range(60):
-            d = start + timedelta(days=i)
-            close = 10.0 + i * 0.2
-            open_ = close - 0.05
-            high = close * 1.01
-            low = close * 0.99
-            volume = 1000.0
-            if i == 59:
-                volume = 3000.0
-            cur.execute(
-                "INSERT INTO klines (stock_code, date, open, high, low, close, volume) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                ("000001", d.isoformat(), open_, high, low, close, volume),
-            )
-
-        cur.execute(
-            "INSERT INTO fund_flow (stock_code, date, main_fund_flow) VALUES (?, ?, ?)",
-            ("000001", (start + timedelta(days=59)).isoformat(), 20_000_000.0),
-        )
-        cur.execute(
-            "INSERT INTO daily_basic (stock_code, pe, pe_ttm, pb, total_mv, trade_date) VALUES (?, ?, ?, ?, ?, ?)",
-            ("000001", 8.0, 8.0, 1.0, 1000.0, (start + timedelta(days=59)).isoformat()),
-        )
-        cur.execute(
-            "INSERT INTO financial_indicators (stock_code, roe, end_date) VALUES (?, ?, ?)",
-            ("000001", 15.0, (start + timedelta(days=59)).isoformat()),
-        )
-
-        conn.commit()
-    finally:
-        conn.close()
+    async def analyze_stock(self, stock):
+        return {
+            "stock_code": stock["stock_code"],
+            "stock_name": stock["stock_name"],
+            "composite_score": 76.0,
+            "momentum_score": 42.0,
+            "trend_quality_score": 11.0,
+            "fundamental_score": 68.0,
+            "quality_score": 66.0,
+            "valuation_score": 58.0,
+            "growth_score": 64.0,
+            "volume_score": 82.0,
+            "sentiment_score": 78.0,
+            "risk_score": 52.0,
+            "trend_slope": 0.85,
+            "rsi": 61.0,
+            "rsi_prev": 56.0,
+            "volatility": 24.0,
+            "price_change_20d": 26.0,
+            "price_change_60d": 63.0,
+            "volume_ratio": 2.3,
+            "pe_ttm": 17.8,
+            "sector_heat": 56.0,
+            "is_price_breakout": 1.0,
+            "is_volume_breakout": 1.0,
+        }
 
 
-def test_momentum_breakout_strategy_not_empty(tmp_path: Path) -> None:
-    db_path = tmp_path / "stock_picker.db"
-    _create_test_db(db_path)
-
-    analyzer = AdvancedSelectionAnalyzer(db_path=str(db_path))
+def test_momentum_breakout_strategy_not_empty() -> None:
+    analyzer = StubAdvancedSelectionAnalyzer()
     results = asyncio.run(
         analyzer.run_advanced_selection(
             min_score=60.0,

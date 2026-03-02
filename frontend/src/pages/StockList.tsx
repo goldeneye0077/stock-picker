@@ -26,6 +26,7 @@ const StockList: React.FC<{ mode?: 'all' | 'watchlist' }> = ({ mode = 'all' }) =
   // 使用自定义 Hooks
   const {
     data,
+    total,
     loading,
     searchQuery,
     searchOptions,
@@ -104,6 +105,10 @@ const StockList: React.FC<{ mode?: 'all' | 'watchlist' }> = ({ mode = 'all' }) =
     const q = (value || '').trim();
     if (!q) updateParams({ search: undefined });
   }, [handleSearch, updateParams]);
+
+  const handlePageChange = useCallback((page: number, pageSize: number) => {
+    updateParams({ page, pageSize });
+  }, [updateParams]);
 
   const watchlistCodeSet = React.useMemo(() => new Set(watchlistCodes), [watchlistCodes]);
 
@@ -349,7 +354,11 @@ const StockList: React.FC<{ mode?: 'all' | 'watchlist' }> = ({ mode = 'all' }) =
           <div style={{ overflowX: 'auto', width: '100%' }}>
             <StockTable
               data={data}
+              total={total}
+              currentPage={params.page || 1}
+              pageSize={params.pageSize || 20}
               loading={loading}
+              onPageChange={handlePageChange}
               onRowClick={showDetailModal}
               onAnalysisClick={showAnalysisModal}
               onFundamentalClick={showFundamentalModal}

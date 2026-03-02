@@ -39,15 +39,62 @@ function parseCodeList(value: unknown): string[] | undefined {
   return Array.from(new Set(list));
 }
 
+function parseBoundedInt(
+  name: string,
+  value: unknown,
+  options: { min: number; max: number; optional?: boolean }
+): number | undefined {
+  const raw = firstOptionalString(value);
+  if (raw === undefined) {
+    if (options.optional) return undefined;
+    throw new InvalidParameterError(`Missing parameter: ${name}`);
+  }
+
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < options.min || parsed > options.max) {
+    throw new InvalidParameterError(
+      `Invalid ${name}. Must be an integer between ${options.min} and ${options.max}`,
+      { [name]: raw, min: options.min, max: options.max }
+    );
+  }
+
+  return parsed;
+}
+
 // Get all stocks
 router.get('/', asyncHandler(async (req, res) => {
   const search = firstOptionalString(req.query.search);
   const codes = parseCodeList(req.query.codes);
-  const stocks = (search || codes)
-    ? await stockRepo.findAllFiltered(search, codes)
-    : await stockRepo.findAll();
+  const requestedLimit = parseBoundedInt('limit', req.query.limit, { min: 1, max: 500, optional: true });
+  const requestedOffset = parseBoundedInt('offset', req.query.offset, { min: 0, max: 10_000_000, optional: true });
+  const requestedPage = parseBoundedInt('page', req.query.page, { min: 1, max: 1_000_000, optional: true });
 
-  sendPaginatedSuccess(res, stocks, stocks.length);
+  const usePagination = requestedLimit !== undefined || requestedOffset !== undefined || requestedPage !== undefined;
+
+  let limit: number | undefined;
+  let offset: number | undefined;
+  let page: number | undefined;
+
+  if (usePagination) {
+    limit = requestedLimit ?? 20;
+    if (requestedOffset !== undefined) {
+      offset = requestedOffset;
+      page = Math.floor(offset / limit) + 1;
+    } else {
+      page = requestedPage ?? 1;
+      offset = (page - 1) * limit;
+    }
+  }
+
+  const stocks = (search || codes)
+    ? await stockRepo.findAllFiltered(search, codes, limit, offset)
+    : await stockRepo.findAll(limit, offset);
+
+  const total = usePagination
+    ? ((search || codes) ? await stockRepo.countFiltered(search, codes) : await stockRepo.countAll())
+    : stocks.length;
+
+  sendPaginatedSuccess(res, stocks, total, page, limit);
 }));
 
 // Search stocks

@@ -1,20 +1,19 @@
 import aiosqlite
 import os
-from pathlib import Path
 from loguru import logger
 from contextlib import asynccontextmanager
+from .pg_compat import resolve_database_url
 
-def _resolve_database_path() -> Path:
-    url = os.getenv("DATABASE_URL")
-    if url and url.startswith("sqlite:"):
-        raw = url[len("sqlite:") :]
-        if raw.startswith("///"):
-            raw = raw[2:]
-        return Path(raw)
-    return Path(__file__).parent.parent.parent.parent / "data" / "stock_picker.db"
+def _resolve_database_url() -> str:
+    url = (os.getenv("DATABASE_URL") or "").strip()
+    if url:
+        return resolve_database_url(url)
+    return resolve_database_url()
 
-
-DATABASE_PATH = _resolve_database_path()
+DATABASE_URL = _resolve_database_url()
+# Backward compatibility: legacy modules still import DATABASE_PATH.
+DATABASE_PATH = DATABASE_URL
+IS_POSTGRES = DATABASE_URL.startswith("postgres")
 
 @asynccontextmanager
 async def get_database():
@@ -26,7 +25,7 @@ async def get_database():
             cursor = await db.execute("SELECT * FROM stocks")
             ...
     """
-    db = await aiosqlite.connect(DATABASE_PATH)
+    db = await aiosqlite.connect(DATABASE_URL)
     db.row_factory = aiosqlite.Row
     try:
         yield db
@@ -35,16 +34,7 @@ async def get_database():
 
 async def init_database():
     """Initialize database tables"""
-    # Ensure data directory exists
-    DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
-
-    async with aiosqlite.connect(DATABASE_PATH) as db:
-        # Enable WAL mode for better concurrency
-        try:
-            await db.execute("PRAGMA journal_mode=WAL;")
-        except Exception as e:
-            logger.warning(f"Failed to enable WAL mode: {e}")
-            await db.execute("PRAGMA journal_mode=DELETE;")
+    async with aiosqlite.connect(DATABASE_URL) as db:
 
         # Create tables (same as backend)
         await db.execute("""
@@ -68,7 +58,7 @@ async def init_database():
                 high REAL NOT NULL,
                 low REAL NOT NULL,
                 close REAL NOT NULL,
-                volume INTEGER NOT NULL,
+                volume BIGINT NOT NULL,
                 amount REAL NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (stock_code) REFERENCES stocks (code),
@@ -82,7 +72,7 @@ async def init_database():
                 stock_code TEXT NOT NULL,
                 date TEXT NOT NULL,
                 volume_ratio REAL NOT NULL,
-                avg_volume_20 INTEGER NOT NULL,
+                avg_volume_20 BIGINT NOT NULL,
                 is_volume_surge BOOLEAN DEFAULT FALSE,
                 analysis_result TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -113,7 +103,7 @@ async def init_database():
                 signal_type TEXT NOT NULL,
                 confidence REAL NOT NULL,
                 price REAL NOT NULL,
-                volume INTEGER NOT NULL,
+                volume BIGINT NOT NULL,
                 analysis_data TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (stock_code) REFERENCES stocks (code)
@@ -136,7 +126,7 @@ async def init_database():
             )
         """)
 
-        # 实时行情表（保存每只股票的最新行情）
+        # 瀹炴椂琛屾儏琛紙淇濆瓨姣忓彧鑲＄エ鐨勬渶鏂拌鎯咃級
         await db.execute("""
             CREATE TABLE IF NOT EXISTS realtime_quotes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -148,19 +138,20 @@ async def init_database():
                 high REAL,
                 low REAL,
                 close REAL,
-                vol INTEGER,
+                vol BIGINT,
                 amount REAL,
-                num INTEGER,
-                ask_volume1 INTEGER,
-                bid_volume1 INTEGER,
+                num BIGINT,
+                ask_volume1 BIGINT,
+                bid_volume1 BIGINT,
                 change_percent REAL,
                 change_amount REAL,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (stock_code) REFERENCES stocks (code)
             )
         """)
+        await db.execute("ALTER TABLE realtime_quotes DROP CONSTRAINT IF EXISTS realtime_quotes_stock_code_fkey")
 
-        # 历史行情快照表（保存所有历史记录）
+        # 鍘嗗彶琛屾儏蹇収琛紙淇濆瓨鎵€鏈夊巻鍙茶褰曪級
         await db.execute("""
             CREATE TABLE IF NOT EXISTS quote_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -170,16 +161,28 @@ async def init_database():
                 high REAL,
                 low REAL,
                 close REAL,
-                vol INTEGER,
+                vol BIGINT,
                 amount REAL,
-                num INTEGER,
+                num BIGINT,
                 change_percent REAL,
                 snapshot_time DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (stock_code) REFERENCES stocks (code)
             )
         """)
+        await db.execute("ALTER TABLE quote_history DROP CONSTRAINT IF EXISTS quote_history_stock_code_fkey")
 
-        # 每日指标表（技术分析指标）
+        if IS_POSTGRES:
+            await db.execute("ALTER TABLE klines ALTER COLUMN volume TYPE BIGINT")
+            await db.execute("ALTER TABLE volume_analysis ALTER COLUMN avg_volume_20 TYPE BIGINT")
+            await db.execute("ALTER TABLE buy_signals ALTER COLUMN volume TYPE BIGINT")
+            await db.execute("ALTER TABLE realtime_quotes ALTER COLUMN vol TYPE BIGINT")
+            await db.execute("ALTER TABLE realtime_quotes ALTER COLUMN num TYPE BIGINT")
+            await db.execute("ALTER TABLE realtime_quotes ALTER COLUMN ask_volume1 TYPE BIGINT")
+            await db.execute("ALTER TABLE realtime_quotes ALTER COLUMN bid_volume1 TYPE BIGINT")
+            await db.execute("ALTER TABLE quote_history ALTER COLUMN vol TYPE BIGINT")
+            await db.execute("ALTER TABLE quote_history ALTER COLUMN num TYPE BIGINT")
+
+        # 姣忔棩鎸囨爣琛紙鎶€鏈垎鏋愭寚鏍囷級
         await db.execute("""
             CREATE TABLE IF NOT EXISTS daily_basic (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -227,7 +230,7 @@ async def init_database():
                 stock_code TEXT NOT NULL,
                 con_code TEXT,
                 con_name TEXT,
-                desc TEXT,
+                description TEXT,
                 hot_num REAL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (trade_date, ts_code, stock_code)
@@ -262,13 +265,13 @@ async def init_database():
             )
         """)
 
-        # 技术指标表
+        # 鎶€鏈寚鏍囪〃
         await db.execute("""
             CREATE TABLE IF NOT EXISTS technical_indicators (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 stock_code TEXT NOT NULL,
                 date TEXT NOT NULL,
-                -- 移动平均线
+                -- 绉诲姩骞冲潎绾?
                 ma5 REAL,
                 ma10 REAL,
                 ma20 REAL,
@@ -286,16 +289,16 @@ async def init_database():
                 kdj_k REAL,
                 kdj_d REAL,
                 kdj_j REAL,
-                -- 布林带
+                -- 甯冩灄甯?
                 boll_upper REAL,
                 boll_middle REAL,
                 boll_lower REAL,
-                -- 其他指标
+                -- 鍏朵粬鎸囨爣
                 atr REAL,
                 cci REAL,
                 obv REAL,
                 volume_ratio REAL,
-                -- 信号
+                -- 淇″彿
                 macd_signal TEXT,
                 rsi_signal TEXT,
                 kdj_signal TEXT,
@@ -307,13 +310,13 @@ async def init_database():
             )
         """)
 
-        # 趋势分析表
+        # 瓒嬪娍鍒嗘瀽琛?
         await db.execute("""
             CREATE TABLE IF NOT EXISTS trend_analysis (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 stock_code TEXT NOT NULL,
                 date TEXT NOT NULL,
-                -- 多周期趋势
+                -- 澶氬懆鏈熻秼鍔?
                 trend_5d_type TEXT,
                 trend_5d_slope REAL,
                 trend_5d_r2 REAL,
@@ -334,12 +337,12 @@ async def init_database():
                 trend_60d_slope REAL,
                 trend_60d_r2 REAL,
                 trend_60d_strength TEXT,
-                -- 综合趋势
+                -- 缁煎悎瓒嬪娍
                 composite_trend_type TEXT,
                 composite_confidence REAL,
                 composite_avg_slope REAL,
                 composite_avg_strength REAL,
-                -- 趋势反转信号
+                -- 瓒嬪娍鍙嶈浆淇″彿
                 reversal_signal TEXT,
                 reversal_confidence REAL,
                 ma_short REAL,
@@ -348,7 +351,7 @@ async def init_database():
                 distance_to_long REAL,
                 golden_cross BOOLEAN,
                 death_cross BOOLEAN,
-                -- 趋势质量
+                -- 瓒嬪娍璐ㄩ噺
                 trend_quality TEXT,
                 trend_quality_score REAL,
                 volatility REAL,
@@ -364,17 +367,17 @@ async def init_database():
             )
         """)
 
-        # K线形态信号表
+        # K绾垮舰鎬佷俊鍙疯〃
         await db.execute("""
             CREATE TABLE IF NOT EXISTS pattern_signals (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 stock_code TEXT NOT NULL,
                 date TEXT NOT NULL,
-                -- 形态类型
+                -- 褰㈡€佺被鍨?
                 pattern_type TEXT NOT NULL,
                 pattern_name TEXT NOT NULL,
                 confidence REAL NOT NULL,
-                -- 形态详情
+                -- 褰㈡€佽鎯?
                 price REAL,
                 body_size REAL,
                 upper_shadow REAL,
@@ -384,7 +387,7 @@ async def init_database():
                 day1_body REAL,
                 day2_body REAL,
                 day3_body REAL,
-                -- 综合信号
+                -- 缁煎悎淇″彿
                 pattern_signal TEXT,
                 bullish_count INTEGER,
                 bearish_count INTEGER,
@@ -394,7 +397,7 @@ async def init_database():
             )
         """)
 
-        # ==================== 用户与权限表 ====================
+        # ==================== 鐢ㄦ埛涓庢潈闄愯〃 ====================
 
         await db.execute("""
             CREATE TABLE IF NOT EXISTS users (
@@ -429,7 +432,7 @@ async def init_database():
             )
         """)
 
-        # 创建索引优化查询性能
+        # 鍒涘缓绱㈠紩浼樺寲鏌ヨ鎬ц兘
         await db.execute("CREATE INDEX IF NOT EXISTS idx_realtime_stock_code ON realtime_quotes(stock_code)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_realtime_updated_at ON realtime_quotes(updated_at)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_history_stock_code ON quote_history(stock_code)")
@@ -454,14 +457,14 @@ async def init_database():
         await db.execute("CREATE INDEX IF NOT EXISTS idx_user_sessions_expires_at ON user_sessions(expires_at)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_user_permissions_user_id ON user_permissions(user_id)")
 
-        # ==================== 基本面数据表 ====================
+        # ==================== 鍩烘湰闈㈡暟鎹〃 ====================
 
-        # 股票基本信息扩展表
+        # 鑲＄エ鍩烘湰淇℃伅鎵╁睍琛?
         await db.execute("""
             CREATE TABLE IF NOT EXISTS stock_basic_extended (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 stock_code TEXT UNIQUE NOT NULL,
-                -- 基本信息
+                -- 鍩烘湰淇℃伅
                 ts_code TEXT,
                 name TEXT NOT NULL,
                 area TEXT,
@@ -471,7 +474,7 @@ async def init_database():
                 list_status TEXT,
                 is_hs TEXT,
                 days_listed INTEGER,
-                -- 公司信息
+                -- 鍏徃淇℃伅
                 chairman TEXT,
                 manager TEXT,
                 secretary TEXT,
@@ -492,14 +495,14 @@ async def init_database():
             )
         """)
 
-        # 财务指标表
+        # 璐㈠姟鎸囨爣琛?
         await db.execute("""
             CREATE TABLE IF NOT EXISTS financial_indicators (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 stock_code TEXT NOT NULL,
                 ann_date TEXT NOT NULL,
                 end_date TEXT NOT NULL,
-                -- 盈利能力
+                -- 鐩堝埄鑳藉姏
                 roe REAL,
                 roa REAL,
                 grossprofit_margin REAL,
@@ -509,7 +512,7 @@ async def init_database():
                 roe_yearly REAL,
                 roa2_yearly REAL,
                 roa_yearly REAL,
-                -- 偿债能力
+                -- 鍋垮€鸿兘鍔?
                 debt_to_assets REAL,
                 assets_to_eqt REAL,
                 ca_to_assets REAL,
@@ -519,13 +522,13 @@ async def init_database():
                 eqt_to_talcapital REAL,
                 currentdebt_to_debt REAL,
                 longdeb_to_debt REAL,
-                -- 运营能力
+                -- 杩愯惀鑳藉姏
                 ocf_to_or REAL,
                 ocf_to_opincome REAL,
                 ocf_to_gr REAL,
                 free_cashflow REAL,
                 ocf_yearly REAL,
-                -- 其他指标
+                -- 鍏朵粬鎸囨爣
                 debt_to_eqt REAL,
                 ocf_to_shortdebt REAL,
                 debt_to_assets_yearly REAL,
@@ -576,7 +579,7 @@ async def init_database():
             )
         """)
 
-        # 利润表
+        # 鍒╂鼎琛?
         await db.execute("""
             CREATE TABLE IF NOT EXISTS income_statements (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -585,7 +588,7 @@ async def init_database():
                 f_end_date TEXT NOT NULL,
                 report_type TEXT,
                 comp_type TEXT,
-                -- 收入
+                -- 鏀跺叆
                 total_revenue REAL,
                 revenue REAL,
                 int_income REAL,
@@ -606,7 +609,7 @@ async def init_database():
                 invest_income REAL,
                 ass_invest_income REAL,
                 forex_gain REAL,
-                -- 成本费用
+                -- 鎴愭湰璐圭敤
                 total_cogs REAL,
                 oper_cost REAL,
                 int_exp REAL,
@@ -626,7 +629,7 @@ async def init_database():
                 insur_reser_refu REAL,
                 reins_cost_refund REAL,
                 other_bus_cost REAL,
-                -- 利润
+                -- 鍒╂鼎
                 operate_profit REAL,
                 non_oper_income REAL,
                 non_oper_exp REAL,
@@ -635,7 +638,7 @@ async def init_database():
                 income_tax REAL,
                 n_income REAL,
                 n_income_attr_p REAL,
-                -- 每股指标
+                -- 姣忚偂鎸囨爣
                 basic_eps REAL,
                 diluted_eps REAL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -644,7 +647,7 @@ async def init_database():
             )
         """)
 
-        # 资产负债表
+        # 璧勪骇璐熷€鸿〃
         await db.execute("""
             CREATE TABLE IF NOT EXISTS balance_sheets (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -653,7 +656,7 @@ async def init_database():
                 f_end_date TEXT NOT NULL,
                 report_type TEXT,
                 comp_type TEXT,
-                -- 资产
+                -- 璧勪骇
                 total_assets REAL,
                 current_assets REAL,
                 fix_assets REAL,
@@ -681,7 +684,7 @@ async def init_database():
                 invest_as_receiv REAL,
                 total_assets_oth REAL,
                 lt_equity_invest REAL,
-                -- 负债
+                -- 璐熷€?
                 total_liab REAL,
                 st_loans REAL,
                 lt_loans REAL,
@@ -708,7 +711,7 @@ async def init_database():
                 indem_payable REAL,
                 policy_div_payable REAL,
                 total_liab_oth REAL,
-                -- 所有者权益
+                -- 鎵€鏈夎€呮潈鐩?
                 total_share REAL,
                 capital REAL,
                 capital_res REAL,
@@ -732,7 +735,7 @@ async def init_database():
             )
         """)
 
-        # 现金流量表
+        # 鐜伴噾娴侀噺琛?
         await db.execute("""
             CREATE TABLE IF NOT EXISTS cash_flow_statements (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -741,7 +744,7 @@ async def init_database():
                 f_end_date TEXT NOT NULL,
                 report_type TEXT,
                 comp_type TEXT,
-                -- 经营活动现金流
+                -- 缁忚惀娲诲姩鐜伴噾娴?
                 net_profit REAL,
                 finan_exp REAL,
                 c_fr_sale_sg REAL,
@@ -752,18 +755,18 @@ async def init_database():
                 c_paid_for_taxes REAL,
                 total_c_paid_operate_a REAL,
                 n_cashflow_act REAL,
-                -- 投资活动现金流
+                -- 鎶曡祫娲诲姩鐜伴噾娴?
                 n_cfr_incr_cap REAL,
                 cfr_incr_borr REAL,
                 cfr_cash_incr REAL,
                 cfr_fr_issue_bond REAL,
                 total_cfr_fin_act REAL,
-                -- 筹资活动现金流
+                -- 绛硅祫娲诲姩鐜伴噾娴?
                 c_paid_for_debts REAL,
                 c_paid_div_prof_int REAL,
                 total_c_paid_fin_act REAL,
                 n_cashflow_fin_act REAL,
-                -- 其他
+                -- 鍏朵粬
                 forex_chg REAL,
                 n_incr_cash_cash_equ REAL,
                 c_cash_equ_beg_period REAL,
@@ -775,7 +778,7 @@ async def init_database():
             )
         """)
 
-        # 分红数据表
+        # 鍒嗙孩鏁版嵁琛?
         await db.execute("""
             CREATE TABLE IF NOT EXISTS dividend_data (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -801,7 +804,7 @@ async def init_database():
             )
         """)
 
-        # 股东数据表
+        # 鑲′笢鏁版嵁琛?
         await db.execute("""
             CREATE TABLE IF NOT EXISTS shareholder_data (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -817,22 +820,22 @@ async def init_database():
             )
         """)
 
-        # 基本面综合评分表
+        # 鍩烘湰闈㈢患鍚堣瘎鍒嗚〃
         await db.execute("""
             CREATE TABLE IF NOT EXISTS fundamental_scores (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 stock_code TEXT NOT NULL,
                 score_date TEXT NOT NULL,
-                -- 各项评分
+                -- 鍚勯」璇勫垎
                 profitability_score REAL,
                 valuation_score REAL,
                 dividend_score REAL,
                 growth_score REAL,
                 quality_score REAL,
-                -- 综合评分
+                -- 缁煎悎璇勫垎
                 overall_score REAL,
                 score_rank INTEGER,
-                -- 分析结果
+                -- 鍒嗘瀽缁撴灉
                 analysis_summary TEXT,
                 strengths TEXT,
                 weaknesses TEXT,
@@ -845,7 +848,7 @@ async def init_database():
             )
         """)
 
-        # 基本面数据索引
+        # 鍩烘湰闈㈡暟鎹储寮?
         await db.execute("CREATE INDEX IF NOT EXISTS idx_stock_basic_extended_stock_code ON stock_basic_extended(stock_code)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_financial_indicators_stock_code ON financial_indicators(stock_code)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_financial_indicators_end_date ON financial_indicators(end_date)")
@@ -864,9 +867,9 @@ async def init_database():
         await db.execute("CREATE INDEX IF NOT EXISTS idx_fundamental_scores_score_date ON fundamental_scores(score_date)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_fundamental_scores_overall_score ON fundamental_scores(overall_score)")
 
-        # ==================== 增量更新相关表 ====================
+        # ==================== 澧為噺鏇存柊鐩稿叧琛?====================
 
-        # 超强主力配置表
+        # 瓒呭己涓诲姏閰嶇疆琛?
         await db.execute("""
             CREATE TABLE IF NOT EXISTS super_mainforce_config (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -883,7 +886,7 @@ async def init_database():
             )
         """)
 
-        # 超强主力信号表
+        # 瓒呭己涓诲姏淇″彿琛?
         await db.execute("""
             CREATE TABLE IF NOT EXISTS super_mainforce_signals (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -904,11 +907,11 @@ async def init_database():
         await db.execute("CREATE INDEX IF NOT EXISTS idx_sm_signals_stock ON super_mainforce_signals(stock_code)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_sm_signals_total ON super_mainforce_signals(s_total)")
 
-        # 采集历史表（记录每次数据采集的信息）
+        # 閲囬泦鍘嗗彶琛紙璁板綍姣忔鏁版嵁閲囬泦鐨勪俊鎭級
         await db.execute("""
             CREATE TABLE IF NOT EXISTS collection_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                collection_type TEXT NOT NULL,  -- 'full' 或 'incremental'
+                collection_type TEXT NOT NULL,  -- 'full' 鎴?'incremental'
                 start_date TEXT NOT NULL,
                 end_date TEXT NOT NULL,
                 stock_count INTEGER DEFAULT 0,
@@ -917,13 +920,13 @@ async def init_database():
                 indicator_count INTEGER DEFAULT 0,
                 status TEXT DEFAULT 'completed',  -- 'pending', 'running', 'completed', 'failed'
                 error_message TEXT,
-                elapsed_time REAL,  -- 耗时（秒）
+                elapsed_time REAL,  -- 鑰楁椂锛堢锛?
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
 
-        # 数据采集配置表
+        # 鏁版嵁閲囬泦閰嶇疆琛?
         await db.execute("""
             CREATE TABLE IF NOT EXISTS collection_config (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -935,7 +938,7 @@ async def init_database():
             )
         """)
 
-        # 数据质量监控表
+        # 鏁版嵁璐ㄩ噺鐩戞帶琛?
         await db.execute("""
             CREATE TABLE IF NOT EXISTS data_quality_monitor (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -949,7 +952,7 @@ async def init_database():
             )
         """)
 
-        # 数据源健康状态表
+        # 鏁版嵁婧愬仴搴风姸鎬佽〃
         await db.execute("""
             CREATE TABLE IF NOT EXISTS data_source_health (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -964,7 +967,7 @@ async def init_database():
             )
         """)
 
-        # 创建增量更新相关索引
+        # 鍒涘缓澧為噺鏇存柊鐩稿叧绱㈠紩
         await db.execute("CREATE INDEX IF NOT EXISTS idx_collection_history_type ON collection_history(collection_type)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_collection_history_dates ON collection_history(start_date, end_date)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_collection_history_status ON collection_history(status)")
@@ -977,24 +980,24 @@ async def init_database():
         await db.execute("CREATE INDEX IF NOT EXISTS idx_data_source_health_source ON data_source_health(source_name)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_data_source_health_status ON data_source_health(status)")
 
-        # 初始化采集配置
+        # 鍒濆鍖栭噰闆嗛厤缃?
         await db.execute("""
             INSERT OR REPLACE INTO collection_config (config_key, config_value, description)
             VALUES
-                ('incremental_enabled', 'false', '是否启用增量更新'),
-                ('incremental_days', '7', '增量更新天数'),
-                ('full_collection_days', '30', '全量更新天数'),
-                ('max_retries', '3', '最大重试次数'),
-                ('retry_delay', '2', '重试延迟（秒）'),
-                ('hot_stock_guarantee', 'true', '热门股票保障'),
-                ('data_validation_enabled', 'true', '数据验证启用'),
-                ('quality_threshold', '85', '数据质量阈值（分）'),
-                ('alert_enabled', 'true', '报警启用')
+                ('incremental_enabled', 'false', 'Enable incremental collection'),
+                ('incremental_days', '7', 'Incremental collection days'),
+                ('full_collection_days', '30', 'Full collection days'),
+                ('max_retries', '3', 'Maximum retry attempts'),
+                ('retry_delay', '2', 'Retry delay seconds'),
+                ('hot_stock_guarantee', 'true', 'Hot stock guarantee'),
+                ('data_validation_enabled', 'true', 'Enable data validation'),
+                ('quality_threshold', '85', 'Data quality threshold'),
+                ('alert_enabled', 'true', 'Enable alerts')
         """)
 
-        # ==================== 网站统计表 ====================
+        # ==================== 缃戠珯缁熻琛?====================
 
-        # 页面访问记录表
+        # 椤甸潰璁块棶璁板綍琛?
         await db.execute("""
             CREATE TABLE IF NOT EXISTS page_views (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1009,13 +1012,10 @@ async def init_database():
             )
         """)
 
-        # Migration: Ensure session_id column exists
-        try:
-            await db.execute("ALTER TABLE page_views ADD COLUMN session_id TEXT")
-        except Exception:
-            pass
+        # Migration: Ensure session_id column exists (PostgreSQL-safe)
+        await db.execute("ALTER TABLE page_views ADD COLUMN IF NOT EXISTS session_id TEXT")
 
-        # API 调用统计表
+        # API 璋冪敤缁熻琛?
         await db.execute("""
             CREATE TABLE IF NOT EXISTS api_calls (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1032,7 +1032,21 @@ async def init_database():
             )
         """)
 
-        # 网站统计索引
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS market_insights (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_date TEXT NOT NULL,
+                generated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                source TEXT NOT NULL,
+                model_name TEXT,
+                featured_card_json TEXT NOT NULL,
+                cards_json TEXT NOT NULL,
+                context_json TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # 缃戠珯缁熻绱㈠紩
         await db.execute("CREATE INDEX IF NOT EXISTS idx_page_views_path ON page_views(page_path)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_page_views_user ON page_views(user_id)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_page_views_time ON page_views(created_at)")
@@ -1041,16 +1055,18 @@ async def init_database():
         await db.execute("CREATE INDEX IF NOT EXISTS idx_api_calls_time ON api_calls(created_at)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_api_calls_status ON api_calls(status_code)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_api_calls_user ON api_calls(user_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_market_insights_trade_date ON market_insights(trade_date)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_market_insights_generated_at ON market_insights(generated_at)")
 
-        # ==================== 用户自选股表 ====================
+        # ==================== 鐢ㄦ埛鑷€夎偂琛?====================
         await db.execute("""
             CREATE TABLE IF NOT EXISTS user_favorites (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
                 stock_code TEXT NOT NULL,
                 stock_name TEXT,
-                tags TEXT,  -- 自定义标签，逗号分隔
-                notes TEXT, -- 备注
+                tags TEXT,  -- 鑷畾涔夋爣绛撅紝閫楀彿鍒嗛殧
+                notes TEXT, -- 澶囨敞
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
                 UNIQUE(user_id, stock_code)
@@ -1061,3 +1077,4 @@ async def init_database():
 
         await db.commit()
         logger.info("Database initialized successfully")
+

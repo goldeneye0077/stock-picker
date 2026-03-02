@@ -1,39 +1,47 @@
+FROM node:20.19-bullseye AS deps
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm config set registry https://registry.npmjs.org \
+    && (npm ci || npm install)
+
 FROM node:20.19-bullseye AS builder
 
 WORKDIR /app
-USER root
 
+COPY --from=deps /app/node_modules ./node_modules
 COPY package*.json ./
 COPY tsconfig.json ./
-
-# sqlite3 may require native compilation tools during install
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 make g++ \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN npm config set registry https://registry.npmjs.org \
-    && npm ci || npm install
-
+COPY jest.config.js ./
 COPY src ./src
 COPY tests ./tests
-COPY jest.config.js ./
 
+ARG RUN_TESTS=true
 ENV NODE_OPTIONS=--max-old-space-size=4096
-RUN npm run lint && npm run typecheck && npm test
-RUN npm run build
-RUN npm prune --omit=dev
+RUN npm run lint \
+    && npm run typecheck \
+    && if [ "$RUN_TESTS" = "true" ]; then npm test; fi \
+    && npm run build
 
-FROM node:20.19-bullseye-slim
+FROM node:20.19-bullseye AS prod-deps
 
 WORKDIR /app
 
 COPY package*.json ./
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/dist ./dist
+RUN npm config set registry https://registry.npmjs.org \
+    && (npm ci --omit=dev || npm install --omit=dev) \
+    && npm cache clean --force
 
-USER root
-RUN mkdir -p /data && chown -R node:node /data /app
+FROM node:20.19-bullseye-slim AS runtime
+
+WORKDIR /app
+ENV NODE_ENV=production
+
+COPY package*.json ./
+COPY --from=prod-deps /app/node_modules ./node_modules
+COPY --from=builder /app/dist ./dist
 
 USER node
 EXPOSE 3000
-CMD ["npm", "start"]
+CMD ["node", "dist/index.js"]

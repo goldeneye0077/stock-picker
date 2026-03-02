@@ -1,6 +1,6 @@
 /**
  * 股票数据服务
- * 封装所有股票相关的API调用
+ * 封装所有股票相关 API 调用
  */
 
 import { API_BASE_URL, API_ENDPOINTS } from '../config/api';
@@ -9,6 +9,8 @@ export interface StockListParams {
   date?: string;
   search?: string;
   codes?: string[];
+  page?: number;
+  pageSize?: number;
 }
 
 export interface StockItem {
@@ -29,16 +31,48 @@ export interface StockItem {
   signal: string;
 }
 
+export interface StockListResponse {
+  items: StockItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 export interface StockAnalysisParams {
   date?: string;
+}
+
+function normalizePage(value: number | undefined): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 1;
+  return Math.max(1, Math.floor(value));
+}
+
+function normalizePageSize(value: number | undefined): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 20;
+  return Math.max(1, Math.floor(value));
+}
+
+function formatYi(value: number | null | undefined): string {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return '0亿';
+  }
+  return `${(value / 100000000).toFixed(2)}亿`;
 }
 
 /**
  * 获取股票列表
  */
-export async function fetchStockList(params: StockListParams = {}) {
+export async function fetchStockList(params: StockListParams = {}): Promise<StockListResponse> {
+  const page = normalizePage(params.page);
+  const pageSize = normalizePageSize(params.pageSize);
+
   if (Array.isArray(params.codes) && params.codes.length === 0) {
-    return [];
+    return {
+      items: [],
+      total: 0,
+      page,
+      pageSize
+    };
   }
 
   const baseUrl = params.date
@@ -52,6 +86,8 @@ export async function fetchStockList(params: StockListParams = {}) {
       if (c) searchParams.append('codes', c);
     }
   }
+  searchParams.set('limit', String(pageSize));
+  searchParams.set('offset', String((page - 1) * pageSize));
 
   const qs = searchParams.toString();
   const url = qs ? `${baseUrl}?${qs}` : baseUrl;
@@ -68,9 +104,13 @@ export async function fetchStockList(params: StockListParams = {}) {
     throw new Error(result.message || '获取股票列表失败');
   }
 
-  // 格式化数据
-  const formattedData: StockItem[] = result.data.map((stock: any, index: number) => ({
-    key: index.toString(),
+  const rows = Array.isArray(result.data) ? result.data : [];
+  const total = typeof result.total === 'number' ? result.total : rows.length;
+  const currentPage = typeof result.page === 'number' ? result.page : page;
+  const currentPageSize = typeof result.pageSize === 'number' ? result.pageSize : pageSize;
+
+  const formattedData: StockItem[] = rows.map((stock: any, index: number) => ({
+    key: `${stock.code || 'stock'}-${(currentPage - 1) * currentPageSize + index}`,
     code: stock.code,
     name: stock.name,
     preClose: stock.pre_close || 0,
@@ -82,14 +122,19 @@ export async function fetchStockList(params: StockListParams = {}) {
       ? `${stock.change_percent > 0 ? '+' : ''}${stock.change_percent.toFixed(2)}%`
       : '0.00%',
     changeAmount: stock.change_amount || 0,
-    volume: stock.volume ? `${(stock.volume / 100000000).toFixed(2)}亿` : '0亿',
-    amount: stock.amount ? `${(stock.amount / 100000000).toFixed(2)}亿` : '0亿',
-    quoteTime: stock.quote_time || stock.quote_date,
+    volume: formatYi(stock.volume),
+    amount: formatYi(stock.amount),
+    quoteTime: stock.quote_time || stock.quote_date || '',
     status: stock.is_volume_surge ? '成交量异动' : (stock.latest_signal || '观察'),
     signal: stock.latest_signal || '持有'
   }));
 
-  return formattedData;
+  return {
+    items: formattedData,
+    total,
+    page: currentPage,
+    pageSize: currentPageSize
+  };
 }
 
 /**
@@ -223,5 +268,5 @@ export async function fetchStockHistoryForRealtime(stockCode: string) {
   }
 
   return result.data;
-
 }
+

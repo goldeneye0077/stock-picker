@@ -1,6 +1,6 @@
 import aiosqlite
 from dataclasses import dataclass, asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -194,7 +194,7 @@ class DataQualityMonitor:
                     cursor = await db.execute(
                         """
                         SELECT COUNT(DISTINCT stock_code) FROM klines
-                        WHERE date >= date('now', ?)
+                        WHERE CAST(date AS DATE) >= date('now', ?)
                     """,
                         (f"-{days} days",),
                     )
@@ -216,7 +216,7 @@ class DataQualityMonitor:
                     SELECT COUNT(DISTINCT stock_code) as stock_count,
                            COUNT(*) as record_count
                     FROM klines
-                    WHERE date >= date('now', ?)
+                    WHERE CAST(date AS DATE) >= date('now', ?)
                 """,
                     (f"-{days} days",),
                 )
@@ -242,7 +242,7 @@ class DataQualityMonitor:
                     SELECT COUNT(DISTINCT stock_code) as stock_count,
                            COUNT(*) as record_count
                     FROM fund_flow
-                    WHERE date >= date('now', ?)
+                    WHERE CAST(date AS DATE) >= date('now', ?)
                 """,
                     (f"-{days} days",),
                 )
@@ -308,7 +308,7 @@ class DataQualityMonitor:
                 cursor = await db.execute(
                     """
                     SELECT COUNT(*) FROM klines
-                    WHERE stock_code = ? AND date >= date('now', ?)
+                    WHERE stock_code = ? AND CAST(date AS DATE) >= date('now', ?)
                 """,
                     (stock_code, f"-{days} days"),
                 )
@@ -317,7 +317,7 @@ class DataQualityMonitor:
                 cursor = await db.execute(
                     """
                     SELECT COUNT(*) FROM fund_flow
-                    WHERE stock_code = ? AND date >= date('now', ?)
+                    WHERE stock_code = ? AND CAST(date AS DATE) >= date('now', ?)
                 """,
                     (stock_code, f"-{days} days"),
                 )
@@ -344,8 +344,8 @@ class DataQualityMonitor:
                         SUM(CASE WHEN k.stock_code IS NULL THEN 1 ELSE 0 END) as missing_kline,
                         SUM(CASE WHEN f.stock_code IS NULL THEN 1 ELSE 0 END) as missing_flow
                     FROM stocks s
-                    LEFT JOIN klines k ON s.code = k.stock_code AND k.date >= date('now', ?)
-                    LEFT JOIN fund_flow f ON s.code = f.stock_code AND f.date >= date('now', ?)
+                    LEFT JOIN klines k ON s.code = k.stock_code AND CAST(k.date AS DATE) >= date('now', ?)
+                    LEFT JOIN fund_flow f ON s.code = f.stock_code AND CAST(f.date AS DATE) >= date('now', ?)
                 """,
                     (f"-{days} days", f"-{days} days"),
                 )
@@ -386,7 +386,7 @@ class DataQualityMonitor:
                 SELECT COUNT(*) as total,
                        SUM(CASE WHEN open <= 0 OR high <= 0 OR low <= 0 OR close <= 0 OR volume <= 0 THEN 1 ELSE 0 END) as errors
                 FROM klines
-                WHERE date >= date('now', ?)
+                WHERE CAST(date AS DATE) >= date('now', ?)
             """,
                 (f"-{days} days",),
             )
@@ -398,7 +398,7 @@ class DataQualityMonitor:
                 SELECT COUNT(*) as total,
                        SUM(CASE WHEN main_fund_flow = 0 AND retail_fund_flow = 0 AND institutional_flow = 0 THEN 1 ELSE 0 END) as errors
                 FROM fund_flow
-                WHERE date >= date('now', ?)
+                WHERE CAST(date AS DATE) >= date('now', ?)
             """,
                 (f"-{days} days",),
             )
@@ -429,8 +429,8 @@ class DataQualityMonitor:
                         COUNT(DISTINCT s.code) as total_stocks,
                         COUNT(DISTINCT CASE WHEN k.stock_code IS NOT NULL AND f.stock_code IS NOT NULL THEN s.code END) as matched_stocks
                     FROM stocks s
-                    LEFT JOIN klines k ON s.code = k.stock_code AND k.date >= date('now', ?)
-                    LEFT JOIN fund_flow f ON s.code = f.stock_code AND f.date >= date('now', ?)
+                    LEFT JOIN klines k ON s.code = k.stock_code AND CAST(k.date AS DATE) >= date('now', ?)
+                    LEFT JOIN fund_flow f ON s.code = f.stock_code AND CAST(f.date AS DATE) >= date('now', ?)
                 """,
                     (f"-{days} days", f"-{days} days"),
                 )
@@ -455,7 +455,7 @@ class DataQualityMonitor:
                         MAX(date) as max_date,
                         COUNT(DISTINCT date) as distinct_days
                     FROM klines
-                    WHERE date >= date('now', ?)
+                    WHERE CAST(date AS DATE) >= date('now', ?)
                 """,
                     (f"-{days} days",),
                 )
@@ -468,7 +468,7 @@ class DataQualityMonitor:
                         MAX(date) as max_date,
                         COUNT(DISTINCT date) as distinct_days
                     FROM fund_flow
-                    WHERE date >= date('now', ?)
+                    WHERE CAST(date AS DATE) >= date('now', ?)
                 """,
                     (f"-{days} days",),
                 )
@@ -532,7 +532,11 @@ class DataQualityMonitor:
                     last_time = datetime.fromisoformat(
                         str(last_collection[0]).replace("Z", "+00:00")
                     )
-                    delay_hours = (datetime.now() - last_time).total_seconds() / 3600
+                    if last_time.tzinfo is None:
+                        last_time = last_time.replace(tzinfo=timezone.utc)
+                    else:
+                        last_time = last_time.astimezone(timezone.utc)
+                    delay_hours = (datetime.now(timezone.utc) - last_time).total_seconds() / 3600
 
                     metrics.append(
                         QualityMetric(
@@ -594,7 +598,7 @@ class DataQualityMonitor:
                             END
                         ) as valid
                     FROM klines
-                    WHERE date >= date('now', ?)
+                    WHERE CAST(date AS DATE) >= date('now', ?)
                 """,
                     (f"-{days} days",),
                 )
@@ -627,7 +631,7 @@ class DataQualityMonitor:
                         ) as valid
                     FROM fund_flow f
                     JOIN klines k ON f.stock_code = k.stock_code AND f.date = k.date
-                    WHERE f.date >= date('now', ?)
+                    WHERE CAST(f.date AS DATE) >= date('now', ?)
                 """,
                     (f"-{days} days",),
                 )

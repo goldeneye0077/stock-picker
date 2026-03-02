@@ -1,14 +1,121 @@
 import express from 'express';
-import { AnalysisRepository } from '../repositories';
+import { TimescaleAnalyticsRepository } from '../repositories';
 import { asyncHandler } from '../middleware/errorHandler';
-import { sendSuccess } from '../utils/responseHelper';
+import { sendCustomError, sendSuccess } from '../utils/responseHelper';
 
 const router = express.Router();
-const analysisRepo = new AnalysisRepository();
+const timescaleRepo = new TimescaleAnalyticsRepository();
+
+type InsightCard = {
+  key: string;
+  category: string;
+  title: string;
+  desc: string;
+  time: string;
+};
+
+type InsightBundle = {
+  tradeDate: string | null;
+  generatedAt: string | null;
+  source: string | null;
+  featured: InsightCard | null;
+  cards: InsightCard[];
+};
 
 function toFiniteNumber(value: unknown): number | null {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
+}
+
+function toDataServiceBaseUrl(): string {
+  const raw = process.env.DATA_SERVICE_URL || 'http://127.0.0.1:8001';
+  return raw.replace(/\/+$/, '');
+}
+
+function hasInsightContent(bundle: InsightBundle): boolean {
+  return Boolean(bundle.featured) || bundle.cards.length > 0;
+}
+
+function toInsightCard(raw: any, fallbackKey: string): InsightCard | null {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+
+  const title = String(raw.title || '').trim();
+  const desc = String(raw.desc || '').trim();
+  const category = String(raw.category || '').trim();
+  const time = String(raw.time || '').trim();
+  const key = String(raw.key || '').trim() || fallbackKey;
+
+  if (!title || !desc) {
+    return null;
+  }
+
+  return {
+    key,
+    category: category || '市场洞察',
+    title,
+    desc,
+    time: time || '刚刚更新',
+  };
+}
+
+async function requestMarketInsights(params: { tradeDate?: string; autoGenerate?: boolean } = {}): Promise<InsightBundle> {
+  const fallback: InsightBundle = {
+    tradeDate: null,
+    generatedAt: null,
+    source: null,
+    featured: null,
+    cards: [],
+  };
+
+  const baseUrl = toDataServiceBaseUrl();
+  const searchParams = new URLSearchParams({ limit: '4' });
+  if (params.tradeDate) {
+    searchParams.set('trade_date', params.tradeDate);
+  }
+  if (params.autoGenerate) {
+    searchParams.set('auto_generate', 'true');
+  }
+  const url = `${baseUrl}/api/market-insights/latest?${searchParams.toString()}`;
+
+  try {
+    const response = await fetch(url, { headers: { Accept: 'application/json' } });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const payload = await response.json() as any;
+    const data = payload?.data;
+    if (!data || typeof data !== 'object') {
+      return fallback;
+    }
+
+    const featured = toInsightCard(data.featured, 'featured-0');
+    const cardsRaw = Array.isArray(data.cards) ? data.cards : [];
+    const cards: InsightCard[] = cardsRaw
+      .map((item: any, index: number) => toInsightCard(item, `card-${index + 1}`))
+      .filter((item: InsightCard | null): item is InsightCard => Boolean(item));
+
+    return {
+      tradeDate: data.tradeDate ? String(data.tradeDate) : null,
+      generatedAt: data.generatedAt ? String(data.generatedAt) : null,
+      source: data.source ? String(data.source) : null,
+      featured,
+      cards,
+    };
+  } catch (error) {
+    console.warn('Failed to fetch market insights from data-service:', error);
+    return fallback;
+  }
+}
+
+async function fetchMarketInsights(): Promise<InsightBundle> {
+  const latestInsights = await requestMarketInsights({ autoGenerate: true });
+  if (hasInsightContent(latestInsights)) {
+    return latestInsights;
+  }
+  return latestInsights;
 }
 
 /**
@@ -16,50 +123,43 @@ function toFiniteNumber(value: unknown): number | null {
  * GET /api/home/dashboard
  */
 router.get('/dashboard', asyncHandler(async (_req, res) => {
-  const startTime = Date.now();
-  const marketOverview = await analysisRepo.getMarketOverview();
-  const todaySignals = marketOverview.buySignalsToday;
-  const yesterdaySignals = await analysisRepo.getYesterdaySignalCount();
+  const useTimescale = await timescaleRepo.isAvailable();
+  if (!useTimescale) {
+    return sendCustomError(
+      res,
+      503,
+      'TIMESCALE_UNAVAILABLE',
+      'TimescaleDB is required for dashboard but is currently unavailable.'
+    );
+  }
 
+  const startTime = Date.now();
+  const [marketOverview, yesterdaySignals, turnoverSummary, signalQuality, yieldCurve, hotSectorsRaw] = await Promise.all([
+    timescaleRepo.getMarketOverview(),
+    timescaleRepo.getYesterdaySignalCount(),
+    timescaleRepo.getTurnoverSummary(),
+    timescaleRepo.getSignalQuality(7),
+    timescaleRepo.getStrategyYieldCurve(30),
+    timescaleRepo.getHotSectors(10),
+  ]);
+
+  const todaySignals = marketOverview.buySignalsToday;
   const signalChange = todaySignals - yesterdaySignals;
   const signalChangePercent = yesterdaySignals > 0
     ? Math.round((signalChange / yesterdaySignals) * 1000) / 10
     : null;
 
-  const hotSectorRows = await analysisRepo.getHotSectorStocks(1, 1);
-  const hotSectors: any[] = [];
-  const seenSectorNames = new Set<string>();
-  for (const item of hotSectorRows) {
-    const sectorName = String(item?.sector_name || '').trim();
-    if (!sectorName || seenSectorNames.has(sectorName)) {
-      continue;
-    }
-    seenSectorNames.add(sectorName);
-    hotSectors.push(item);
-    if (hotSectors.length >= 10) {
-      break;
-    }
-  }
-
   let totalTurnover: number | null = null;
   let turnoverChange: number | null = null;
-  try {
-    const turnoverSummary = await analysisRepo.getTurnoverSummary();
-    const dbTodayTurnover = turnoverSummary.todayTurnover;
-    const dbPreviousTurnover = turnoverSummary.previousTurnover;
-
-    if (dbTodayTurnover !== null && dbTodayTurnover > 0) {
-      totalTurnover = dbTodayTurnover;
-    }
-    if (
-      totalTurnover !== null
-      && dbPreviousTurnover !== null
-      && dbPreviousTurnover > 0
-    ) {
-      turnoverChange = Math.round(((totalTurnover - dbPreviousTurnover) / dbPreviousTurnover) * 1000) / 10;
-    }
-  } catch (error) {
-    console.error('Error fetching turnover data:', error);
+  if (turnoverSummary.todayTurnover !== null && turnoverSummary.todayTurnover > 0) {
+    totalTurnover = turnoverSummary.todayTurnover;
+  }
+  if (
+    totalTurnover !== null
+    && turnoverSummary.previousTurnover !== null
+    && turnoverSummary.previousTurnover > 0
+  ) {
+    turnoverChange = Math.round(((totalTurnover - turnoverSummary.previousTurnover) / turnoverSummary.previousTurnover) * 1000) / 10;
   }
 
   let marketSentiment: string | null = null;
@@ -86,15 +186,11 @@ router.get('/dashboard', asyncHandler(async (_req, res) => {
     sentimentScore = Math.max(0, Math.min(100, sentimentScore));
   }
 
-  const last7DaysSignals = await analysisRepo.getBuySignals(7);
   let winRate: number | null = null;
-  if (last7DaysSignals.length > 0) {
-    winRate = Math.round(
-      (last7DaysSignals.filter((signal: any) => signal.confidence > 0.7).length / last7DaysSignals.length) * 1000
-    ) / 10;
+  if (signalQuality.totalSignals > 0) {
+    winRate = Math.round((signalQuality.highConfidenceSignals / signalQuality.totalSignals) * 1000) / 10;
   }
 
-  const yieldCurve = await analysisRepo.getStrategyYieldCurve(30);
   const curveValues = yieldCurve.values;
   const hasCurve = curveValues.length >= 2 && curveValues[0] > 0;
 
@@ -127,7 +223,7 @@ router.get('/dashboard', asyncHandler(async (_req, res) => {
     }
   }
 
-  const formattedHotSectors = hotSectors.map((item: any) => {
+  const formattedHotSectors = hotSectorsRaw.map((item) => {
     const sectorPctChange = toFiniteNumber(item.sector_pct_change);
     const sectorMoneyFlow = toFiniteNumber(item.sector_money_flow);
 
@@ -142,10 +238,12 @@ router.get('/dashboard', asyncHandler(async (_req, res) => {
         sectorMoneyFlow === null
           ? '暂无数据'
           : `${sectorMoneyFlow >= 0 ? '+' : '-'}${Math.abs(sectorMoneyFlow / 100000000).toFixed(1)}亿`,
-      leaderName: item.stock_name || '暂无数据',
-      leaderCode: item.stock_code || '暂无数据',
+      leaderName: '--',
+      leaderCode: '--',
     };
   });
+
+  const insights = await fetchMarketInsights();
 
   const dashboardData = {
     platform: {
@@ -180,9 +278,10 @@ router.get('/dashboard', asyncHandler(async (_req, res) => {
       winRate,
     },
     yieldCurve,
+    insights,
     meta: {
       timestamp: new Date().toISOString(),
-      dataSource: 'database',
+      dataSource: 'timescaledb',
     },
   };
 

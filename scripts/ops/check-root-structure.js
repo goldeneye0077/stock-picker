@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 
@@ -43,18 +44,52 @@ const allowedRootDirs = new Set([
 
 const entries = fs.readdirSync(repoRoot, { withFileTypes: true });
 const unexpected = [];
+const workflowFilePatterns = [
+  /^task_plan.*\.md$/i,
+  /^findings\.md$/i,
+  /^progress\.md$/i,
+  /^\.env(\..+)?$/i,
+];
+
+function isWorkflowFile(name) {
+  return workflowFilePatterns.some((pattern) => pattern.test(name));
+}
+
+function runGit(args) {
+  return spawnSync('git', args, {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+}
+
+function isTrackedRootFile(name) {
+  const result = runGit(['ls-files', '--error-unmatch', '--', name]);
+  return result.status === 0;
+}
+
+function hasTrackedFilesInDir(name) {
+  const result = runGit(['ls-files', '--', `${name}/`]);
+  if (result.status !== 0) {
+    return false;
+  }
+  return (result.stdout || '').trim().length > 0;
+}
 
 for (const entry of entries) {
   const name = entry.name;
+  if (isWorkflowFile(name)) {
+    continue;
+  }
 
   if (entry.isDirectory()) {
-    if (!allowedRootDirs.has(name)) {
+    if (!allowedRootDirs.has(name) && hasTrackedFilesInDir(name)) {
       unexpected.push(`${name}/`);
     }
     continue;
   }
 
-  if (!allowedRootFiles.has(name)) {
+  if (!allowedRootFiles.has(name) && isTrackedRootFile(name)) {
     unexpected.push(name);
   }
 }

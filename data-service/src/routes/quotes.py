@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Request, Query
 from typing import Optional, List, Dict, Any, Callable
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, time
 from zoneinfo import ZoneInfo
 import logging
 import asyncio
@@ -14,10 +14,11 @@ from ..utils.database import get_database
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
 
 
 def _now_sh_iso() -> str:
-    return datetime.now(ZoneInfo("Asia/Shanghai")).isoformat()
+    return datetime.now(SHANGHAI_TZ).isoformat()
 
 
 def _new_backfill_status() -> Dict[str, Any]:
@@ -146,6 +147,39 @@ def _parse_trade_date(value: Optional[str]) -> Optional[date]:
     except Exception:
         return None
     return None
+
+
+def _parse_datetime(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+
+    try:
+        dt = datetime.fromisoformat(raw)
+    except Exception:
+        dt = None
+
+    if dt is None:
+        formats = ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S")
+        for fmt in formats:
+            try:
+                dt = datetime.strptime(raw[:19], fmt)
+                break
+            except Exception:
+                continue
+
+    if dt is None:
+        return None
+
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=SHANGHAI_TZ)
+    return dt.astimezone(SHANGHAI_TZ)
+
+
+def _snapshot_time_for_trade_day(trade_day: date) -> datetime:
+    return datetime.combine(trade_day, time(9, 26, 0), tzinfo=SHANGHAI_TZ)
 
 
 async def backfill_auction_history_task(
@@ -313,7 +347,7 @@ async def update_realtime_quotes_task(
     try:
         logger.info(f"开始更新实时行情，股票代码: {ts_codes if ts_codes else '全部'}")
 
-        now_sh = datetime.now(ZoneInfo("Asia/Shanghai"))
+        now_sh = datetime.now(SHANGHAI_TZ).replace(microsecond=0)
         now_str = now_sh.strftime("%Y-%m-%d %H:%M:%S")
 
         df = await akshare_client.get_realtime_quotes(ts_codes)
@@ -350,7 +384,7 @@ async def update_realtime_quotes_task(
                         row.get("bid_volume1", 0),
                         row.get("change_percent"),
                         row.get("change_amount"),
-                        now_str,
+                        now_sh,
                     ),
                 )
 
@@ -372,7 +406,7 @@ async def update_realtime_quotes_task(
                         row.get("amount"),
                         row.get("num", 0),
                         row.get("change_percent"),
-                        now_str,
+                        now_sh,
                     ),
                 )
 
@@ -400,7 +434,7 @@ async def get_realtime_quote(
     resolved = resolved.replace(" ", "")
     simple_code = resolved.split(".")[0]
 
-    now_sh = datetime.now(ZoneInfo("Asia/Shanghai"))
+    now_sh = datetime.now(SHANGHAI_TZ).replace(microsecond=0)
     if not force and max_age_seconds > 0:
         async with get_database() as db:
             cursor = await db.execute(
@@ -409,11 +443,7 @@ async def get_realtime_quote(
             )
             row = await cursor.fetchone()
         if row:
-            updated_at = str(row["updated_at"] or "")
-            try:
-                updated_dt = datetime.strptime(updated_at[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=ZoneInfo("Asia/Shanghai"))
-            except Exception:
-                updated_dt = None
+            updated_dt = _parse_datetime(str(row["updated_at"] or ""))
             if updated_dt and (now_sh - updated_dt).total_seconds() <= max_age_seconds:
                 return {"success": True, "data": {"quote": dict(row), "source": "db"}}
 
@@ -490,7 +520,7 @@ async def get_realtime_quote(
                 int(float(b1_v)) if b1_v is not None else 0,
                 float(change_percent) if change_percent is not None else None,
                 float(change_amount) if change_amount is not None else None,
-                now_str,
+                now_sh,
             ),
         )
         await db.commit()
@@ -715,9 +745,10 @@ async def update_auction_from_tushare_task(
             except Exception:
                 target_date_dt = None
         if not target_date_dt:
-            target_date_dt = datetime.now(ZoneInfo("Asia/Shanghai")).date()
+            target_date_dt = datetime.now(SHANGHAI_TZ).date()
         target_date_str = target_date_dt.strftime("%Y-%m-%d")
-        snapshot_time = f"{target_date_str} 09:26:00"
+        snapshot_dt = _snapshot_time_for_trade_day(target_date_dt)
+        snapshot_time = snapshot_dt.strftime("%Y-%m-%d %H:%M:%S")
 
         # 拉取数据
         if ts_codes and len(ts_codes) > 0:
@@ -743,8 +774,8 @@ async def update_auction_from_tushare_task(
         # 写入数据库
         async with get_database() as db:
             if force:
-                delete_start = f"{target_date_str} 09:20:00"
-                delete_end = f"{target_date_str} 09:30:00"
+                delete_start = datetime.combine(target_date_dt, time(9, 20, 0), tzinfo=SHANGHAI_TZ)
+                delete_end = datetime.combine(target_date_dt, time(9, 30, 0), tzinfo=SHANGHAI_TZ)
                 await db.execute(
                     "DELETE FROM quote_history WHERE snapshot_time >= ? AND snapshot_time < ?",
                     (delete_start, delete_end),
@@ -752,7 +783,7 @@ async def update_auction_from_tushare_task(
             else:
                 await db.execute(
                     "DELETE FROM quote_history WHERE snapshot_time = ?",
-                    (snapshot_time,),
+                    (snapshot_dt,),
                 )
             inserted = 0
             for _, row in data_df.iterrows():
@@ -790,7 +821,7 @@ async def update_auction_from_tushare_task(
                         amount,
                         0,
                         change_percent,
-                        snapshot_time,
+                        snapshot_dt,
                     ),
                 )
 
@@ -919,7 +950,10 @@ async def create_mock_auction_from_daily(trade_date: Optional[str] = None):
                         row["stock_code"]: float(row["close"] or 0.0) for row in krows
                     }
 
-            snapshot_time = f"{target_date} 09:26:00"
+            target_date_dt = _parse_trade_date(target_date)
+            if not target_date_dt:
+                target_date_dt = datetime.now(SHANGHAI_TZ).date()
+            snapshot_dt = _snapshot_time_for_trade_day(target_date_dt)
             inserted = 0
 
             for r in records:
@@ -965,7 +999,7 @@ async def create_mock_auction_from_daily(trade_date: Optional[str] = None):
                         amount,
                         0,
                         change_percent,
-                        snapshot_time,
+                        snapshot_dt,
                     ),
                 )
                 inserted += 1
@@ -991,6 +1025,10 @@ async def get_quote_history(
     try:
         async with get_database() as db:
             if start_time and end_time:
+                start_dt = _parse_datetime(start_time)
+                end_dt = _parse_datetime(end_time)
+                if not start_dt or not end_dt:
+                    raise HTTPException(status_code=400, detail="Invalid start_time/end_time format")
                 cursor = await db.execute(
                     """
                     SELECT * FROM quote_history
@@ -999,7 +1037,7 @@ async def get_quote_history(
                     ORDER BY snapshot_time DESC
                     LIMIT ?
                 """,
-                    (stock_code, start_time, end_time, limit),
+                    (stock_code, start_dt, end_dt, limit),
                 )
             else:
                 cursor = await db.execute(
@@ -1032,9 +1070,9 @@ async def get_quote_history(
 async def get_intraday_quotes(stock_code: str):
     """获取股票今日的分时行情"""
     try:
-        today = datetime.now().strftime("%Y-%m-%d")
-        start_time = f"{today} 00:00:00"
-        end_time = f"{today} 23:59:59"
+        today = datetime.now(SHANGHAI_TZ).strftime("%Y-%m-%d")
+        start_time = datetime.strptime(f"{today} 00:00:00", "%Y-%m-%d %H:%M:%S").replace(tzinfo=SHANGHAI_TZ)
+        end_time = datetime.strptime(f"{today} 23:59:59", "%Y-%m-%d %H:%M:%S").replace(tzinfo=SHANGHAI_TZ)
 
         async with get_database() as db:
             cursor = await db.execute(
@@ -1184,7 +1222,7 @@ async def get_realtime_quotes_batch(
         resolved_codes = [c for c in resolved_codes if c]
         simple_codes = [c.split(".")[0] for c in resolved_codes]
 
-        now_sh = datetime.now(ZoneInfo("Asia/Shanghai"))
+        now_sh = datetime.now(SHANGHAI_TZ).replace(microsecond=0)
         now_str = now_sh.strftime("%Y-%m-%d %H:%M:%S")
 
         existing_by_code: dict[str, dict] = {}
@@ -1207,13 +1245,7 @@ async def get_realtime_quotes_batch(
                 if not row:
                     stale_resolved.append(resolved)
                     continue
-                updated_at = str(row.get("updated_at") or "")
-                try:
-                    updated_dt = datetime.strptime(updated_at[:19], "%Y-%m-%d %H:%M:%S").replace(
-                        tzinfo=ZoneInfo("Asia/Shanghai")
-                    )
-                except Exception:
-                    updated_dt = None
+                updated_dt = _parse_datetime(str(row.get("updated_at") or ""))
                 if not updated_dt or (now_sh - updated_dt).total_seconds() > max_age_seconds:
                     stale_resolved.append(resolved)
         else:
@@ -1282,7 +1314,7 @@ async def get_realtime_quotes_batch(
                                 int(float(bid_volume1)) if bid_volume1 is not None else 0,
                                 float(change_percent) if change_percent is not None else None,
                                 float(change_amount) if change_amount is not None else None,
-                                now_str,
+                                now_sh,
                             ),
                         )
                     await db.commit()

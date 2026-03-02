@@ -1,7 +1,6 @@
 /**
  * 股票列表表格组件
- * 显示股票数据的表格，支持排序和点击查看详情
- * 性能优化：使用 React.memo 和 useMemo
+ * 展示股票数据，支持排序、详情跳转和服务端分页
  */
 
 import React, { useMemo } from 'react';
@@ -15,7 +14,11 @@ const { Text } = Typography;
 
 interface StockTableProps {
   data: StockItem[];
+  total: number;
+  currentPage: number;
+  pageSize: number;
   loading: boolean;
+  onPageChange: (page: number, pageSize: number) => void;
   onRowClick: (record: StockItem) => void;
   onAnalysisClick: (record: StockItem) => void;
   onFundamentalClick: (record: StockItem) => void;
@@ -26,19 +29,23 @@ interface StockTableProps {
 }
 
 // 提取数值用于排序
-const parseNumber = (value: any): number => {
+const parseNumber = (value: unknown): number => {
   if (typeof value === 'number') return value;
   if (typeof value === 'string') {
-    const cleaned = value.replace(/[¥+%亿,]/g, '');
+    const cleaned = value.replace(/[¥￥+%亿万,\s]/g, '');
     const num = parseFloat(cleaned);
-    return isNaN(num) ? 0 : num;
+    return Number.isNaN(num) ? 0 : num;
   }
   return 0;
 };
 
 const StockTableComponent: React.FC<StockTableProps> = ({
   data,
+  total,
+  currentPage,
+  pageSize,
   loading,
+  onPageChange,
   onRowClick,
   onAnalysisClick,
   onFundamentalClick,
@@ -47,7 +54,6 @@ const StockTableComponent: React.FC<StockTableProps> = ({
   watchlistPendingCodes,
   onToggleWatchlist
 }) => {
-  // 使用 useMemo 缓存列定义，避免每次渲染都重新创建
   const columns: ColumnsType<StockItem> = useMemo(() => [
     {
       title: '股票代码',
@@ -194,7 +200,7 @@ const StockTableComponent: React.FC<StockTableProps> = ({
       key: 'action',
       width: 180,
       fixed: 'right' as const,
-      render: (_: any, record) => (
+      render: (_: unknown, record) => (
         <div style={{ display: 'flex', gap: '12px' }}>
           <a
             onClick={(e) => {
@@ -256,7 +262,7 @@ const StockTableComponent: React.FC<StockTableProps> = ({
         </div>
       )
     }
-  ], [onRowClick, onAnalysisClick, onFundamentalClick, onToggleWatchlist, watchlistCodes, watchlistPendingCodes, watchlistMode]); // 依赖项：回调函数变化时重新创建列定义
+  ], [onRowClick, onAnalysisClick, onFundamentalClick, onToggleWatchlist, watchlistCodes, watchlistPendingCodes, watchlistMode]);
 
   return (
     <Table
@@ -265,11 +271,16 @@ const StockTableComponent: React.FC<StockTableProps> = ({
       loading={loading}
       scroll={{ x: 1400, y: 600 }}
       pagination={{
-        defaultPageSize: 20,
+        current: currentPage,
+        pageSize,
+        total,
         showSizeChanger: true,
         showQuickJumper: true,
-        showTotal: (total) => `共 ${total} 条记录`,
-        pageSizeOptions: ['10', '20', '50', '100']
+        showTotal: (count) => `共 ${count} 条记录`,
+        pageSizeOptions: ['10', '20', '50', '100'],
+        onChange: (nextPage, nextPageSize) => {
+          onPageChange(nextPage, nextPageSize);
+        }
       }}
       size="small"
       bordered
@@ -277,5 +288,5 @@ const StockTableComponent: React.FC<StockTableProps> = ({
   );
 };
 
-// 使用 React.memo 优化组件性能，避免不必要的重新渲染
 export const StockTable = React.memo(StockTableComponent);
+

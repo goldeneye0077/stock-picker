@@ -1,9 +1,52 @@
 services:
+  # PostgreSQL + TimescaleDB
+  timescaledb:
+    image: ${TIMESCALE_IMAGE:-timescale/timescaledb:latest-pg16}
+    container_name: stock-picker-timescaledb
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=${TIMESCALE_DB:-stock_picker}
+      - POSTGRES_USER=${TIMESCALE_USER:-postgres}
+      - POSTGRES_PASSWORD=${TIMESCALE_PASSWORD:-postgres}
+    ports:
+      - "127.0.0.1:${TIMESCALE_PORT:-5432}:5432"
+    volumes:
+      - timescale-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${TIMESCALE_USER:-postgres} -d ${TIMESCALE_DB:-stock_picker}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - stock-picker-network
+
   # Redis Cache
   redis:
     image: ${REDIS_IMAGE:-redis:7-alpine}
     container_name: stock-picker-redis
     restart: unless-stopped
+    networks:
+      - stock-picker-network
+
+  # One-shot Timescale schema initializer
+  timescaledb-init:
+    image: ${TIMESCALE_INIT_IMAGE:-postgres:16-alpine}
+    container_name: stock-picker-timescaledb-init
+    restart: "no"
+    environment:
+      - PGPASSWORD=${TIMESCALE_PASSWORD:-postgres}
+    volumes:
+      - ./scripts/migrate/timescaledb_schema.sql:/schema/timescaledb_schema.sql:ro
+    command:
+      [
+        "sh",
+        "-lc",
+        "until pg_isready -h timescaledb -p 5432 -U ${TIMESCALE_USER:-postgres} -d ${TIMESCALE_DB:-stock_picker}; do sleep 2; done; psql -v ON_ERROR_STOP=1 -h timescaledb -p 5432 -U ${TIMESCALE_USER:-postgres} -d ${TIMESCALE_DB:-stock_picker} -f /schema/timescaledb_schema.sql",
+      ]
+    depends_on:
+      timescaledb:
+        condition: service_healthy
     networks:
       - stock-picker-network
 
@@ -20,15 +63,15 @@ services:
     environment:
       - NODE_ENV=production
       - REDIS_URL=redis://redis:6379
+      - MARKET_EVENT_CHANNEL=${MARKET_EVENT_CHANNEL:-market:events}
+      - TIMESCALE_ENABLED=${TIMESCALE_ENABLED:-true}
+      - TIMESCALE_URL=${TIMESCALE_URL:-postgresql://postgres:postgres@timescaledb:5432/stock_picker}
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD?ADMIN_PASSWORD is required}
       - DATA_SERVICE_URL=http://data-service:8001
-      # DATABASE_URL is ignored by the code but good to have for reference
-      - DATABASE_URL=sqlite:/data/stock_picker.db
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@timescaledb:5432/stock_picker}
       - FRONTEND_URL=${FRONTEND_URL:-}
       - CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS:-}
-    volumes:
-      - data:/data
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 10s
@@ -36,7 +79,12 @@ services:
       retries: 15
       start_period: 20s
     depends_on:
-      - redis
+      redis:
+        condition: service_started
+      timescaledb:
+        condition: service_healthy
+      timescaledb-init:
+        condition: service_completed_successfully
     networks:
       - stock-picker-network
 
@@ -54,15 +102,17 @@ services:
       - ./data-service/.env
     environment:
       - REDIS_URL=redis://redis:6379
-      - DATABASE_URL=sqlite:/data/stock_picker.db
+      - REDIS_PUBSUB_ENABLED=${REDIS_PUBSUB_ENABLED:-true}
+      - MARKET_EVENT_CHANNEL=${MARKET_EVENT_CHANNEL:-market:events}
+      - TIMESCALE_ENABLED=${TIMESCALE_ENABLED:-true}
+      - TIMESCALE_URL=${TIMESCALE_URL:-postgresql://postgres:postgres@timescaledb:5432/stock_picker}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@timescaledb:5432/stock_picker}
       - SESSION_EXPIRE_DAYS=${SESSION_EXPIRE_DAYS:-7}
-    volumes:
-      - data:/data
     command:
       [
         "sh",
         "-lc",
-        "if [ -f /seed/stock_picker.db ]; then if [ ! -f /data/stock_picker.db ]; then cp /seed/stock_picker.db /data/stock_picker.db; else if ! python -c \"import sqlite3; con=sqlite3.connect('/data/stock_picker.db'); print(con.execute('PRAGMA integrity_check').fetchone()[0]); con.close()\" | grep -qx ok; then rm -f /data/stock_picker.db; cp /seed/stock_picker.db /data/stock_picker.db; fi; fi; fi; exec uvicorn src.main:app --host 0.0.0.0 --port 8001",
+        "exec uvicorn src.main:app --host 0.0.0.0 --port 8001",
       ]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=3).read()"]
@@ -71,7 +121,12 @@ services:
       retries: 15
       start_period: 20s
     depends_on:
-      - redis
+      redis:
+        condition: service_started
+      timescaledb:
+        condition: service_healthy
+      timescaledb-init:
+        condition: service_completed_successfully
     networks:
       - stock-picker-network
 
@@ -104,4 +159,4 @@ networks:
     driver: bridge
 
 volumes:
-  data:
+  timescale-data:

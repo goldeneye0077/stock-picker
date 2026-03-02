@@ -3,4 +3,4 @@ dist
 .git
 *.log
 npm-debug.log*
-package-lock.json
+coverage

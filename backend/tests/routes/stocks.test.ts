@@ -7,10 +7,14 @@ import request from 'supertest';
 // Create a shared mock instance that will be returned by StockRepository constructor
 const mockStockRepoInstanceInstance = {
   findAll: jest.fn(),
+  findAllFiltered: jest.fn(),
+  countAll: jest.fn(),
+  countFiltered: jest.fn(),
   findDetailsByCode: jest.fn(),
   search: jest.fn(),
   findAllBasic: jest.fn(),
   findByDate: jest.fn(),
+  findByDateFiltered: jest.fn(),
 };
 
 // Mock the repositories module BEFORE importing anything else
@@ -99,6 +103,55 @@ describe('Stock Routes', () => {
 
       expect(response.body.success).toBe(false);
       expect(response.body.message).toBeDefined();
+    });
+  });
+
+  describe('GET /api/stocks pagination', () => {
+    it('should apply limit/offset and return total/page metadata', async () => {
+      const mockStocks = [
+        { code: '000001', name: 'A', exchange: 'SZ', industry: 'X' },
+        { code: '000002', name: 'B', exchange: 'SZ', industry: 'X' },
+      ];
+      mockStockRepoInstanceInstance.findAll.mockResolvedValue(mockStocks as any);
+      mockStockRepoInstanceInstance.countAll.mockResolvedValue(5485);
+
+      const response = await request(app)
+        .get('/api/stocks?limit=2&offset=2')
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data).toEqual(mockStocks);
+      expect(response.body.total).toBe(5485);
+      expect(response.body.page).toBe(2);
+      expect(response.body.pageSize).toBe(2);
+      expect(mockStockRepoInstanceInstance.findAll).toHaveBeenCalledWith(2, 2);
+      expect(mockStockRepoInstanceInstance.countAll).toHaveBeenCalledTimes(1);
+    });
+
+    it('should paginate filtered results and use countFiltered', async () => {
+      const mockStocks = [{ code: '000001', name: 'PingAn', exchange: 'SZ', industry: 'Bank' }];
+      mockStockRepoInstanceInstance.findAllFiltered.mockResolvedValue(mockStocks as any);
+      mockStockRepoInstanceInstance.countFiltered.mockResolvedValue(3);
+
+      const response = await request(app)
+        .get('/api/stocks?search=Ping&limit=1&page=1')
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.total).toBe(3);
+      expect(response.body.page).toBe(1);
+      expect(response.body.pageSize).toBe(1);
+      expect(mockStockRepoInstanceInstance.findAllFiltered).toHaveBeenCalledWith('Ping', undefined, 1, 0);
+      expect(mockStockRepoInstanceInstance.countFiltered).toHaveBeenCalledWith('Ping', undefined);
+    });
+
+    it('should reject invalid limit', async () => {
+      const response = await request(app)
+        .get('/api/stocks?limit=0')
+        .expect(400);
+
+      expect(response.body.success).toBe(false);
+      expect(String(response.body.message || '').toLowerCase()).toContain('limit');
     });
   });
 

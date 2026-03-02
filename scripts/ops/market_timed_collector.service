@@ -1,0 +1,18 @@
+[Unit]
+Description=Stock Picker Market Timed Collector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/stock-picker-latest
+ExecStart=/usr/bin/env python3 /opt/stock-picker-latest/scripts/ops/market_timed_collector.py
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+Environment=TZ=Asia/Shanghai
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

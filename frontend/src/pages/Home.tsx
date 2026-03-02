@@ -210,7 +210,8 @@ const Home: React.FC = () => {
     yieldCurveValues,
     yieldCurveBenchmarkValues,
   ]);
-  const marketInsightCards: Array<{ key: string; category: string; title: string; desc: string; time: string }> = [];
+  const marketInsightCards: Array<{ key: string; category: string; title: string; desc: string; time: string }> = dashboardData?.insights?.cards || [];
+  const featuredInsight = dashboardData?.insights?.featured || marketInsightCards[0] || null;
 
   const hasAnyMedal = Boolean(
     monthlyStatsData?.medals?.gold ||
@@ -872,11 +873,11 @@ const Home: React.FC = () => {
                     />
                     <div className="sq-home__insight-overlay" aria-hidden="true" />
                     <div className="sq-home__insight-main-inner">
-                      <span className="sq-home__insight-tag">{NO_DATA_TEXT}</span>
-                      <h3 className="sq-home__insight-title">{NO_DATA_TEXT}</h3>
-                      <p className="sq-home__insight-desc">{NO_DATA_TEXT}</p>
+                      <span className="sq-home__insight-tag">{featuredInsight?.category || NO_DATA_TEXT}</span>
+                      <h3 className="sq-home__insight-title">{featuredInsight?.title || NO_DATA_TEXT}</h3>
+                      <p className="sq-home__insight-desc">{featuredInsight?.desc || NO_DATA_TEXT}</p>
                       <div className="sq-home__insight-meta" aria-label="文章信息">
-                        <span className="sq-home__insight-meta-item">{NO_DATA_TEXT}</span>
+                        <span className="sq-home__insight-meta-item">{featuredInsight?.time || NO_DATA_TEXT}</span>
                       </div>
                     </div>
                   </article>
@@ -914,4 +915,3 @@ const Home: React.FC = () => {
 };
 
 export default Home;
-

@@ -285,20 +285,10 @@ const SuperMainForce: React.FC = () => {
       render: (_: unknown, record: AuctionSuperMainForceItem) => {
         const close = Number(record.close);
         const auctionPrice = Number(record.price);
-        let v: number | undefined;
-        if (Number.isFinite(close) && Number.isFinite(auctionPrice) && auctionPrice > 0) {
-          // 当日盈亏口径：集合竞价成交价买入 -> 当日(或当前)价格
-          v = ((close - auctionPrice) / auctionPrice) * 100;
-        } else {
-          const rawChangePercent = Number(record.changePercent);
-          if (Number.isFinite(rawChangePercent)) {
-            // 兼容旧数据：缺少 close 时使用昨收口径近似
-            v = rawChangePercent - Number(record.gapPercent || 0);
-          }
-        }
-        if (v === undefined || !Number.isFinite(v)) {
+        if (!Number.isFinite(close) || !Number.isFinite(auctionPrice) || auctionPrice <= 0) {
           return <span className="sq-neutral sq-mono">-</span>;
         }
+        const v = ((close - auctionPrice) / auctionPrice) * 100;
         const pnlColor = v >= 0 ? A_SHARE_COLORS.RISE : A_SHARE_COLORS.FALL;
         return (
           <span className="sq-mono" style={{ color: pnlColor }}>
