@@ -622,7 +622,7 @@ jobs:
         username: ${{ secrets.DEPLOY_SSH_USER }}
         key: ${{ secrets.DEPLOY_SSH_KEY }}
         port: ${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}
-        command_timeout: 180m
+        command_timeout: 45m
         script: |
           set -euo pipefail
           DEPLOY_DIR="/home/${{ secrets.DEPLOY_SSH_USER }}/stock-picker"
@@ -636,12 +636,12 @@ jobs:
             echo "warning: ghcr login failed, continuing with anonymous pull"
           fi
           pull_ok=0
-          for i in 1 2 3; do
-            if docker compose -f "${DEPLOY_DIR}/docker-compose.yml" pull backend frontend data-service; then
+          for i in 1 2; do
+            if timeout 20m docker compose -f "${DEPLOY_DIR}/docker-compose.yml" pull backend frontend data-service; then
               pull_ok=1
               break
             fi
-            echo "docker compose pull failed (attempt ${i}/3), retrying in 10s..."
+            echo "docker compose pull failed (attempt ${i}/2), retrying in 10s..."
             sleep 10
           done
           if [ "${pull_ok}" -ne 1 ]; then
