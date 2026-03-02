@@ -649,7 +649,7 @@ jobs:
             exit 1
           fi
 
-    - name: Deploy phase 2 (start infra)
+    - name: Deploy phase 2a (prepare infra images)
       if: steps.check.outputs.enabled == 'true'
       uses: appleboy/ssh-action@v1.0.3
       with:
@@ -713,6 +713,23 @@ jobs:
               exit 1
             fi
           fi
+
+    - name: Deploy phase 2b (start infra)
+      if: steps.check.outputs.enabled == 'true'
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.DEPLOY_SSH_HOST }}
+        username: ${{ secrets.DEPLOY_SSH_USER }}
+        key: ${{ secrets.DEPLOY_SSH_KEY }}
+        port: ${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}
+        command_timeout: 30m
+        script: |
+          set -euo pipefail
+          DEPLOY_DIR="/home/${{ secrets.DEPLOY_SSH_USER }}/stock-picker"
+          cd "${DEPLOY_DIR}"
+          export OWNER="${{ github.repository_owner }}"
+          export TIMESCALE_IMAGE="ghcr.io/${OWNER}/stock-picker-timescaledb:latest-pg16"
+          export REDIS_IMAGE="${REDIS_IMAGE:-registry.openanolis.cn/openanolis/redis:5.0.3-8.6}"
           if ! timeout 10m docker compose -f "${DEPLOY_DIR}/docker-compose.yml" up -d --no-build --pull never redis timescaledb; then
             echo "failed to start infra services"
             docker compose -f "${DEPLOY_DIR}/docker-compose.yml" ps || true
