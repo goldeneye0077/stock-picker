@@ -432,6 +432,27 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
+    - name: Mirror TimescaleDB image to GHCR
+      run: |
+        set -euo pipefail
+        SRC_IMAGE="timescale/timescaledb:latest-pg16"
+        DEST_IMAGE="ghcr.io/${{ github.repository_owner }}/stock-picker-timescaledb:latest-pg16"
+        mirror_ok=0
+        for i in 1 2 3; do
+          if docker pull "${SRC_IMAGE}"; then
+            mirror_ok=1
+            break
+          fi
+          echo "timescaledb pull failed (attempt ${i}/3), retrying in 10s..."
+          sleep 10
+        done
+        if [ "${mirror_ok}" -ne 1 ]; then
+          echo "timescaledb mirror pull failed after retries"
+          exit 1
+        fi
+        docker tag "${SRC_IMAGE}" "${DEST_IMAGE}"
+        docker push "${DEST_IMAGE}"
+
     - name: Backend image metadata
       id: meta_backend
       uses: docker/metadata-action@v5
@@ -612,6 +633,7 @@ jobs:
           export BACKEND_IMAGE="ghcr.io/${OWNER}/stock-picker-backend:${TAG}"
           export FRONTEND_IMAGE="ghcr.io/${OWNER}/stock-picker-frontend:${TAG}"
           export DATA_SERVICE_IMAGE="ghcr.io/${OWNER}/stock-picker-data-service:${TAG}"
+          export TIMESCALE_IMAGE="ghcr.io/${OWNER}/stock-picker-timescaledb:latest-pg16"
 
           # Pull only app images from GHCR to avoid transient Docker Hub outages (e.g. redis image pull timeout).
           pull_ok=0
