@@ -20,10 +20,6 @@ permissions:
   contents: read
   pull-requests: read
 
-concurrency:
-  group: stock-picker-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 env:
   CODECOV_ENABLED: ${{ vars.CODECOV_ENABLED || 'false' }}
   ARTIFACTS_ENABLED: ${{ vars.ARTIFACTS_ENABLED || 'false' }}
@@ -522,6 +518,9 @@ jobs:
         ||
         (github.event_name == 'workflow_dispatch' && inputs.deploy == true && needs['publish-ghcr'].result == 'success')
       )
+    concurrency:
+      group: stock-picker-deploy-${{ github.ref }}
+      cancel-in-progress: true
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
