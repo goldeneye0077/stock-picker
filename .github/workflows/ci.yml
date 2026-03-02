@@ -586,26 +586,35 @@ jobs:
             printf 'TUSHARE_TOKEN=\n' > "${DEPLOY_DIR}/data-service/.env"
           fi
           ls -la "${DEPLOY_DIR}"
-    - name: Upload docker-compose.yml
+    - name: Upload deploy files (scp with retry)
       if: steps.check.outputs.enabled == 'true'
-      uses: appleboy/scp-action@v0.1.7
-      with:
-        host: ${{ secrets.DEPLOY_SSH_HOST }}
-        username: ${{ secrets.DEPLOY_SSH_USER }}
-        key: ${{ secrets.DEPLOY_SSH_KEY }}
-        port: ${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}
-        source: "docker-compose.yml"
-        target: "/home/${{ secrets.DEPLOY_SSH_USER }}/stock-picker"
-    - name: Upload timescaledb schema
-      if: steps.check.outputs.enabled == 'true'
-      uses: appleboy/scp-action@v0.1.7
-      with:
-        host: ${{ secrets.DEPLOY_SSH_HOST }}
-        username: ${{ secrets.DEPLOY_SSH_USER }}
-        key: ${{ secrets.DEPLOY_SSH_KEY }}
-        port: ${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}
-        source: "scripts/migrate/timescaledb_schema.sql"
-        target: "/home/${{ secrets.DEPLOY_SSH_USER }}/stock-picker/scripts/migrate"
+      shell: bash
+      run: |
+        set -euo pipefail
+        HOST="${{ secrets.DEPLOY_SSH_HOST }}"
+        USER="${{ secrets.DEPLOY_SSH_USER }}"
+        PORT="${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}"
+        DEPLOY_DIR="/home/${USER}/stock-picker"
+
+        install -m 700 -d ~/.ssh
+        printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+        chmod 600 ~/.ssh/deploy_key
+
+        upload_ok=0
+        for i in 1 2 3; do
+          if scp -P "${PORT}" -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no docker-compose.yml "${USER}@${HOST}:${DEPLOY_DIR}/docker-compose.yml" \
+            && scp -P "${PORT}" -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no scripts/migrate/timescaledb_schema.sql "${USER}@${HOST}:${DEPLOY_DIR}/scripts/migrate/timescaledb_schema.sql"; then
+            upload_ok=1
+            break
+          fi
+          echo "scp upload failed (attempt ${i}/3), retrying in 10s..."
+          sleep 10
+        done
+
+        if [ "${upload_ok}" -ne 1 ]; then
+          echo "scp upload failed after retries"
+          exit 1
+        fi
     - name: Deploy by SSH
       if: steps.check.outputs.enabled == 'true'
       uses: appleboy/ssh-action@v1.0.3
