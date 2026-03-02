@@ -106,6 +106,125 @@ async def batch_collect_7days_data(include_moneyflow: bool = True) -> dict:
         }
 
 
+
+def _normalize_trade_date_for_kline(trade_date: str | None = None) -> tuple[str, str]:
+    """
+    Normalize input date to both YYYYMMDD and YYYY-MM-DD.
+    """
+    if trade_date:
+        raw = str(trade_date).strip()
+    else:
+        raw = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d")
+
+    dt = None
+    if "-" in raw:
+        try:
+            dt = datetime.strptime(raw[:10], "%Y-%m-%d")
+        except Exception:
+            dt = None
+
+    if dt is None:
+        digits = "".join(ch for ch in raw if ch.isdigit())
+        if len(digits) >= 8:
+            try:
+                dt = datetime.strptime(digits[:8], "%Y%m%d")
+            except Exception:
+                dt = None
+
+    if dt is None:
+        raise ValueError(f"Invalid trade_date: {trade_date}")
+
+    return dt.strftime("%Y%m%d"), dt.strftime("%Y-%m-%d")
+
+
+def _to_float_or_default(value: object, default: float = 0.0) -> float:
+    try:
+        v = float(value)
+        if pd.isna(v):
+            return default
+        return v
+    except Exception:
+        return default
+
+
+async def collect_trade_date_klines_data(trade_date: str | None = None) -> dict:
+    """
+    Collect all-stock K-line data for a single trade day.
+
+    Returns:
+        {"success": bool, "message": str, "stats": {"trade_date": str, "inserted": int}}
+    """
+    try:
+        target_yyyymmdd, target_ymd = _normalize_trade_date_for_kline(trade_date)
+    except ValueError as e:
+        return {"success": False, "message": str(e), "stats": {"trade_date": trade_date, "inserted": 0}}
+
+    try:
+        manager = get_multi_source_manager()
+        if not manager.sources:
+            return {
+                "success": False,
+                "message": "No data source available",
+                "stats": {"trade_date": target_ymd, "inserted": 0},
+            }
+
+        logger.info(f"Start single-day K-line collection: {target_yyyymmdd}")
+        df = await manager.get_with_fallback("get_daily_data_by_date", target_yyyymmdd)
+        if df is None or df.empty:
+            logger.warning(f"No K-line data returned for {target_yyyymmdd}")
+            return {
+                "success": False,
+                "message": f"No K-line data for {target_ymd}",
+                "stats": {"trade_date": target_ymd, "inserted": 0},
+            }
+
+        inserted = 0
+        async with get_database() as db:
+            for _, row in df.iterrows():
+                ts_code = str(row.get("ts_code") or "").strip()
+                if not ts_code:
+                    continue
+
+                stock_code = ts_code.split(".")[0]
+                trade_value = row.get("trade_date")
+                row_trade_date = trade_value.strftime("%Y-%m-%d") if hasattr(trade_value, "strftime") else target_ymd
+
+                await db.execute(
+                    """
+                    INSERT OR REPLACE INTO klines
+                    (stock_code, date, open, high, low, close, volume, amount, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                    """,
+                    (
+                        stock_code,
+                        row_trade_date,
+                        _to_float_or_default(row.get("open")),
+                        _to_float_or_default(row.get("high")),
+                        _to_float_or_default(row.get("low")),
+                        _to_float_or_default(row.get("close")),
+                        int(_to_float_or_default(row.get("vol")) * 100),
+                        _to_float_or_default(row.get("amount")) * 1000,
+                    ),
+                )
+                inserted += 1
+            await db.commit()
+
+        logger.info(f"Single-day K-line collection finished: {target_ymd}, inserted={inserted}")
+        return {
+            "success": True,
+            "message": f"K-line collection completed for {target_ymd}",
+            "stats": {"trade_date": target_ymd, "inserted": inserted},
+        }
+    except Exception as e:
+        logger.error(f"Single-day K-line collection failed for {target_ymd}: {e}")
+        return {
+            "success": False,
+            "message": f"K-line collection failed: {e}",
+            "stats": {"trade_date": target_ymd, "inserted": 0},
+        }
+
+
+
 @router.post("/fetch-stocks")
 async def fetch_stock_list(background_tasks: BackgroundTasks, _: dict = Depends(require_admin_or_local)):
     """Fetch and update stock list from multi-source"""

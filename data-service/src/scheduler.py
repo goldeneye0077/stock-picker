@@ -138,6 +138,31 @@ async def collect_auction_data_task():
         logger.error(f"Auction data collection failed: {e}")
 
 
+async def collect_daily_klines_task():
+    try:
+        if not is_trading_day():
+            logger.info("Skip daily K-line collection: non-trading day")
+            return
+
+        logger.info("Scheduled task triggered: collect daily K-lines")
+        today_sh = datetime.now(scheduler_tz).strftime("%Y-%m-%d")
+        try:
+            from .routes.data_collection import collect_trade_date_klines_data
+        except ImportError:
+            from routes.data_collection import collect_trade_date_klines_data
+
+        result = await collect_trade_date_klines_data(today_sh)
+        if result.get("success"):
+            logger.info(
+                f"Daily K-line collection finished: {result.get('stats', {}).get('trade_date')} "
+                f"inserted={result.get('stats', {}).get('inserted', 0)}"
+            )
+        else:
+            logger.warning(f"Daily K-line collection skipped/failed: {result.get('message')}")
+    except Exception as e:
+        logger.error(f"Daily K-line scheduler execution failed: {e}")
+
+
 def schedule_sync_wrapper():
     import asyncio
 
@@ -150,6 +175,23 @@ def schedule_sync_wrapper():
             loop.close()
     except Exception as e:
         logger.error(f"Scheduler wrapper failure: {e}")
+        import traceback
+
+        logger.error(traceback.format_exc())
+
+
+def daily_kline_schedule_sync_wrapper():
+    import asyncio
+
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(collect_daily_klines_task())
+        finally:
+            loop.close()
+    except Exception as e:
+        logger.error(f"Daily K-line scheduler wrapper failure: {e}")
         import traceback
 
         logger.error(traceback.format_exc())
@@ -216,15 +258,16 @@ def start_scheduler():
 
     try:
         scheduler.add_job(
-            func=schedule_sync_wrapper,
+            func=daily_kline_schedule_sync_wrapper,
             trigger=CronTrigger(
                 hour=15,
-                minute=30,
+                minute=10,
+                second=0,
                 day_of_week="mon-fri",
                 timezone=scheduler_tz,
             ),
-            id="daily_data_collection",
-            name="Daily full collection",
+            id="daily_kline_collection",
+            name="Daily K-line collection",
             replace_existing=True,
             misfire_grace_time=3600,
         )
@@ -248,13 +291,13 @@ def start_scheduler():
             func=auction_schedule_sync_wrapper,
             trigger=CronTrigger(
                 hour=9,
-                minute="26-29",
+                minute=26,
                 second=0,
                 day_of_week="mon-fri",
                 timezone=scheduler_tz,
             ),
             id="auction_stk_auction",
-            name="Auction tick collection (Tushare)",
+            name="Auction collection (Tushare)",
             replace_existing=True,
             misfire_grace_time=10,
         )
@@ -277,10 +320,11 @@ def start_scheduler():
         _is_running = True
 
         logger.info("Scheduler started")
-        logger.info("Daily collection time: 15:30 (Mon-Fri)")
+        logger.info("Auction collection time: 09:26 (Mon-Fri)")
+        logger.info("Daily K-line collection time: 15:10 (Mon-Fri)")
         logger.info("Daily market insight generation time: 15:40 (Mon-Fri)")
 
-        next_run = scheduler.get_job("daily_data_collection").next_run_time
+        next_run = scheduler.get_job("daily_kline_collection").next_run_time
         if next_run:
             logger.info(f"Next run time: {next_run.strftime('%Y-%m-%d %H:%M:%S')}")
         insight_next_run = scheduler.get_job("daily_market_insight_generation").next_run_time
