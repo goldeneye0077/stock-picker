@@ -615,7 +615,7 @@ jobs:
           echo "scp upload failed after retries"
           exit 1
         fi
-    - name: Deploy by SSH
+    - name: Deploy phase 1 (pull app images)
       if: steps.check.outputs.enabled == 'true'
       uses: appleboy/ssh-action@v1.0.3
       with:
@@ -628,23 +628,11 @@ jobs:
           set -euo pipefail
           DEPLOY_DIR="/home/${{ secrets.DEPLOY_SSH_USER }}/stock-picker"
           cd "${DEPLOY_DIR}"
-          on_error() {
-            docker compose -f "${DEPLOY_DIR}/docker-compose.yml" ps || true
-            docker compose -f "${DEPLOY_DIR}/docker-compose.yml" logs --no-color --tail=200 || true
-          }
-          trap on_error ERR
-          if [ ! -f docker-compose.yml ]; then
-            echo "docker-compose.yml not found in $(pwd)"
-            exit 1
-          fi
           export OWNER="${{ github.repository_owner }}"
           export TAG="sha-${{ github.sha }}"
           export BACKEND_IMAGE="ghcr.io/${OWNER}/stock-picker-backend:${TAG}"
           export FRONTEND_IMAGE="ghcr.io/${OWNER}/stock-picker-frontend:${TAG}"
           export DATA_SERVICE_IMAGE="ghcr.io/${OWNER}/stock-picker-data-service:${TAG}"
-          export TIMESCALE_IMAGE="ghcr.io/${OWNER}/stock-picker-timescaledb:latest-pg16"
-
-          # Pull only app images from GHCR to avoid transient Docker Hub outages (e.g. redis image pull timeout).
           pull_ok=0
           for i in 1 2 3; do
             if docker compose -f "${DEPLOY_DIR}/docker-compose.yml" pull backend frontend data-service; then
@@ -659,9 +647,23 @@ jobs:
             exit 1
           fi
 
-          # Ensure infra dependencies are available before app containers.
+    - name: Deploy phase 2 (start infra)
+      if: steps.check.outputs.enabled == 'true'
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.DEPLOY_SSH_HOST }}
+        username: ${{ secrets.DEPLOY_SSH_USER }}
+        key: ${{ secrets.DEPLOY_SSH_KEY }}
+        port: ${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}
+        command_timeout: 180m
+        script: |
+          set -euo pipefail
+          DEPLOY_DIR="/home/${{ secrets.DEPLOY_SSH_USER }}/stock-picker"
+          cd "${DEPLOY_DIR}"
+          export OWNER="${{ github.repository_owner }}"
+          export TIMESCALE_IMAGE="ghcr.io/${OWNER}/stock-picker-timescaledb:latest-pg16"
+          export REDIS_IMAGE="${REDIS_IMAGE:-registry.openanolis.cn/openanolis/redis:5.0.3-8.6}"
           docker compose -f "${DEPLOY_DIR}/docker-compose.yml" up -d --no-build redis timescaledb
-
           for i in $(seq 1 90); do
             tsdb_h="$(docker inspect -f '{{.State.Health.Status}}' stock-picker-timescaledb 2>/dev/null || true)"
             if [ "${tsdb_h}" = "healthy" ]; then
@@ -676,7 +678,19 @@ jobs:
             exit 1
           fi
 
-          # Run schema bootstrap (idempotent) directly inside TimescaleDB to avoid extra init-image pulls.
+    - name: Deploy phase 3 (apply schema)
+      if: steps.check.outputs.enabled == 'true'
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.DEPLOY_SSH_HOST }}
+        username: ${{ secrets.DEPLOY_SSH_USER }}
+        key: ${{ secrets.DEPLOY_SSH_KEY }}
+        port: ${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}
+        command_timeout: 180m
+        script: |
+          set -euo pipefail
+          DEPLOY_DIR="/home/${{ secrets.DEPLOY_SSH_USER }}/stock-picker"
+          cd "${DEPLOY_DIR}"
           SCHEMA_FILE="${DEPLOY_DIR}/scripts/migrate/timescaledb_schema.sql"
           if [ ! -f "${SCHEMA_FILE}" ]; then
             fallback_schema="$(find "${DEPLOY_DIR}" -maxdepth 6 -type f -name timescaledb_schema.sql | head -n 1 || true)"
@@ -695,9 +709,28 @@ jobs:
             stock-picker-timescaledb \
             sh -lc "psql -v ON_ERROR_STOP=1 -U ${TIMESCALE_USER:-postgres} -d ${TIMESCALE_DB:-stock_picker} -f /tmp/timescaledb_schema.sql"
 
+    - name: Deploy phase 4 (start app)
+      if: steps.check.outputs.enabled == 'true'
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.DEPLOY_SSH_HOST }}
+        username: ${{ secrets.DEPLOY_SSH_USER }}
+        key: ${{ secrets.DEPLOY_SSH_KEY }}
+        port: ${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}
+        command_timeout: 180m
+        script: |
+          set -euo pipefail
+          DEPLOY_DIR="/home/${{ secrets.DEPLOY_SSH_USER }}/stock-picker"
+          cd "${DEPLOY_DIR}"
+          export OWNER="${{ github.repository_owner }}"
+          export TAG="sha-${{ github.sha }}"
+          export BACKEND_IMAGE="ghcr.io/${OWNER}/stock-picker-backend:${TAG}"
+          export FRONTEND_IMAGE="ghcr.io/${OWNER}/stock-picker-frontend:${TAG}"
+          export DATA_SERVICE_IMAGE="ghcr.io/${OWNER}/stock-picker-data-service:${TAG}"
+          export TIMESCALE_IMAGE="ghcr.io/${OWNER}/stock-picker-timescaledb:latest-pg16"
+          export REDIS_IMAGE="${REDIS_IMAGE:-registry.openanolis.cn/openanolis/redis:5.0.3-8.6}"
           docker compose -f "${DEPLOY_DIR}/docker-compose.yml" up -d --remove-orphans --no-build --no-deps backend data-service frontend
           docker compose -f "${DEPLOY_DIR}/docker-compose.yml" ps
-
           for i in $(seq 1 150); do
             backend_h="$(docker inspect -f '{{.State.Health.Status}}' stock-picker-backend 2>/dev/null || true)"
             data_h="$(docker inspect -f '{{.State.Health.Status}}' stock-picker-data-service 2>/dev/null || true)"
@@ -708,6 +741,17 @@ jobs:
             sleep 2
           done
 
+    - name: Deploy phase 5 (verify health)
+      if: steps.check.outputs.enabled == 'true'
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.DEPLOY_SSH_HOST }}
+        username: ${{ secrets.DEPLOY_SSH_USER }}
+        key: ${{ secrets.DEPLOY_SSH_KEY }}
+        port: ${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}
+        command_timeout: 180m
+        script: |
+          set -euo pipefail
           curl -fsS http://localhost:3100/health >/dev/null
           curl -fsS http://localhost:8001/health >/dev/null
           curl -fsS http://localhost:3101/ >/dev/null
