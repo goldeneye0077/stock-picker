@@ -654,7 +654,7 @@ jobs:
         username: ${{ secrets.DEPLOY_SSH_USER }}
         key: ${{ secrets.DEPLOY_SSH_KEY }}
         port: ${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}
-        command_timeout: 180m
+        command_timeout: 45m
         script: |
           set -euo pipefail
           DEPLOY_DIR="/home/${{ secrets.DEPLOY_SSH_USER }}/stock-picker"
@@ -662,18 +662,36 @@ jobs:
           export OWNER="${{ github.repository_owner }}"
           export TIMESCALE_IMAGE="ghcr.io/${OWNER}/stock-picker-timescaledb:latest-pg16"
           export REDIS_IMAGE="${REDIS_IMAGE:-registry.openanolis.cn/openanolis/redis:5.0.3-8.6}"
+          tsdb_h="$(docker inspect -f '{{.State.Health.Status}}' stock-picker-timescaledb 2>/dev/null || true)"
+          if [ "${tsdb_h}" = "healthy" ]; then
+            echo "timescaledb container already healthy; ensuring redis service only"
+            if ! timeout 5m docker compose -f "${DEPLOY_DIR}/docker-compose.yml" up -d --no-build --pull never redis; then
+              echo "failed to ensure redis service"
+              docker compose -f "${DEPLOY_DIR}/docker-compose.yml" ps || true
+              docker compose -f "${DEPLOY_DIR}/docker-compose.yml" logs --no-color --tail=200 redis || true
+              exit 1
+            fi
+          fi
           if ! docker image inspect "${TIMESCALE_IMAGE}" >/dev/null 2>&1; then
             ts_pull_ok=0
-            for i in 1 2 3; do
-              if timeout 20m docker pull "${TIMESCALE_IMAGE}"; then
-                ts_pull_ok=1
+            for src in "${TIMESCALE_IMAGE}" "timescale/timescaledb:latest-pg16"; do
+              for i in 1 2; do
+                if timeout 8m docker pull "${src}"; then
+                  if [ "${src}" != "${TIMESCALE_IMAGE}" ]; then
+                    docker tag "${src}" "${TIMESCALE_IMAGE}"
+                  fi
+                  ts_pull_ok=1
+                  break
+                fi
+                echo "timescaledb image pull failed for ${src} (attempt ${i}/2), retrying in 10s..."
+                sleep 10
+              done
+              if [ "${ts_pull_ok}" -eq 1 ]; then
                 break
               fi
-              echo "timescaledb image pull failed (attempt ${i}/3), retrying in 10s..."
-              sleep 10
             done
             if [ "${ts_pull_ok}" -ne 1 ]; then
-              echo "timescaledb image pull failed after retries"
+              echo "timescaledb image pull failed after GHCR + Docker Hub retries"
               exit 1
             fi
           fi
