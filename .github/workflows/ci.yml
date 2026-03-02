@@ -617,6 +617,46 @@ jobs:
             exit 1
           fi
 
+          # Ensure infra dependencies are available before app containers.
+          docker compose -f "${DEPLOY_DIR}/docker-compose.yml" up -d --no-build redis timescaledb
+
+          for i in $(seq 1 90); do
+            tsdb_h="$(docker inspect -f '{{.State.Health.Status}}' stock-picker-timescaledb 2>/dev/null || true)"
+            if [ "${tsdb_h}" = "healthy" ]; then
+              break
+            fi
+            sleep 2
+          done
+          tsdb_h="$(docker inspect -f '{{.State.Health.Status}}' stock-picker-timescaledb 2>/dev/null || true)"
+          if [ "${tsdb_h}" != "healthy" ]; then
+            echo "timescaledb is not healthy"
+            docker logs --tail=200 stock-picker-timescaledb || true
+            exit 1
+          fi
+
+          # Run schema bootstrap (idempotent).
+          docker compose -f "${DEPLOY_DIR}/docker-compose.yml" rm -f timescaledb-init >/dev/null 2>&1 || true
+          docker compose -f "${DEPLOY_DIR}/docker-compose.yml" up -d --no-build timescaledb-init
+          for i in $(seq 1 60); do
+            init_state="$(docker inspect -f '{{.State.Status}}' stock-picker-timescaledb-init 2>/dev/null || true)"
+            init_code="$(docker inspect -f '{{.State.ExitCode}}' stock-picker-timescaledb-init 2>/dev/null || true)"
+            if [ "${init_state}" = "exited" ] && [ "${init_code}" = "0" ]; then
+              break
+            fi
+            if [ "${init_state}" = "exited" ] && [ -n "${init_code}" ] && [ "${init_code}" != "0" ]; then
+              echo "timescaledb-init failed with exit code ${init_code}"
+              docker logs --tail=200 stock-picker-timescaledb-init || true
+              exit 1
+            fi
+            sleep 2
+          done
+          init_code="$(docker inspect -f '{{.State.ExitCode}}' stock-picker-timescaledb-init 2>/dev/null || true)"
+          if [ "${init_code}" != "0" ]; then
+            echo "timescaledb-init did not finish successfully"
+            docker logs --tail=200 stock-picker-timescaledb-init || true
+            exit 1
+          fi
+
           docker compose -f "${DEPLOY_DIR}/docker-compose.yml" up -d --remove-orphans --no-build --no-deps backend data-service frontend
           docker compose -f "${DEPLOY_DIR}/docker-compose.yml" ps
 
