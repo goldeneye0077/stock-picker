@@ -663,7 +663,42 @@ jobs:
           export OWNER="${{ github.repository_owner }}"
           export TIMESCALE_IMAGE="ghcr.io/${OWNER}/stock-picker-timescaledb:latest-pg16"
           export REDIS_IMAGE="${REDIS_IMAGE:-registry.openanolis.cn/openanolis/redis:5.0.3-8.6}"
-          docker compose -f "${DEPLOY_DIR}/docker-compose.yml" up -d --no-build redis timescaledb
+          if ! docker image inspect "${TIMESCALE_IMAGE}" >/dev/null 2>&1; then
+            ts_pull_ok=0
+            for i in 1 2 3; do
+              if timeout 20m docker pull "${TIMESCALE_IMAGE}"; then
+                ts_pull_ok=1
+                break
+              fi
+              echo "timescaledb image pull failed (attempt ${i}/3), retrying in 10s..."
+              sleep 10
+            done
+            if [ "${ts_pull_ok}" -ne 1 ]; then
+              echo "timescaledb image pull failed after retries"
+              exit 1
+            fi
+          fi
+          if ! docker image inspect "${REDIS_IMAGE}" >/dev/null 2>&1; then
+            redis_pull_ok=0
+            for i in 1 2 3; do
+              if timeout 5m docker pull "${REDIS_IMAGE}"; then
+                redis_pull_ok=1
+                break
+              fi
+              echo "redis image pull failed (attempt ${i}/3), retrying in 10s..."
+              sleep 10
+            done
+            if [ "${redis_pull_ok}" -ne 1 ]; then
+              echo "redis image pull failed after retries"
+              exit 1
+            fi
+          fi
+          if ! timeout 10m docker compose -f "${DEPLOY_DIR}/docker-compose.yml" up -d --no-build --pull never redis timescaledb; then
+            echo "failed to start infra services"
+            docker compose -f "${DEPLOY_DIR}/docker-compose.yml" ps || true
+            docker compose -f "${DEPLOY_DIR}/docker-compose.yml" logs --no-color --tail=200 redis timescaledb || true
+            exit 1
+          fi
           for i in $(seq 1 90); do
             tsdb_h="$(docker inspect -f '{{.State.Health.Status}}' stock-picker-timescaledb 2>/dev/null || true)"
             if [ "${tsdb_h}" = "healthy" ]; then
