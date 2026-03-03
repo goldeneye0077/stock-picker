@@ -1527,6 +1527,8 @@ async def get_auction_super_main_force(
                 parsed_trade_date = _parse_trade_date_param(str(trade_date))
                 if parsed_trade_date:
                     target_date = parsed_trade_date.strftime("%Y-%m-%d")
+                else:
+                    raise HTTPException(status_code=400, detail="Invalid trade_date format, expected YYYY-MM-DD")
 
             if not target_date:
                 cursor = await db.execute(
@@ -1549,18 +1551,6 @@ async def get_auction_super_main_force(
                         }
                     }
                 target_date = str(row[0])
-            else:
-                cursor = await db.execute(
-                    """
-                    SELECT MAX(DATE(snapshot_time)) AS d
-                    FROM quote_history
-                    WHERE DATE(snapshot_time) <= DATE(?)
-                    """,
-                    (datetime.strptime(target_date, "%Y-%m-%d").date(),),
-                )
-                row = await cursor.fetchone()
-                if row and row["d"]:
-                    target_date = str(row["d"])
 
             data_source = "quote_history"
 

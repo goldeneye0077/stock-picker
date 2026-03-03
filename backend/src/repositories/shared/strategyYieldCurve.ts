@@ -1,0 +1,261 @@
+export type YieldCurveResponse = {
+  dates: string[];
+  values: number[];
+  benchmarkValues: number[];
+  benchmarkLabel: string;
+};
+
+type QueryRunner = <T = any>(sql: string, params?: any[]) => Promise<T[]>;
+
+type StrategyYieldCurveConfig = {
+  klineTable: string;
+  klineDateColumn: string;
+  klineStockCodeColumn: string;
+  signalTable: string;
+  signalCreatedAtColumn: string;
+  signalStockCodeColumn: string;
+  stockTable: string;
+  stockCodeColumn: string;
+  stockNameColumn: string;
+};
+
+type GetStrategyYieldCurveParams = {
+  days: number;
+  query: QueryRunner;
+  config: StrategyYieldCurveConfig;
+};
+
+function toFiniteNumber(value: unknown): number | null {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function normalizeDate(value: unknown): string {
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
+  }
+  const raw = String(value || '');
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return raw;
+  }
+  if (raw.length >= 10) {
+    return raw.slice(0, 10);
+  }
+  return raw;
+}
+
+function assertSqlIdentifier(identifier: string): string {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(identifier)) {
+    throw new Error(`Invalid SQL identifier: ${identifier}`);
+  }
+  return identifier;
+}
+
+function q(name: string): string {
+  return assertSqlIdentifier(name);
+}
+
+export async function getStrategyYieldCurveShared({
+  days,
+  query,
+  config,
+}: GetStrategyYieldCurveParams): Promise<YieldCurveResponse> {
+  const klineTable = q(config.klineTable);
+  const klineDateColumn = q(config.klineDateColumn);
+  const klineStockCodeColumn = q(config.klineStockCodeColumn);
+  const signalTable = q(config.signalTable);
+  const signalCreatedAtColumn = q(config.signalCreatedAtColumn);
+  const signalStockCodeColumn = q(config.signalStockCodeColumn);
+  const stockTable = q(config.stockTable);
+  const stockCodeColumn = q(config.stockCodeColumn);
+  const stockNameColumn = q(config.stockNameColumn);
+
+  const tradeDateRows = await query<{
+    trade_date: unknown;
+  }>(`
+    SELECT trade_date
+    FROM (
+      SELECT DISTINCT k.${klineDateColumn} AS trade_date
+      FROM ${klineTable} k
+      ORDER BY trade_date DESC
+      LIMIT $1
+    ) d
+    ORDER BY trade_date ASC
+  `, [days]);
+
+  const dates = tradeDateRows
+    .map((row) => normalizeDate(row.trade_date))
+    .filter((date) => date.length > 0);
+
+  if (dates.length === 0) {
+    return { dates: [], values: [], benchmarkValues: [], benchmarkLabel: '\u6CAA\u6DF1300' };
+  }
+
+  const strategyDailyRows = await query<{
+    trade_date: unknown;
+    strategy_daily_return: unknown;
+  }>(`
+    WITH latest_dates AS (
+      SELECT trade_date
+      FROM (
+        SELECT DISTINCT k.${klineDateColumn} AS trade_date
+        FROM ${klineTable} k
+        ORDER BY trade_date DESC
+        LIMIT $1
+      ) d
+    ),
+    ordered_dates AS (
+      SELECT
+        trade_date,
+        LEAD(trade_date) OVER (ORDER BY trade_date ASC) AS next_trade_date
+      FROM latest_dates
+    ),
+    signal_daily AS (
+      SELECT
+        DATE(s.${signalCreatedAtColumn} AT TIME ZONE 'Asia/Shanghai') AS signal_date,
+        s.${signalStockCodeColumn} AS stock_code
+      FROM ${signalTable} s
+      WHERE DATE(s.${signalCreatedAtColumn} AT TIME ZONE 'Asia/Shanghai') IN (SELECT trade_date FROM latest_dates)
+      GROUP BY DATE(s.${signalCreatedAtColumn} AT TIME ZONE 'Asia/Shanghai'), s.${signalStockCodeColumn}
+    ),
+    strategy_daily AS (
+      SELECT
+        od.next_trade_date AS trade_date,
+        AVG(
+          CASE
+            WHEN k.open > 0 AND k.close > 0 THEN (k.close - k.open) / k.open
+            ELSE NULL
+          END
+        ) AS strategy_daily_return
+      FROM signal_daily sd
+      INNER JOIN ordered_dates od ON od.trade_date = sd.signal_date
+      INNER JOIN ${klineTable} k
+        ON k.${klineStockCodeColumn} = sd.stock_code
+       AND k.${klineDateColumn} = od.next_trade_date
+      WHERE od.next_trade_date IS NOT NULL
+      GROUP BY od.next_trade_date
+    )
+    SELECT
+      ld.trade_date,
+      COALESCE(sd.strategy_daily_return, 0) AS strategy_daily_return
+    FROM latest_dates ld
+    LEFT JOIN strategy_daily sd ON sd.trade_date = ld.trade_date
+    ORDER BY ld.trade_date ASC
+  `, [days]);
+
+  const strategyReturnByDate = new Map<string, number>();
+  strategyDailyRows.forEach((row) => {
+    const tradeDate = normalizeDate(row.trade_date);
+    const dailyReturn = toFiniteNumber(row.strategy_daily_return);
+    if (!tradeDate || dailyReturn === null) {
+      return;
+    }
+    strategyReturnByDate.set(tradeDate, dailyReturn);
+  });
+
+  const hs300Rows = await query<{
+    trade_date: unknown;
+    close_value: unknown;
+  }>(`
+    WITH latest_dates AS (
+      SELECT trade_date
+      FROM (
+        SELECT DISTINCT k.${klineDateColumn} AS trade_date
+        FROM ${klineTable} k
+        ORDER BY trade_date DESC
+        LIMIT $1
+      ) d
+    ),
+    hs300_candidates AS (
+      SELECT
+        k.${klineDateColumn} AS trade_date,
+        k.${klineStockCodeColumn} AS stock_code,
+        k.close,
+        CASE
+          WHEN regexp_replace(k.${klineStockCodeColumn}, '[^0-9]', '', 'g') = '000300' THEN 1
+          WHEN regexp_replace(k.${klineStockCodeColumn}, '[^0-9]', '', 'g') = '399300' THEN 2
+          ELSE 9
+        END AS code_priority
+      FROM ${klineTable} k
+      LEFT JOIN ${stockTable} s ON s.${stockCodeColumn} = k.${klineStockCodeColumn}
+      INNER JOIN latest_dates ld ON ld.trade_date = k.${klineDateColumn}
+      WHERE (
+        regexp_replace(k.${klineStockCodeColumn}, '[^0-9]', '', 'g') IN ('000300', '399300')
+        OR COALESCE(s.${stockNameColumn}, '') LIKE '%\u6CAA\u6DF1300%'
+        OR LOWER(COALESCE(s.${stockNameColumn}, '')) LIKE '%csi300%'
+      )
+        AND k.close IS NOT NULL
+        AND k.close > 0
+    ),
+    ranked AS (
+      SELECT
+        trade_date,
+        close,
+        ROW_NUMBER() OVER (PARTITION BY trade_date ORDER BY code_priority ASC, stock_code ASC) AS rn
+      FROM hs300_candidates
+    )
+    SELECT
+      trade_date,
+      close AS close_value
+    FROM ranked
+    WHERE rn = 1
+    ORDER BY trade_date ASC
+  `, [days]);
+
+  const hs300CloseByDate = new Map<string, number>();
+  hs300Rows.forEach((row) => {
+    const tradeDate = normalizeDate(row.trade_date);
+    const closeValue = toFiniteNumber(row.close_value);
+    if (tradeDate && closeValue !== null && closeValue > 0) {
+      hs300CloseByDate.set(tradeDate, closeValue);
+    }
+  });
+
+  const hasRealHs300 = dates.filter((date) => hs300CloseByDate.has(date)).length >= 2;
+  const values: number[] = [];
+  const benchmarkValues: number[] = hasRealHs300 ? [1] : [];
+  let strategyNav = 1;
+  let benchmarkNav = 1;
+  let prevHs300Close: number | null = null;
+
+  dates.forEach((tradeDate, index) => {
+    if (index === 0) {
+      values.push(1);
+      if (hasRealHs300) {
+        const firstHs300Close = hs300CloseByDate.get(tradeDate);
+        if (firstHs300Close !== undefined && firstHs300Close > 0) {
+          prevHs300Close = firstHs300Close;
+        }
+      }
+      return;
+    }
+
+    const strategyDailyReturn = Math.max(-0.2, Math.min(0.2, strategyReturnByDate.get(tradeDate) ?? 0));
+    strategyNav = Math.max(strategyNav * (1 + strategyDailyReturn), 0.2);
+    values.push(Math.round(strategyNav * 1000) / 1000);
+
+    if (!hasRealHs300) {
+      return;
+    }
+
+    let benchmarkDailyReturn = 0;
+    const hs300Close = hs300CloseByDate.get(tradeDate);
+    if (hs300Close !== undefined && hs300Close > 0) {
+      if (prevHs300Close !== null && prevHs300Close > 0) {
+        benchmarkDailyReturn = (hs300Close - prevHs300Close) / prevHs300Close;
+      }
+      prevHs300Close = hs300Close;
+    }
+
+    benchmarkDailyReturn = Math.max(-0.12, Math.min(0.12, benchmarkDailyReturn));
+    benchmarkNav = Math.max(benchmarkNav * (1 + benchmarkDailyReturn), 0.2);
+    benchmarkValues.push(Math.round(benchmarkNav * 1000) / 1000);
+  });
+
+  return {
+    dates,
+    values,
+    benchmarkValues,
+    benchmarkLabel: '\u6CAA\u6DF1300',
+  };
+}

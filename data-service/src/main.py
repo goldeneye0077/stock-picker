@@ -195,10 +195,6 @@ async def lifespan(app: FastAPI):
 
         if quote_history_count == 0:
             lookback_days = max(1, _env_int(os.getenv("AUCTION_BOOTSTRAP_LOOKBACK_DAYS"), 30))
-            allow_mock = _env_flag(
-                os.getenv("AUCTION_BOOTSTRAP_ALLOW_MOCK"),
-                default=not is_production_environment(),
-            )
             bootstrap_target_date = latest_kline_date
 
             async def _bootstrap_quote_history():
@@ -224,14 +220,6 @@ async def lifespan(app: FastAPI):
                             logger.warning(f"Auction bootstrap via Tushare failed: {e}")
                     else:
                         logger.info("Skip Tushare auction bootstrap: Tushare client unavailable")
-
-                    if inserted_total == 0 and allow_mock:
-                        try:
-                            mock_result = await quotes.create_mock_auction_from_daily(bootstrap_target_date)
-                            inserted_total = int(mock_result.get("inserted") or 0)
-                            logger.info(f"Auction bootstrap mock finished: inserted={inserted_total}")
-                        except Exception as e:
-                            logger.warning(f"Auction bootstrap mock failed: {e}")
 
                     if inserted_total > 0:
                         try:

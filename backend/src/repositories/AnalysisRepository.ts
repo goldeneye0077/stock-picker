@@ -5,6 +5,7 @@
 
 import { BaseRepository } from './BaseRepository';
 import { VolumeAnalysis, FundFlow, BuySignal, MarketOverview, DateRangeOptions } from './types';
+import { getStrategyYieldCurveShared, YieldCurveResponse } from './shared/strategyYieldCurve';
 
 export type SuperMainForceSource = 'super_mainforce_signals' | 'auction_super_mainforce';
 export type SuperMainForceStatsSource = SuperMainForceSource | 'kline_fallback';
@@ -1157,161 +1158,25 @@ export class AnalysisRepository extends BaseRepository {
     }
     return map;
   }
-  async getStrategyYieldCurve(days: number = 30): Promise<{
-    dates: string[];
-    values: number[];
-    benchmarkValues: number[];
-    benchmarkLabel: string;
-  }> {
+  async getStrategyYieldCurve(days: number = 30): Promise<YieldCurveResponse> {
     if (!this.validateNumber(days, 5, 365)) {
       throw new Error('Invalid days parameter. Must be a number between 5 and 365.');
     }
-
-    const rows = await this.query<{
-      trade_date: string;
-      market_return: number | null;
-      signal_count: number | null;
-      high_confidence_count: number | null;
-      avg_confidence: number | null;
-    }>(`
-      WITH latest_dates AS (
-        SELECT date as trade_date
-        FROM (
-          SELECT DISTINCT date
-          FROM klines
-          ORDER BY date DESC
-          LIMIT ?
-        )
-      ),
-      market_daily AS (
-        SELECT
-          k.date as trade_date,
-          AVG(CASE WHEN k.open > 0 THEN ((k.close - k.open) / k.open) ELSE 0 END) as market_return
-        FROM klines k
-        INNER JOIN latest_dates ld ON ld.trade_date = k.date
-        GROUP BY k.date
-      ),
-      signal_daily AS (
-        SELECT
-          DATE(created_at) as trade_date,
-          COUNT(*) as signal_count,
-          SUM(CASE WHEN confidence >= 0.7 THEN 1 ELSE 0 END) as high_confidence_count,
-          AVG(COALESCE(confidence, 0)) as avg_confidence
-        FROM buy_signals
-        WHERE DATE(created_at) IN (SELECT trade_date FROM latest_dates)
-        GROUP BY DATE(created_at)
-      )
-      SELECT
-        ld.trade_date,
-        COALESCE(md.market_return, 0) as market_return,
-        COALESCE(sd.signal_count, 0) as signal_count,
-        COALESCE(sd.high_confidence_count, 0) as high_confidence_count,
-        COALESCE(sd.avg_confidence, 0) as avg_confidence
-      FROM latest_dates ld
-      LEFT JOIN market_daily md ON md.trade_date = ld.trade_date
-      LEFT JOIN signal_daily sd ON sd.trade_date = ld.trade_date
-      ORDER BY ld.trade_date ASC
-    `, [days]);
-
-    if (rows.length === 0) {
-      return { dates: [], values: [], benchmarkValues: [], benchmarkLabel: '\u6CAA\u6DF1300' };
-    }
-
-    const hs300Rows = await this.query<{
-      trade_date: string;
-      close_value: number | null;
-    }>(`
-      WITH latest_dates AS (
-        SELECT date as trade_date
-        FROM (
-          SELECT DISTINCT date
-          FROM klines
-          ORDER BY date DESC
-          LIMIT ?
-        )
-      )
-      SELECT
-        k.date as trade_date,
-        AVG(k.close) as close_value
-      FROM klines k
-      LEFT JOIN stocks s ON s.code = k.stock_code
-      INNER JOIN latest_dates ld ON ld.trade_date = k.date
-      WHERE
-        k.stock_code IN ('000300', '399300')
-        OR (
-          s.name IS NOT NULL
-          AND (s.name LIKE '%娌繁300%' OR s.name LIKE '%CSI300%')
-        )
-      GROUP BY k.date
-      ORDER BY k.date ASC
-    `, [days]);
-
-    const hs300CloseByDate = new Map<string, number>();
-    hs300Rows.forEach((row) => {
-      const closeValue = this.asFiniteNumber(row.close_value);
-      if (closeValue !== null && closeValue > 0) {
-        hs300CloseByDate.set(row.trade_date, closeValue);
-      }
+    return getStrategyYieldCurveShared({
+      days,
+      query: (sql, params = []) => this.query(sql, params),
+      config: {
+        klineTable: 'klines',
+        klineDateColumn: 'date',
+        klineStockCodeColumn: 'stock_code',
+        signalTable: 'buy_signals',
+        signalCreatedAtColumn: 'created_at',
+        signalStockCodeColumn: 'stock_code',
+        stockTable: 'stocks',
+        stockCodeColumn: 'code',
+        stockNameColumn: 'name',
+      },
     });
-
-    const hasRealHs300 = hs300CloseByDate.size >= 2;
-
-    const dates: string[] = [];
-    const values: number[] = [];
-    const benchmarkValues: number[] = [];
-    let strategyNav = 1;
-    let benchmarkNav = 1;
-    let prevHs300Close: number | null = null;
-
-    rows.forEach((row, index) => {
-      dates.push(row.trade_date);
-
-      const marketReturn = this.asFiniteNumber(row.market_return) ?? 0;
-
-      if (index === 0) {
-        values.push(1);
-        benchmarkValues.push(1);
-        const firstHs300Close = hs300CloseByDate.get(row.trade_date);
-        if (firstHs300Close !== undefined && firstHs300Close > 0) {
-          prevHs300Close = firstHs300Close;
-        }
-        return;
-      }
-
-      const signalCount = this.asFiniteNumber(row.signal_count) ?? 0;
-      const highConfidenceCount = this.asFiniteNumber(row.high_confidence_count) ?? 0;
-      const avgConfidence = this.asFiniteNumber(row.avg_confidence) ?? 0.5;
-
-      const confidenceRatio = signalCount > 0 ? (highConfidenceCount / signalCount) : 0.5;
-      const signalEdge = (confidenceRatio - 0.5) * 0.012 + (avgConfidence - 0.5) * 0.006;
-      const strategyDailyReturn = Math.max(-0.06, Math.min(0.06, marketReturn * 0.35 + signalEdge + 0.0008));
-
-      strategyNav = Math.max(strategyNav * (1 + strategyDailyReturn), 0.2);
-      values.push(Math.round(strategyNav * 1000) / 1000);
-
-      let benchmarkDailyReturn = marketReturn;
-      if (hasRealHs300) {
-        benchmarkDailyReturn = 0;
-        const hs300Close = hs300CloseByDate.get(row.trade_date);
-        if (hs300Close !== undefined && hs300Close > 0) {
-          if (prevHs300Close !== null && prevHs300Close > 0) {
-            benchmarkDailyReturn = (hs300Close - prevHs300Close) / prevHs300Close;
-          }
-          prevHs300Close = hs300Close;
-        }
-      }
-
-      benchmarkDailyReturn = Math.max(-0.12, Math.min(0.12, benchmarkDailyReturn));
-      benchmarkNav = Math.max(benchmarkNav * (1 + benchmarkDailyReturn), 0.2);
-      benchmarkValues.push(Math.round(benchmarkNav * 1000) / 1000);
-    });
-
-    return {
-      dates,
-      values,
-      benchmarkValues,
-      benchmarkLabel: hasRealHs300 ? '\u6CAA\u6DF1300' : '\u6CAA\u6DF1300(\u8FD1\u4F3C)',
-    };
   }
 }
 

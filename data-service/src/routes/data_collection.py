@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import asyncio
 import os
-from .quotes import create_mock_auction_from_daily, update_auction_from_tushare_task
+from .quotes import update_auction_from_tushare_task
 
 router = APIRouter()
 
@@ -753,22 +753,12 @@ async def batch_collect_7days_task(include_moneyflow: bool = True, include_aucti
         # 7. 批量采集合竞价数据（可选，使用 Tushare stk_auction）
         total_auctions = 0
         if include_auction:
-            allow_mock_auction_fallback = _env_flag(
-                os.getenv("ALLOW_MOCK_AUCTION_FALLBACK"),
-                default=(os.getenv("ENV", "development").strip().lower() != "production"),
-            )
             tushare_client = TushareClient()
             if tushare_client.is_available():
                 logger.info("开始批量采集合竞价数据（Tushare stk_auction）...")
                 for i, trade_date in enumerate(trading_days, 1):
                     logger.info(f"[{i}/{len(trading_days)}] 下载 {trade_date} 集合竞价...")
                     inserted = await update_auction_from_tushare_task(tushare_client, trade_date)
-                    if int(inserted or 0) == 0 and allow_mock_auction_fallback:
-                        try:
-                            mock_result = await create_mock_auction_from_daily(trade_date)
-                            inserted = int((mock_result or {}).get("inserted") or 0)
-                        except Exception as mock_error:
-                            logger.warning(f"Mock auction fallback failed for {trade_date}: {mock_error}")
                     total_auctions += int(inserted or 0)
                     await asyncio.sleep(0.5)
             else:

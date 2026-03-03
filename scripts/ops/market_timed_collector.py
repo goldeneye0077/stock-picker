@@ -14,7 +14,7 @@ import os
 import signal
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, time as dtime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -37,7 +37,7 @@ load_dotenv(DATA_SERVICE_ROOT / ".env")
 
 from src.data_sources.tushare_client import TushareClient  # noqa: E402
 from src.routes.data_collection import get_multi_source_manager  # noqa: E402
-from src.routes.quotes import create_mock_auction_from_daily, update_auction_from_tushare_task  # noqa: E402
+from src.routes.quotes import update_auction_from_tushare_task  # noqa: E402
 from src.utils.database import get_database  # noqa: E402
 
 
@@ -47,6 +47,17 @@ SCHEDULER_TZ = ZoneInfo(os.getenv("SCHEDULER_TZ", "Asia/Shanghai"))
 def is_trading_day(now: datetime | None = None) -> bool:
     current = now or datetime.now(SCHEDULER_TZ)
     return current.weekday() < 5
+
+
+def _env_int(name: str, default: int, minimum: int = 0) -> int:
+    raw = str(os.getenv(name, "")).strip()
+    if not raw:
+        return max(minimum, default)
+    try:
+        value = int(raw)
+    except Exception:
+        return max(minimum, default)
+    return max(minimum, value)
 
 
 def _to_float(value: object, default: float = 0.0) -> float:
@@ -69,18 +80,26 @@ async def collect_today_auction_data() -> None:
     logger.info(f"[09:26 job] Start auction collection for {trade_date}")
 
     client = TushareClient()
-    inserted = await update_auction_from_tushare_task(client, trade_date)
+    max_attempts = _env_int("AUCTION_COLLECT_MAX_ATTEMPTS", 3, minimum=1)
+    retry_interval_sec = _env_int("AUCTION_COLLECT_RETRY_INTERVAL_SEC", 120, minimum=10)
 
-    # In non-production env, fallback to mock auction snapshot if API returns no rows.
-    if int(inserted or 0) == 0 and os.getenv("ENV", "").strip().lower() != "production":
-        try:
-            mock_result = await create_mock_auction_from_daily(trade_date)
-            inserted = int((mock_result or {}).get("inserted") or 0)
-            logger.info(f"Auction fallback(mock) inserted={inserted}")
-        except Exception as exc:
-            logger.warning(f"Auction fallback(mock) failed: {exc}")
+    inserted = 0
+    for attempt in range(1, max_attempts + 1):
+        inserted = int(await update_auction_from_tushare_task(client, trade_date) or 0)
+        if inserted > 0:
+            break
+        if attempt < max_attempts:
+            logger.warning(
+                f"[09:26 job] inserted=0 on attempt {attempt}/{max_attempts}, retry in {retry_interval_sec}s"
+            )
+            await asyncio.sleep(retry_interval_sec)
 
-    logger.info(f"[09:26 job] Auction collection finished, inserted={int(inserted or 0)}")
+    logger.info(f"[09:26 job] Auction collection finished, inserted={inserted}")
+    if inserted == 0:
+        logger.warning(
+            "[09:26 job] inserted=0. Usually means Tushare returned no rows/token issue/rate limit; "
+            "run a manual force collect later."
+        )
 
 
 async def collect_today_all_klines() -> None:
@@ -141,6 +160,26 @@ async def collect_today_all_klines() -> None:
     logger.info(f"[15:10 job] K-line collection finished, trade_date={trade_date_ymd}, inserted={inserted}")
 
 
+async def has_today_auction_snapshot() -> bool:
+    now = datetime.now(SCHEDULER_TZ)
+    today = now.date()
+    window_start = datetime.combine(today, dtime(9, 20, 0), tzinfo=SCHEDULER_TZ)
+    window_end = datetime.combine(today, dtime(9, 31, 0), tzinfo=SCHEDULER_TZ)
+
+    async with get_database() as db:
+        cursor = await db.execute(
+            """
+            SELECT 1
+            FROM quote_history
+            WHERE snapshot_time >= ? AND snapshot_time < ?
+            LIMIT 1
+            """,
+            (window_start, window_end),
+        )
+        row = await cursor.fetchone()
+        return bool(row)
+
+
 def _run_async_job(coro) -> None:
     loop = asyncio.new_event_loop()
     try:
@@ -164,6 +203,27 @@ def kline_job_wrapper() -> None:
         logger.error(f"K-line scheduler wrapper failure: {exc}")
 
 
+def auction_startup_catchup_wrapper() -> None:
+    try:
+        now = datetime.now(SCHEDULER_TZ)
+        if not is_trading_day(now):
+            return
+        if now.time() < dtime(9, 26, 0):
+            return
+
+        loop = asyncio.new_event_loop()
+        try:
+            asyncio.set_event_loop(loop)
+            has_snapshot = loop.run_until_complete(has_today_auction_snapshot())
+            if not has_snapshot:
+                logger.warning("No auction snapshot found for today after 09:26, running catch-up now")
+                loop.run_until_complete(collect_today_auction_data())
+        finally:
+            loop.close()
+    except Exception as exc:
+        logger.error(f"Auction startup catch-up failed: {exc}")
+
+
 def main() -> None:
     scheduler = BackgroundScheduler(timezone=SCHEDULER_TZ)
 
@@ -179,7 +239,7 @@ def main() -> None:
         id="auction_collect_0926",
         name="Collect auction data at 09:26",
         replace_existing=True,
-        misfire_grace_time=300,
+        misfire_grace_time=21600,
     )
 
     scheduler.add_job(
@@ -194,13 +254,14 @@ def main() -> None:
         id="daily_kline_collect_1510",
         name="Collect all-stock daily K-lines at 15:10",
         replace_existing=True,
-        misfire_grace_time=900,
+        misfire_grace_time=21600,
     )
 
     scheduler.start()
     logger.info("Market timed collector started")
     logger.info("Auction schedule: 09:26 (Mon-Fri, Asia/Shanghai)")
     logger.info("K-line schedule: 15:10 (Mon-Fri, Asia/Shanghai)")
+    auction_startup_catchup_wrapper()
 
     should_exit = False
 

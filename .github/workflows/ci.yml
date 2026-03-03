@@ -827,6 +827,9 @@ jobs:
           curl -fsS http://localhost:3100/health >/dev/null
           curl -fsS http://localhost:8001/health >/dev/null
           curl -fsS http://localhost:3101/ >/dev/null
+          today_sh="$(TZ=Asia/Shanghai date +%F)"
+          echo "Best-effort auction catch-up for ${today_sh}"
+          curl -fsS -X POST "http://localhost:8001/api/quotes/update-auction?sync=true&trade_date=${today_sh}" || true
 
   notify:
     name: Notify Status
