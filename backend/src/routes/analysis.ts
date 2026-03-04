@@ -437,150 +437,37 @@ router.get('/hot-sector-stocks', asyncHandler(async (req, res) => {
   });
 }));
 
-// Get auction super main force
+// Get auction super main force (proxy to data-service to keep a single source of truth)
 router.get('/auction/super-main-force', asyncHandler(async (req, res) => {
-  const { limit = 50, trade_date, exclude_auction_limit_up = 'true', theme_alpha, pe_filter = 'false' } = req.query as any;
-  const limitNum = Number(limit);
-  const excludeLimitUp = String(exclude_auction_limit_up).toLowerCase() === 'true';
-  const alphaNum = theme_alpha !== undefined ? Number(theme_alpha) : 0;
-  const isPeFilterEnabled = String(pe_filter).toLowerCase() === 'true';
+  const base = (process.env.DATA_SERVICE_URL || 'http://127.0.0.1:8001').replace(/\/+$/, '');
+  const params = new URLSearchParams();
 
-  if (isNaN(limitNum) || limitNum < 1 || limitNum > 200) {
-    throw new InvalidParameterError(
-      'Invalid limit parameter. Must be a number between 1 and 200.',
-      { limit, min: 1, max: 200 }
-    );
-  }
-  if (theme_alpha !== undefined && (isNaN(alphaNum) || alphaNum < 0 || alphaNum > 1)) {
-    throw new InvalidParameterError(
-      'Invalid theme_alpha parameter. Must be a number between 0 and 1.',
-      { theme_alpha, min: 0, max: 1 }
-    );
-  }
-  if (trade_date && typeof trade_date === 'string') {
-    const validDate = /^\d{4}-\d{2}-\d{2}$/.test(trade_date);
-    if (!validDate) {
-      throw new InvalidParameterError(
-        'Invalid trade_date format. Use YYYY-MM-DD',
-        { trade_date }
-      );
+  for (const [key, value] of Object.entries(req.query)) {
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item !== undefined && item !== null) params.append(key, String(item));
+      }
+      continue;
+    }
+
+    if (value !== undefined && value !== null) {
+      params.append(key, String(value));
     }
   }
 
-  const { tradeDate, rows } = await analysisRepo.getAuctionSnapshot(trade_date as string | undefined);
-  const avgVolMap = tradeDate
-    ? await analysisRepo.getAvgAuctionVolume(rows.map((r: any) => r.stock), tradeDate as string, 5)
-    : {};
+  const query = params.toString();
+  const url = `${base}/api/analysis/auction/super-main-force${query ? `?${query}` : ''}`;
+  const upstream = await fetch(url, { method: 'GET', headers: { Accept: 'application/json' } });
+  const raw = await upstream.text();
+  let payload: any = raw;
 
-  let items = rows.map((r: any) => {
-    const preClose = Number(r.preClose || 0);
-    const price = Number(r.price || 0);
-    const gapPercent = preClose > 0 && price > 0 ? ((price - preClose) / preClose) * 100 : Number(r.gapPercent || 0);
-    const volumeRatio = Number(r.volumeRatio || 0);
-    const turnoverRate = Number(r.turnoverRate || 0);
-    const amount = Number(r.amount || 0);
-    const auctionLimitUp = preClose > 0 && price >= preClose * 1.1 - 1e-6;
-    const baseHeat = (amount / 10000000) + (volumeRatio * 5) + (turnoverRate * 3) + Math.max(gapPercent, 0);
-    const themeEnhanceFactor = 1 + Math.max(0, alphaNum || 0);
-    const heatScore = baseHeat * themeEnhanceFactor;
-    const likelyLimitUp = gapPercent >= 5 && volumeRatio >= 1.5 && amount >= 50000000;
-    const avgVol = Number(avgVolMap[r.stock] || 0);
-    const auctionVolumeRatio = avgVol > 0 ? (Number(r.vol || 0) / avgVol) : 0;
-    return {
-      stock: r.stock,
-      tsCode: '',
-      name: r.name,
-      industry: r.industry,
-      price,
-      preClose,
-      gapPercent,
-      close: Number(r.closePrice || 0),
-      changePercent: Number(r.changePercent || 0),
-      vol: Number(r.vol || 0),
-      amount,
-      turnoverRate,
-      volumeRatio,
-      auctionVolumeRatio,
-      pe: r.pe !== null && r.pe !== undefined ? Number(r.pe) : undefined,
-      peTtm: r.peTtm !== null && r.peTtm !== undefined ? Number(r.peTtm) : undefined,
-      floatShare: Number(r.floatShare || 0),
-      heatScore,
-      baseHeatScore: baseHeat,
-      themeHeatScore: heatScore,
-      themeCode: undefined,
-      themeName: r.industry || undefined,
-      themeAlpha: alphaNum || 0,
-      themeEnhanceFactor,
-      likelyLimitUp,
-      auctionLimitUp,
-      rank: 0
-    };
-  });
-
-  const peValues = items.map((it: any) => (it.pe !== undefined ? Number(it.pe) : NaN));
-  const peTtmValues = items.map((it: any) => (it.peTtm !== undefined ? Number(it.peTtm) : NaN));
-  const peDiagnostics = {
-    negCount: peValues.filter((v) => !isNaN(v) && v < 0).length + peTtmValues.filter((v) => !isNaN(v) && v < 0).length,
-    zeroCount: peValues.filter((v) => v === 0).length + peTtmValues.filter((v) => v === 0).length,
-    above300Count: peValues.filter((v) => !isNaN(v) && v > 300).length + peTtmValues.filter((v) => !isNaN(v) && v > 300).length,
-    inRangeCount: peValues.filter((v) => !isNaN(v) && v > 0 && v <= 300).length + peTtmValues.filter((v) => !isNaN(v) && v > 0 && v <= 300).length,
-    missingCount: items.filter((it: any) => (it.pe === undefined || isNaN(Number(it.pe))) && (it.peTtm === undefined || isNaN(Number(it.peTtm)))).length,
-    enabled: isPeFilterEnabled
-  };
-
-  if (isPeFilterEnabled) {
-    const isMissing = (v: any) => v === undefined || v === null || isNaN(Number(v));
-    const isInRange = (v: any) => Number(v) > 0 && Number(v) <= 300;
-
-    items = items.filter((it: any) => {
-      const peMissing = isMissing(it.pe);
-      const peTtmMissing = isMissing(it.peTtm);
-      if (peMissing && peTtmMissing) return false;
-      if (!peMissing && !isInRange(it.pe)) return false;
-      if (!peTtmMissing && !isInRange(it.peTtm)) return false;
-      return true;
-    });
+  try {
+    payload = raw ? JSON.parse(raw) : null;
+  } catch {
+    payload = raw;
   }
 
-  if (excludeLimitUp) {
-    items = items.filter((it) => !it.auctionLimitUp);
-  }
-
-  items.sort((a, b) => b.heatScore - a.heatScore);
-  items = items.slice(0, limitNum).map((it, idx) => ({ ...it, rank: idx + 1 }));
-
-  const summary = {
-    count: items.length,
-    avgHeat: items.length > 0 ? parseFloat((items.reduce((s, i) => s + (i.heatScore || 0), 0) / items.length).toFixed(1)) : 0,
-    totalAmount: items.reduce((s, i) => s + (i.amount || 0), 0),
-    limitUpCandidates: items.filter((i) => i.likelyLimitUp).length
-  };
-
-  const ratioValues = items.map((i) => Number(i.volumeRatio || 0));
-  const auctionRatioValues = items.map((i) => Number(i.auctionVolumeRatio || 0));
-  const diagnostics = {
-    volumeRatio: {
-      min: ratioValues.length ? Math.min(...ratioValues) : 0,
-      max: ratioValues.length ? Math.max(...ratioValues) : 0,
-      avg: ratioValues.length ? parseFloat((ratioValues.reduce((s, v) => s + v, 0) / ratioValues.length).toFixed(2)) : 0,
-      below1Count: ratioValues.filter((v) => v < 1).length
-    },
-    auctionVolumeRatio: {
-      min: auctionRatioValues.length ? Math.min(...auctionRatioValues) : 0,
-      max: auctionRatioValues.length ? Math.max(...auctionRatioValues) : 0,
-      avg: auctionRatioValues.length ? parseFloat((auctionRatioValues.reduce((s, v) => s + v, 0) / auctionRatioValues.length).toFixed(2)) : 0,
-      above1Count: auctionRatioValues.filter((v) => v >= 1).length
-    }
-  };
-  (diagnostics as any).pe = peDiagnostics;
-
-  sendSuccess(res, {
-    tradeDate: tradeDate || null,
-    dataSource: items.length > 0 ? 'quote_history' : 'none',
-    items,
-    summary,
-    diagnostics
-  });
-})) ;
+  res.status(upstream.status).send(payload);
+}));
 
 export default router;
