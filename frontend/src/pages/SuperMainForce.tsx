@@ -348,15 +348,47 @@ const SuperMainForce: React.FC = () => {
   const tableItems = useMemo(() => {
     const rawItems = data?.items || [];
     const stFiltered = rawItems.filter((item) => !(item.name || '').toUpperCase().includes('ST'));
-    const ranked = [...stFiltered]
+
+    const toFiniteNumber = (value: unknown): number | null => {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : null;
+    };
+
+    const isPeMissing = (value: unknown) => toFiniteNumber(value) === null;
+    const isPeInRange = (value: unknown) => {
+      const n = toFiniteNumber(value);
+      return n !== null && n > 0 && n <= 300;
+    };
+
+    let filtered = stFiltered;
+
+    // Frontend fallback: keep filter behavior stable even if upstream ignores filter params.
+    if (peFilterEnabled) {
+      filtered = filtered.filter((item) => {
+        const peMissing = isPeMissing(item.pe);
+        const peTtmMissing = isPeMissing(item.peTtm);
+        if (peMissing && peTtmMissing) return false;
+        if (!peMissing && !isPeInRange(item.pe)) return false;
+        if (!peTtmMissing && !isPeInRange(item.peTtm)) return false;
+        return true;
+      });
+    }
+
+    if (showLowGapOnly) {
+      filtered = filtered.filter((item) => {
+        const gap = toFiniteNumber(item.gapPercent);
+        return gap !== null && gap < 5;
+      });
+    }
+
+    return [...filtered]
       .sort((a, b) => {
         const candidateOrder = Number(Boolean(b.likelyLimitUp)) - Number(Boolean(a.likelyLimitUp));
         if (candidateOrder !== 0) return candidateOrder;
         return Number(b.heatScore ?? 0) - Number(a.heatScore ?? 0);
       })
       .map((item, index) => ({ ...item, rank: index + 1 }));
-    return showLowGapOnly ? ranked.filter((item) => Number(item.gapPercent ?? 0) < 5) : ranked;
-  }, [data?.items, showLowGapOnly]);
+  }, [data?.items, peFilterEnabled, showLowGapOnly]);
 
   return (
     <div className="sq-figma-page">

@@ -53,7 +53,7 @@ describe('SuperMainForce', () => {
     vi.clearAllMocks();
   });
 
-  it('点击股票代码打开技术分析弹窗并加载数据', async () => {
+  it('opens technical modal when clicking stock code', async () => {
     const user = userEvent.setup();
     vi.mocked(analysisService.fetchAuctionSuperMainForce).mockResolvedValue({
       tradeDate: '2026-01-02',
@@ -63,8 +63,8 @@ describe('SuperMainForce', () => {
           rank: 1,
           stock: '000001',
           tsCode: '000001.SZ',
-          name: '平安银行',
-          industry: '银行',
+          name: 'PingAn',
+          industry: 'Bank',
           price: 10.12,
           preClose: 9.98,
           gapPercent: 1.2,
@@ -87,7 +87,7 @@ describe('SuperMainForce', () => {
 
     vi.mocked(stockService.fetchStockDetail).mockResolvedValue({
       code: '000001',
-      name: '平安银行',
+      name: 'PingAn',
       current_price: 10.12,
       change_percent: 1.2,
     } as any);
@@ -114,6 +114,125 @@ describe('SuperMainForce', () => {
       expect(screen.getByText('kline:1')).toBeInTheDocument();
       expect(screen.getByText('MA5')).toBeInTheDocument();
       expect(screen.getAllByText('1.00').length).toBeGreaterThan(0);
+    });
+  }, 15000);
+
+  it('applies PE filter and low-gap filter on page', async () => {
+    const user = userEvent.setup();
+
+    vi.mocked(analysisService.fetchAuctionSuperMainForce).mockResolvedValue({
+      tradeDate: '2026-03-02',
+      dataSource: 'quote_history',
+      items: [
+        {
+          rank: 1,
+          stock: '600001',
+          tsCode: '600001.SH',
+          name: 'HighGap',
+          industry: 'Test',
+          price: 10.6,
+          preClose: 10.0,
+          gapPercent: 6.0,
+          vol: 1000,
+          amount: 10000000,
+          turnoverRate: 1.2,
+          volumeRatio: 1.5,
+          floatShare: 1000000,
+          pe: 20,
+          peTtm: 25,
+          heatScore: 90,
+          likelyLimitUp: true,
+        },
+        {
+          rank: 2,
+          stock: '600002',
+          tsCode: '600002.SH',
+          name: 'MissingPe',
+          industry: 'Test',
+          price: 10.2,
+          preClose: 10.0,
+          gapPercent: 2.0,
+          vol: 1000,
+          amount: 10000000,
+          turnoverRate: 1.2,
+          volumeRatio: 1.5,
+          floatShare: 1000000,
+          pe: null,
+          peTtm: null,
+          heatScore: 80,
+          likelyLimitUp: false,
+        },
+        {
+          rank: 3,
+          stock: '600003',
+          tsCode: '600003.SH',
+          name: 'OutOfRangePe',
+          industry: 'Test',
+          price: 10.1,
+          preClose: 10.0,
+          gapPercent: 1.0,
+          vol: 1000,
+          amount: 10000000,
+          turnoverRate: 1.2,
+          volumeRatio: 1.5,
+          floatShare: 1000000,
+          pe: 500,
+          peTtm: 80,
+          heatScore: 70,
+          likelyLimitUp: false,
+        },
+        {
+          rank: 4,
+          stock: '600004',
+          tsCode: '600004.SH',
+          name: 'LowGap',
+          industry: 'Test',
+          price: 10.1,
+          preClose: 10.0,
+          gapPercent: 1.0,
+          vol: 1000,
+          amount: 10000000,
+          turnoverRate: 1.2,
+          volumeRatio: 1.5,
+          floatShare: 1000000,
+          pe: 30,
+          peTtm: 35,
+          heatScore: 60,
+          likelyLimitUp: false,
+        },
+      ],
+      summary: {
+        count: 4,
+        avgHeat: 75,
+        totalAmount: 40000000,
+        limitUpCandidates: 1,
+      },
+    } as any);
+
+    renderWithConfig(<SuperMainForce />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: '600001' })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: '600002' })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: '600003' })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: '600004' })).toBeInTheDocument();
+    });
+
+    const switches = await screen.findAllByRole('switch');
+    await user.click(switches[1]);
+
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: '600001' })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: '600004' })).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: '600002' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: '600003' })).not.toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: /<5%/ }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: '600004' })).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: '600001' })).not.toBeInTheDocument();
     });
   }, 15000);
 });
