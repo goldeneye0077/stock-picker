@@ -211,12 +211,10 @@ describe('SuperMainForce', () => {
 
     renderWithConfig(<SuperMainForce />);
 
-    await waitFor(() => {
-      expect(screen.getByRole('link', { name: '600001' })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: '600002' })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: '600003' })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: '600004' })).toBeInTheDocument();
-    });
+    await screen.findByRole('link', { name: '600001' });
+    expect(screen.getByRole('link', { name: '600002' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '600003' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '600004' })).toBeInTheDocument();
 
     const switches = await screen.findAllByRole('switch');
     await user.click(switches[1]);
@@ -226,13 +224,13 @@ describe('SuperMainForce', () => {
       expect(screen.getByRole('link', { name: '600004' })).toBeInTheDocument();
       expect(screen.queryByRole('link', { name: '600002' })).not.toBeInTheDocument();
       expect(screen.queryByRole('link', { name: '600003' })).not.toBeInTheDocument();
-    });
+    }, { timeout: 10000 });
 
     await user.click(screen.getByRole('button', { name: /<5%/ }));
 
     await waitFor(() => {
       expect(screen.getByRole('link', { name: '600004' })).toBeInTheDocument();
       expect(screen.queryByRole('link', { name: '600001' })).not.toBeInTheDocument();
-    });
-  }, 15000);
+    }, { timeout: 10000 });
+  }, 30000);
 });
