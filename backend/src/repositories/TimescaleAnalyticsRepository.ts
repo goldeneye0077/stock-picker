@@ -13,6 +13,18 @@ type SignalQuality = {
   highConfidenceSignals: number;
 };
 
+function toHotSectorRow(row: {
+  sector_name: unknown;
+  sector_pct_change: unknown;
+  sector_money_flow: unknown;
+}): HotSectorRow {
+  return {
+    sector_name: String(row.sector_name || ''),
+    sector_pct_change: toFiniteNumber(row.sector_pct_change),
+    sector_money_flow: toFiniteNumber(row.sector_money_flow),
+  };
+}
+
 function toFiniteNumber(value: unknown): number | null {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
@@ -172,11 +184,48 @@ export class TimescaleAnalyticsRepository {
       LIMIT $1
     `, [limit]);
 
-    return rows.map((row) => ({
-      sector_name: String(row.sector_name || ''),
-      sector_pct_change: toFiniteNumber(row.sector_pct_change),
-      sector_money_flow: toFiniteNumber(row.sector_money_flow),
-    }));
+    if (rows.length > 0) {
+      return rows.map(toHotSectorRow);
+    }
+
+    console.warn('[timescale] sector_moneyflow_timeseries empty, fallback to kline industry aggregation');
+
+    const fallbackRows = await queryTimescale<{
+      sector_name: unknown;
+      sector_pct_change: unknown;
+      sector_money_flow: unknown;
+    }>(`
+      WITH latest_kline_day AS (
+        SELECT MAX(trade_date) AS trade_date
+        FROM kline_timeseries
+      ),
+      latest_kline AS (
+        SELECT
+          k.stock_code,
+          k.open,
+          k.close,
+          k.amount
+        FROM kline_timeseries k
+        WHERE k.trade_date = (SELECT trade_date FROM latest_kline_day)
+      )
+      SELECT
+        COALESCE(NULLIF(TRIM(sd.industry), ''), '未分类') AS sector_name,
+        AVG(
+          CASE
+            WHEN lk.open > 0 THEN ((lk.close - lk.open) / lk.open) * 100
+            ELSE NULL
+          END
+        ) AS sector_pct_change,
+        SUM(COALESCE(lk.amount, 0)) AS sector_money_flow
+      FROM latest_kline lk
+      LEFT JOIN stock_dim sd
+        ON sd.stock_code = lk.stock_code
+      GROUP BY COALESCE(NULLIF(TRIM(sd.industry), ''), '未分类')
+      ORDER BY COALESCE(SUM(lk.amount), 0) DESC, COALESCE(NULLIF(TRIM(sd.industry), ''), '未分类') ASC
+      LIMIT $1
+    `, [limit]);
+
+    return fallbackRows.map(toHotSectorRow);
   }
 
   async getTurnoverSummary(): Promise<{ todayTurnover: number | null; previousTurnover: number | null }> {
