@@ -6,6 +6,8 @@ type HotSectorRow = {
   sector_name: string;
   sector_pct_change: number | null;
   sector_money_flow: number | null;
+  leader_code: string;
+  leader_name: string;
 };
 
 type SignalQuality = {
@@ -17,11 +19,15 @@ function toHotSectorRow(row: {
   sector_name: unknown;
   sector_pct_change: unknown;
   sector_money_flow: unknown;
+  leader_code?: unknown;
+  leader_name?: unknown;
 }): HotSectorRow {
   return {
     sector_name: String(row.sector_name || ''),
     sector_pct_change: toFiniteNumber(row.sector_pct_change),
     sector_money_flow: toFiniteNumber(row.sector_money_flow),
+    leader_code: String(row.leader_code || ''),
+    leader_name: String(row.leader_name || ''),
   };
 }
 
@@ -185,7 +191,7 @@ export class TimescaleAnalyticsRepository {
     `, [limit]);
 
     if (rows.length > 0) {
-      return rows.map(toHotSectorRow);
+      return this.attachSectorLeaders(rows.map(toHotSectorRow));
     }
 
     console.warn('[timescale] sector_moneyflow_timeseries empty, fallback to kline industry aggregation');
@@ -225,7 +231,91 @@ export class TimescaleAnalyticsRepository {
       LIMIT $1
     `, [limit]);
 
-    return fallbackRows.map(toHotSectorRow);
+    return this.attachSectorLeaders(fallbackRows.map(toHotSectorRow));
+  }
+
+  private async attachSectorLeaders(rows: HotSectorRow[]): Promise<HotSectorRow[]> {
+    const sectors = Array.from(new Set(
+      rows
+        .map((row) => row.sector_name.trim())
+        .filter((name) => name.length > 0)
+    ));
+
+    if (sectors.length === 0) {
+      return rows.map((row) => ({
+        ...row,
+        leader_code: row.leader_code || '',
+        leader_name: row.leader_name || '',
+      }));
+    }
+
+    const leaders = await queryTimescale<{
+      sector_name: unknown;
+      leader_code: unknown;
+      leader_name: unknown;
+    }>(`
+      WITH latest_kline_day AS (
+        SELECT MAX(trade_date) AS trade_date
+        FROM kline_timeseries
+      ),
+      latest_kline AS (
+        SELECT
+          k.stock_code,
+          CASE
+            WHEN k.open > 0 THEN ((k.close - k.open) / k.open) * 100
+            ELSE NULL
+          END AS stock_pct_change
+        FROM kline_timeseries k
+        WHERE k.trade_date = (SELECT trade_date FROM latest_kline_day)
+      ),
+      matched AS (
+        SELECT
+          s.sector_name,
+          sd.stock_code AS leader_code,
+          sd.name AS leader_name,
+          ROW_NUMBER() OVER (
+            PARTITION BY s.sector_name
+            ORDER BY COALESCE(lk.stock_pct_change, -9999) DESC, sd.stock_code ASC
+          ) AS rn
+        FROM UNNEST($1::text[]) AS s(sector_name)
+        JOIN stock_dim sd
+          ON sd.industry IS NOT NULL
+          AND sd.industry <> ''
+          AND (
+            sd.industry = s.sector_name
+            OR s.sector_name LIKE '%' || sd.industry || '%'
+            OR sd.industry LIKE '%' || s.sector_name || '%'
+          )
+        LEFT JOIN latest_kline lk
+          ON lk.stock_code = sd.stock_code
+      )
+      SELECT
+        sector_name,
+        leader_code,
+        leader_name
+      FROM matched
+      WHERE rn = 1
+    `, [sectors]);
+
+    const leaderBySector = new Map<string, { code: string; name: string }>();
+    leaders.forEach((row) => {
+      const sectorName = String(row.sector_name || '').trim();
+      const leaderCode = String(row.leader_code || '').trim();
+      const leaderName = String(row.leader_name || '').trim();
+      if (!sectorName || !leaderCode || !leaderName) {
+        return;
+      }
+      leaderBySector.set(sectorName, { code: leaderCode, name: leaderName });
+    });
+
+    return rows.map((row) => {
+      const leader = leaderBySector.get(row.sector_name);
+      return {
+        ...row,
+        leader_code: leader?.code || row.leader_code || '',
+        leader_name: leader?.name || row.leader_name || '',
+      };
+    });
   }
 
   async getTurnoverSummary(): Promise<{ todayTurnover: number | null; previousTurnover: number | null }> {

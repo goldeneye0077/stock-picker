@@ -238,8 +238,8 @@ router.get('/dashboard', asyncHandler(async (_req, res) => {
         sectorMoneyFlow === null
           ? '暂无数据'
           : `${sectorMoneyFlow >= 0 ? '+' : '-'}${Math.abs(sectorMoneyFlow / 100000000).toFixed(1)}亿`,
-      leaderName: '--',
-      leaderCode: '--',
+      leaderName: item.leader_name || '--',
+      leaderCode: item.leader_code || '--',
     };
   });
 
@@ -270,11 +270,11 @@ router.get('/dashboard', asyncHandler(async (_req, res) => {
     },
     hotSectors: formattedHotSectors,
     strategy: {
-      totalReturn: curveTotalReturn ?? (winRate !== null ? Math.round((winRate - 50) * 2.5 * 10) / 10 : null),
-      todayReturn: curveTodayReturn ?? (todaySignals > 0 ? Math.round((todaySignals / 10) * 10) / 10 : null),
-      annualReturn: curveTotalReturn !== null ? Math.round(curveTotalReturn * 4 * 10) / 10 : (winRate !== null ? Math.round((winRate - 40) * 3 * 10) / 10 : null),
-      maxDrawdown: winRate !== null ? -8.5 : null,
-      sharpeRatio: curveSharpe ?? (winRate !== null ? Math.round((winRate / 50) * 100) / 100 : null),
+      totalReturn: curveTotalReturn,
+      todayReturn: curveTodayReturn,
+      annualReturn: curveTotalReturn !== null ? Math.round(curveTotalReturn * 4 * 10) / 10 : null,
+      maxDrawdown: null,
+      sharpeRatio: curveSharpe,
       winRate,
     },
     yieldCurve,
