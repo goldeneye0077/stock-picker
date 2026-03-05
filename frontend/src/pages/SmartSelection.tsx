@@ -441,10 +441,24 @@ const SmartSelection: React.FC = () => {
 
       // 设置默认选中的策略（第一个高级策略）
       if (advancedStrategies.length > 0) {
-        const defaultStrategyId = advancedStrategies[0].id;
+        const defaultStrategy = advancedStrategies[0];
+        const defaultStrategyId = defaultStrategy.id;
+        const defaultMinScore = defaultStrategy.min_score ?? 25;
+        const defaultMaxResults = defaultStrategy.max_results ?? 20;
+        const defaultRequireUptrend = defaultStrategy.require_uptrend ?? true;
+        const defaultRequireHotSector = defaultStrategy.require_hot_sector ?? true;
+
         setSelectedStrategy(defaultStrategyId);
         setAlgorithmType('advanced');
-        form.setFieldsValue({ strategy: defaultStrategyId });
+        setMinScore(defaultMinScore);
+        setMaxResults(defaultMaxResults);
+        setRequireUptrend(defaultRequireUptrend);
+        setRequireHotSector(defaultRequireHotSector);
+        form.setFieldsValue({
+          strategy: defaultStrategyId,
+          minScore: defaultMinScore,
+          maxResults: defaultMaxResults,
+        });
       }
     } catch (error) {
       console.error('加载选股数据失败:', error);
@@ -468,7 +482,11 @@ const SmartSelection: React.FC = () => {
       ]);
       setSelectedStrategy(1001);
       setAlgorithmType('advanced');
-      form.setFieldsValue({ strategy: 1001 });
+      setMinScore(50);
+      setMaxResults(15);
+      setRequireUptrend(true);
+      setRequireHotSector(true);
+      form.setFieldsValue({ strategy: 1001, minScore: 50, maxResults: 15 });
     } finally {
       setLoading(false);
     }
@@ -489,9 +507,13 @@ const SmartSelection: React.FC = () => {
     const selectedStrategyData = strategies.find(s => s.id === strategyId);
     if (selectedStrategyData) {
       setAlgorithmType(selectedStrategyData.algorithm_type || 'basic');
+      const presetMinScore = selectedStrategyData.min_score ?? 25;
+      const presetMaxResults = selectedStrategyData.max_results ?? 20;
 
       // 如果是高级算法，设置开关的初始值为策略中的值
       if (selectedStrategyData.algorithm_type === 'advanced') {
+        setMinScore(presetMinScore);
+        setMaxResults(presetMaxResults);
         if (selectedStrategyData.require_uptrend !== undefined) {
           setRequireUptrend(selectedStrategyData.require_uptrend);
         } else {
@@ -507,6 +529,11 @@ const SmartSelection: React.FC = () => {
         setRequireUptrend(true);
         setRequireHotSector(true);
       }
+      form.setFieldsValue({
+        strategy: strategyId,
+        minScore: presetMinScore,
+        maxResults: presetMaxResults,
+      });
     }
   };
 

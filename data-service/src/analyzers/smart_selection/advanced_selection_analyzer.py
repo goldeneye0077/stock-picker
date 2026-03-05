@@ -1332,12 +1332,13 @@ class AdvancedSelectionAnalyzer:
                                    require_hot_sector: bool = True,
                                    require_breakout: bool = False,
                                    strategy_id: Optional[int] = None,
-                                   progress_callback: Optional[Callable[[int, int, int], None]] = None) -> List[Dict[str, Any]]:
+                                   progress_callback: Optional[Callable[[int, int, int], None]] = None,
+                                   relax_strategy_filters: bool = False) -> List[Dict[str, Any]]:
         try:
-            effective_min_score = 0.0 if strategy_id == 1 else min_score
+            effective_min_score = min_score
             logger.info(
                 f"开始高级选股，最低评分: {min_score} (effective={effective_min_score}), 最大结果: {max_results}, "
-                f"突破要求: {require_breakout}, 策略ID: {strategy_id}"
+                f"突破要求: {require_breakout}, 策略ID: {strategy_id}, relax={relax_strategy_filters}"
             )
 
             stocks = await self._get_stock_list()
@@ -1384,7 +1385,7 @@ class AdvancedSelectionAnalyzer:
                 if strategy_id is not None:
                     self._apply_strategy_weights(result, strategy_id)
 
-                    if strategy_id == 1:
+                    if strategy_id == 1 and not relax_strategy_filters:
                         momentum_score = float(result.get('momentum_score') or 0)
                         if momentum_score < 30.0:
                             return None
@@ -1394,7 +1395,7 @@ class AdvancedSelectionAnalyzer:
                         volatility = float(result.get('volatility') or 0)
                         if volatility > 80.0:
                             return None
-                    elif strategy_id == 2:
+                    elif strategy_id == 2 and not relax_strategy_filters:
                         trend_slope = float(result.get('trend_slope') or 0)
                         if trend_slope < 0.25:
                             return None
@@ -1404,7 +1405,7 @@ class AdvancedSelectionAnalyzer:
                         max_drawdown = float(result.get('max_drawdown') or 0)
                         if max_drawdown < -15.0:
                             return None
-                    elif strategy_id == 3:
+                    elif strategy_id == 3 and not relax_strategy_filters:
                         roe_value = result.get('roe')
                         pe_value = result.get('pe_ttm')
                         revenue_growth_value = result.get('revenue_growth')
@@ -1422,7 +1423,7 @@ class AdvancedSelectionAnalyzer:
                             revenue_growth = float(revenue_growth_value or 0)
                             if revenue_growth > 0 and revenue_growth < 5.0:
                                 return None
-                    elif strategy_id == 4:
+                    elif strategy_id == 4 and not relax_strategy_filters:
                         momentum_score = float(result.get('momentum_score') or 0)
                         if momentum_score < 35.0:
                             return None
@@ -1439,7 +1440,7 @@ class AdvancedSelectionAnalyzer:
                         volatility = float(result.get('volatility') or 0)
                         if volatility > 80.0:
                             return None
-                    elif strategy_id == 5:
+                    elif strategy_id == 5 and not relax_strategy_filters:
                         rsi = float(result.get('rsi') or 50)
                         if rsi > 45.0:
                             return None
@@ -1475,11 +1476,17 @@ class AdvancedSelectionAnalyzer:
                         if volatility > 85.0:
                             return None
 
+                uptrend_threshold = 0.2
+                hot_sector_threshold = 30
+                if relax_strategy_filters and strategy_id is not None:
+                    uptrend_threshold = 0.05
+                    hot_sector_threshold = 20
+
                 if result['composite_score'] < effective_min_score:
                     return None
-                if require_uptrend and result['trend_slope'] < 0.2:
+                if require_uptrend and result['trend_slope'] < uptrend_threshold:
                     return None
-                if require_hot_sector and result['sector_heat'] < 30:
+                if require_hot_sector and result['sector_heat'] < hot_sector_threshold:
                     return None
                 if require_breakout:
                     is_price_bk = result.get('is_price_breakout', 0) > 0
@@ -1565,6 +1572,29 @@ class AdvancedSelectionAnalyzer:
                 results = all_candidates[:max_results]
 
             results.sort(key=lambda x: x['composite_score'], reverse=True)
+
+            if (
+                not results
+                and strategy_id in (2, 3, 4, 5)
+                and not relax_strategy_filters
+            ):
+                relaxed_min_score = max(0.0, min(min_score, 20.0))
+                relaxed_require_uptrend = False if strategy_id in (2, 4) else require_uptrend
+                logger.warning(
+                    f"策略 {strategy_id} 严格筛选结果为空，触发放宽重跑: "
+                    f"min_score={relaxed_min_score}, require_uptrend={relaxed_require_uptrend}, "
+                    f"require_hot_sector=False"
+                )
+                return await self.run_advanced_selection(
+                    min_score=relaxed_min_score,
+                    max_results=max_results,
+                    require_uptrend=relaxed_require_uptrend,
+                    require_hot_sector=False,
+                    require_breakout=False,
+                    strategy_id=strategy_id,
+                    progress_callback=progress_callback,
+                    relax_strategy_filters=True,
+                )
 
             logger.info(f"高级选股完成，找到 {len(results)} 只符合条件的股票（上证: {len(shanghai_selected)}, 深证: {len(shenzhen_selected)}, 其他: {len(other_selected)}）")
 
