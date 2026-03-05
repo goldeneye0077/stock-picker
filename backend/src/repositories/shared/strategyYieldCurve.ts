@@ -55,6 +55,93 @@ function q(name: string): string {
   return assertSqlIdentifier(name);
 }
 
+const HS300_REMOTE_CACHE_TTL_MS = 10 * 60 * 1000;
+let hs300RemoteCache: {
+  key: string;
+  fetchedAt: number;
+  closeByDate: Map<string, number>;
+} | null = null;
+
+async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<any> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: { Accept: 'application/json' },
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchHs300ClosesFromEastmoney(startDate: string, endDate: string): Promise<Map<string, number>> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+    return new Map();
+  }
+
+  const key = `${startDate}_${endDate}`;
+  const now = Date.now();
+  if (hs300RemoteCache && hs300RemoteCache.key === key && now - hs300RemoteCache.fetchedAt < HS300_REMOTE_CACHE_TTL_MS) {
+    return new Map(hs300RemoteCache.closeByDate);
+  }
+
+  const beg = startDate.replace(/-/g, '');
+  const end = endDate.replace(/-/g, '');
+  const secids = ['1.000300', '0.399300'];
+  const closeByDate = new Map<string, number>();
+
+  for (const secid of secids) {
+    try {
+      const url = new URL('https://push2his.eastmoney.com/api/qt/stock/kline/get');
+      url.searchParams.set('secid', secid);
+      url.searchParams.set('fields1', 'f1,f2,f3,f4,f5,f6');
+      url.searchParams.set('fields2', 'f51,f52,f53,f54,f55,f56,f57,f58');
+      url.searchParams.set('klt', '101');
+      url.searchParams.set('fqt', '0');
+      url.searchParams.set('beg', beg);
+      url.searchParams.set('end', end);
+
+      const payload = await fetchJsonWithTimeout(url.toString(), 6000);
+      const klines = Array.isArray(payload?.data?.klines) ? payload.data.klines : [];
+
+      klines.forEach((line: unknown) => {
+        if (typeof line !== 'string') {
+          return;
+        }
+        const parts = line.split(',');
+        if (parts.length < 3) {
+          return;
+        }
+        const tradeDate = normalizeDate(parts[0]);
+        const closeValue = toFiniteNumber(parts[2]);
+        if (!tradeDate || closeValue === null || closeValue <= 0) {
+          return;
+        }
+        closeByDate.set(tradeDate, closeValue);
+      });
+
+      if (closeByDate.size >= 2) {
+        break;
+      }
+    } catch (error) {
+      // Ignore transient upstream failures and continue with next secid.
+      console.warn('[yield-curve] fetch HS300 failed:', error);
+    }
+  }
+
+  hs300RemoteCache = {
+    key,
+    fetchedAt: now,
+    closeByDate: new Map(closeByDate),
+  };
+  return closeByDate;
+}
+
 export async function getStrategyYieldCurveShared({
   days,
   query,
@@ -210,6 +297,19 @@ export async function getStrategyYieldCurveShared({
       hs300CloseByDate.set(tradeDate, closeValue);
     }
   });
+
+  const matchedDateCountInDb = dates.filter((date) => hs300CloseByDate.has(date)).length;
+  if (matchedDateCountInDb < 2) {
+    const remoteHs300 = await fetchHs300ClosesFromEastmoney(dates[0], dates[dates.length - 1]);
+    if (remoteHs300.size > 0) {
+      const dateSet = new Set(dates);
+      remoteHs300.forEach((closeValue, tradeDate) => {
+        if (dateSet.has(tradeDate)) {
+          hs300CloseByDate.set(tradeDate, closeValue);
+        }
+      });
+    }
+  }
 
   const hasRealHs300 = dates.filter((date) => hs300CloseByDate.has(date)).length >= 2;
   const values: number[] = [];

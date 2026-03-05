@@ -65,18 +65,35 @@ function parseBoundedInt(
 router.get('/', asyncHandler(async (req, res) => {
   const search = firstOptionalString(req.query.search);
   const codes = parseCodeList(req.query.codes);
+  const requestedPageSize = parseBoundedInt(
+    'pageSize',
+    req.query.pageSize ?? req.query.page_size ?? req.query.perPage ?? req.query.per_page,
+    { min: 1, max: 500, optional: true }
+  );
   const requestedLimit = parseBoundedInt('limit', req.query.limit, { min: 1, max: 500, optional: true });
   const requestedOffset = parseBoundedInt('offset', req.query.offset, { min: 0, max: 10_000_000, optional: true });
   const requestedPage = parseBoundedInt('page', req.query.page, { min: 1, max: 1_000_000, optional: true });
+  const effectiveLimit = requestedPageSize ?? requestedLimit;
 
-  const usePagination = requestedLimit !== undefined || requestedOffset !== undefined || requestedPage !== undefined;
+  if (
+    requestedPageSize !== undefined
+    && requestedLimit !== undefined
+    && requestedPageSize !== requestedLimit
+  ) {
+    throw new InvalidParameterError(
+      'Conflicting page size parameters. `pageSize` and `limit` must be equal when both are provided.',
+      { pageSize: requestedPageSize, limit: requestedLimit }
+    );
+  }
+
+  const usePagination = effectiveLimit !== undefined || requestedOffset !== undefined || requestedPage !== undefined;
 
   let limit: number | undefined;
   let offset: number | undefined;
   let page: number | undefined;
 
   if (usePagination) {
-    limit = requestedLimit ?? 20;
+    limit = effectiveLimit ?? 20;
     if (requestedOffset !== undefined) {
       offset = requestedOffset;
       page = Math.floor(offset / limit) + 1;

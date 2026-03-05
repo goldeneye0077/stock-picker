@@ -153,6 +153,34 @@ describe('Stock Routes', () => {
       expect(response.body.success).toBe(false);
       expect(String(response.body.message || '').toLowerCase()).toContain('limit');
     });
+
+    it('should accept pageSize alias and apply strict page size', async () => {
+      const mockStocks = [
+        { code: '000001', name: 'A', exchange: 'SZ', industry: 'X' },
+        { code: '000002', name: 'B', exchange: 'SZ', industry: 'X' },
+      ];
+      mockStockRepoInstanceInstance.findAll.mockResolvedValue(mockStocks as any);
+      mockStockRepoInstanceInstance.countAll.mockResolvedValue(5485);
+
+      const response = await request(app)
+        .get('/api/stocks?page=2&pageSize=2')
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.page).toBe(2);
+      expect(response.body.pageSize).toBe(2);
+      expect(mockStockRepoInstanceInstance.findAll).toHaveBeenCalledWith(2, 2);
+      expect(mockStockRepoInstanceInstance.countAll).toHaveBeenCalledTimes(1);
+    });
+
+    it('should reject conflicting pageSize and limit', async () => {
+      const response = await request(app)
+        .get('/api/stocks?page=1&pageSize=5&limit=20')
+        .expect(400);
+
+      expect(response.body.success).toBe(false);
+      expect(String(response.body.message || '').toLowerCase()).toContain('conflicting');
+    });
   });
 
   describe('GET /api/stocks/:code', () => {
