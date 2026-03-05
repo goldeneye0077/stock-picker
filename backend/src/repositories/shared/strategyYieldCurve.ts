@@ -80,16 +80,6 @@ async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<any
 }
 
 async function fetchHs300ClosesFromEastmoney(startDate: string, endDate: string): Promise<Map<string, number>> {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
-    return new Map();
-  }
-
-  const key = `${startDate}_${endDate}`;
-  const now = Date.now();
-  if (hs300RemoteCache && hs300RemoteCache.key === key && now - hs300RemoteCache.fetchedAt < HS300_REMOTE_CACHE_TTL_MS) {
-    return new Map(hs300RemoteCache.closeByDate);
-  }
-
   const beg = startDate.replace(/-/g, '');
   const end = endDate.replace(/-/g, '');
   const secids = ['1.000300', '0.399300'];
@@ -134,11 +124,57 @@ async function fetchHs300ClosesFromEastmoney(startDate: string, endDate: string)
     }
   }
 
+  return closeByDate;
+}
+
+async function fetchHs300ClosesFromTencent(startDate: string, endDate: string): Promise<Map<string, number>> {
+  const closeByDate = new Map<string, number>();
+  try {
+    const url = new URL('https://web.ifzq.gtimg.cn/appstock/app/fqkline/get');
+    url.searchParams.set('param', `sh000300,day,${startDate},${endDate},640,qfq`);
+    const payload = await fetchJsonWithTimeout(url.toString(), 6000);
+    const dayKlines = payload?.data?.sh000300?.day;
+    const rows: unknown[] = Array.isArray(dayKlines) ? dayKlines : [];
+    rows.forEach((row) => {
+      if (!Array.isArray(row) || row.length < 3) {
+        return;
+      }
+      const tradeDate = normalizeDate(row[0]);
+      const closeValue = toFiniteNumber(row[2]);
+      if (!tradeDate || closeValue === null || closeValue <= 0) {
+        return;
+      }
+      closeByDate.set(tradeDate, closeValue);
+    });
+  } catch (error) {
+    console.warn('[yield-curve] fetch HS300 from tencent failed:', error);
+  }
+  return closeByDate;
+}
+
+async function fetchHs300ClosesFromRemote(startDate: string, endDate: string): Promise<Map<string, number>> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+    return new Map();
+  }
+
+  const key = `${startDate}_${endDate}`;
+  const now = Date.now();
+  if (hs300RemoteCache && hs300RemoteCache.key === key && now - hs300RemoteCache.fetchedAt < HS300_REMOTE_CACHE_TTL_MS) {
+    return new Map(hs300RemoteCache.closeByDate);
+  }
+
+  const closeByDate = await fetchHs300ClosesFromTencent(startDate, endDate);
+  if (closeByDate.size < 2) {
+    const eastmoneyRows = await fetchHs300ClosesFromEastmoney(startDate, endDate);
+    eastmoneyRows.forEach((value, date) => closeByDate.set(date, value));
+  }
+
   hs300RemoteCache = {
     key,
     fetchedAt: now,
     closeByDate: new Map(closeByDate),
   };
+
   return closeByDate;
 }
 
@@ -300,7 +336,7 @@ export async function getStrategyYieldCurveShared({
 
   const matchedDateCountInDb = dates.filter((date) => hs300CloseByDate.has(date)).length;
   if (matchedDateCountInDb < 2) {
-    const remoteHs300 = await fetchHs300ClosesFromEastmoney(dates[0], dates[dates.length - 1]);
+    const remoteHs300 = await fetchHs300ClosesFromRemote(dates[0], dates[dates.length - 1]);
     if (remoteHs300.size > 0) {
       const dateSet = new Set(dates);
       remoteHs300.forEach((closeValue, tradeDate) => {
