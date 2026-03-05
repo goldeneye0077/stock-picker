@@ -47,6 +47,23 @@ def _as_text(value) -> str:
     return str(value)
 
 
+def _parse_execute_count(status_text: str) -> int:
+    """
+    Parse asyncpg execute status text, e.g. "DELETE 123" -> 123.
+    """
+    text = (status_text or "").strip()
+    if not text:
+        return 0
+    parts = text.split()
+    if not parts:
+        return 0
+    tail = parts[-1]
+    try:
+        return int(tail)
+    except Exception:
+        return 0
+
+
 async def _get_pool() -> asyncpg.Pool | None:
     global _pool
 
@@ -220,6 +237,7 @@ async def sync_recent_to_timescale(days: int = 14) -> dict:
         "stocks": 0,
         "klines": 0,
         "dailyBasic": 0,
+        "signalsDeleted": 0,
         "signals": 0,
         "marketFlow": 0,
         "sectorFlow": 0,
@@ -375,6 +393,15 @@ async def sync_recent_to_timescale(days: int = 14) -> dict:
                     chunk,
                 )
             stats["dailyBasic"] = len(daily_basic_rows)
+
+        delete_signal_status = await conn.execute(
+            """
+            DELETE FROM signal_events
+            WHERE DATE(created_at) >= NULLIF($1::text, '')::date
+            """,
+            start_date,
+        )
+        stats["signalsDeleted"] = _parse_execute_count(delete_signal_status)
 
         if signal_rows:
             signal_payload = [

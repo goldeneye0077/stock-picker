@@ -751,6 +751,34 @@ async def batch_collect_7days_task(include_moneyflow: bool = True, include_aucti
             time_module.sleep(0.5)  # API 限流
 
         # 7. 批量采集合竞价数据（可选，使用 Tushare stk_auction）
+        signal_generation_stats = {
+            "success": False,
+            "generatedDays": 0,
+            "inserted": 0,
+            "candidateCount": 0,
+            "tradeDates": [],
+        }
+        try:
+            try:
+                from ..services.signal_generation_service import generate_buy_signals_for_trade_dates
+            except ImportError:
+                from services.signal_generation_service import generate_buy_signals_for_trade_dates
+
+            signal_trade_dates = [
+                f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
+                for trade_date in trading_days
+                if len(trade_date) >= 8
+            ]
+            signal_generation_stats = await generate_buy_signals_for_trade_dates(signal_trade_dates)
+            logger.info(
+                "Daily signal generation in batch collection finished: "
+                f"days={signal_generation_stats.get('generatedDays', 0)}, "
+                f"inserted={signal_generation_stats.get('inserted', 0)}, "
+                f"candidates={signal_generation_stats.get('candidateCount', 0)}"
+            )
+        except Exception as signal_error:
+            logger.warning(f"Signal generation step skipped: {signal_error}")
+
         total_auctions = 0
         if include_auction:
             tushare_client = TushareClient()
@@ -999,7 +1027,26 @@ async def incremental_collect_task(days: int = 7, include_moneyflow: bool = True
         result = await collector.collect_incremental_data()
 
         if result['success']:
-            logger.info(f"增量数据采集成功: {result}")
+            logger.info(f"Incremental collection succeeded: {result}")
+            try:
+                try:
+                    from ..services.signal_generation_service import generate_daily_buy_signals
+                except ImportError:
+                    from services.signal_generation_service import generate_daily_buy_signals
+
+                signal_result = await generate_daily_buy_signals(sync_timescale=True)
+                if signal_result.get("success"):
+                    logger.info(
+                        "Incremental signal generation finished: "
+                        f"trade_date={signal_result.get('tradeDate')}, "
+                        f"inserted={signal_result.get('inserted', 0)}"
+                    )
+                else:
+                    logger.warning(
+                        f"Incremental signal generation skipped: {signal_result.get('message')}"
+                    )
+            except Exception as signal_error:
+                logger.warning(f"Incremental signal generation failed: {signal_error}")
         else:
             logger.error(f"增量数据采集失败: {result.get('error', '未知错误')}")
 

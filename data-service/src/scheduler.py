@@ -235,6 +235,25 @@ async def collect_daily_klines_task():
                 f"Daily K-line collection finished: {result.get('stats', {}).get('trade_date')} "
                 f"inserted={result.get('stats', {}).get('inserted', 0)}"
             )
+            try:
+                try:
+                    from .services.signal_generation_service import generate_daily_buy_signals
+                except ImportError:
+                    from services.signal_generation_service import generate_daily_buy_signals
+
+                signal_result = await generate_daily_buy_signals(trade_date=today_sh, sync_timescale=True)
+                if signal_result.get("success"):
+                    logger.info(
+                        "Daily signal generation finished: "
+                        f"trade_date={signal_result.get('tradeDate')}, "
+                        f"inserted={signal_result.get('inserted', 0)}"
+                    )
+                else:
+                    logger.warning(
+                        f"Daily signal generation skipped: {signal_result.get('message')}"
+                    )
+            except Exception as signal_error:
+                logger.warning(f"Daily signal generation failed: {signal_error}")
         else:
             logger.warning(f"Daily K-line collection skipped/failed: {result.get('message')}")
     except Exception as e:
