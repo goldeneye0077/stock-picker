@@ -68,7 +68,7 @@ router.get('/summary', asyncHandler(async (req, res) => {
 
   const todayStats = await db.get(`
     SELECT
-      COUNT(DISTINCT COALESCE(user_id, ip_address)) as uv,
+      COUNT(DISTINCT COALESCE(CAST(user_id AS TEXT), ip_address)) as uv,
       COUNT(*) as pv
     FROM page_views
     WHERE date(created_at, '+8 hours') = ?
@@ -82,7 +82,7 @@ router.get('/summary', asyncHandler(async (req, res) => {
 
   const weekStats = await db.get(`
     SELECT
-      COUNT(DISTINCT COALESCE(user_id, ip_address)) as uv,
+      COUNT(DISTINCT COALESCE(CAST(user_id AS TEXT), ip_address)) as uv,
       COUNT(*) as pv
     FROM page_views
     WHERE date(created_at, '+8 hours') >= ?
@@ -90,7 +90,7 @@ router.get('/summary', asyncHandler(async (req, res) => {
 
   const monthStats = await db.get(`
     SELECT
-      COUNT(DISTINCT COALESCE(user_id, ip_address)) as uv,
+      COUNT(DISTINCT COALESCE(CAST(user_id AS TEXT), ip_address)) as uv,
       COUNT(*) as pv
     FROM page_views
     WHERE date(created_at, '+8 hours') >= ?
@@ -122,7 +122,7 @@ router.get('/trend', asyncHandler(async (req, res) => {
     SELECT
       date(created_at, '+8 hours') as date,
       COUNT(*) as pv,
-      COUNT(DISTINCT COALESCE(user_id, ip_address)) as uv
+      COUNT(DISTINCT COALESCE(CAST(user_id AS TEXT), ip_address)) as uv
     FROM page_views
     WHERE date(created_at, '+8 hours') >= ?
     GROUP BY date
@@ -161,7 +161,7 @@ router.get('/page-ranking', asyncHandler(async (req, res) => {
     SELECT
       page_path,
       COUNT(*) as view_count,
-      COUNT(DISTINCT COALESCE(user_id, ip_address)) as unique_visitors
+      COUNT(DISTINCT COALESCE(CAST(user_id AS TEXT), ip_address)) as unique_visitors
     FROM page_views
     WHERE date(created_at, '+8 hours') >= ?
     GROUP BY page_path
