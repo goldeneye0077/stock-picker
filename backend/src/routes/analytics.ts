@@ -216,12 +216,12 @@ router.get('/time-distribution', asyncHandler(async (req, res) => {
 
   const rows = await db.all(`
     SELECT
-      CAST(strftime('%H', created_at, '+8 hours') AS INTEGER) as hour,
+      EXTRACT(HOUR FROM ((created_at) + INTERVAL '8 hour'))::int as hour,
       COUNT(*) as count
     FROM page_views
     WHERE date(created_at, '+8 hours') >= ?
-    GROUP BY hour
-    ORDER BY hour
+    GROUP BY 1
+    ORDER BY 1
   `, [startDate]);
 
   const hourMap = new Map(rows.map((r: any) => [r.hour, r.count]));

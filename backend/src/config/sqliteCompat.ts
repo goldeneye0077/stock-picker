@@ -138,7 +138,7 @@ function rewriteDateAndTimeSyntax(sql: string): string {
     (_all, expr, from) => `SUBSTRING(${expr} FROM ${from})`
   );
 
-  text = text.replace(/time\(\s*([^)]+?)\s*\)/ig, (_all, expr) => `((${expr})::time)`);
+  text = text.replace(/\btime\(\s*([^)]+?)\s*\)/ig, (_all, expr) => `((${expr})::time)`);
   text = text.replace(/is_volume_surge\s*=\s*1/ig, 'is_volume_surge = TRUE');
 
   return text;
@@ -182,4 +182,3 @@ export function convertSqliteQuery(sql: string, params: any[] = []): ConvertedQu
 
   return { text, values: params };
 }
-
