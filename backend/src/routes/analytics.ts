@@ -257,7 +257,7 @@ router.get('/user-activity', asyncHandler(async (req, res) => {
     FROM page_views pv
     LEFT JOIN users u ON pv.user_id = u.id
     WHERE pv.user_id IS NOT NULL AND date(pv.created_at, '+8 hours') >= ?
-    GROUP BY pv.user_id
+    GROUP BY pv.user_id, u.username
     ORDER BY page_views DESC
     LIMIT ?
   `, [startDate, startDate, limit]);
