@@ -197,10 +197,13 @@ router.get('/api-stats', asyncHandler(async (req, res) => {
   `, [startDate, limit]);
 
   res.json(rows.map((r: any) => ({
+    error_rate: (() => {
+      const n = Number(r.error_rate ?? 0);
+      return Number.isFinite(n) ? parseFloat(n.toFixed(1)) : 0;
+    })(),
     endpoint: r.endpoint,
     call_count: r.call_count,
     avg_response_time_ms: Math.round(r.avg_response_time_ms || 0),
-    error_rate: parseFloat((r.error_rate || 0).toFixed(1)),
   })));
 }));
 
