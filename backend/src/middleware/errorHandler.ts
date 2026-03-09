@@ -59,6 +59,14 @@ function sanitizeLogPayload(value: unknown, depth: number = 0): unknown {
   return value;
 }
 
+function shouldPersistErrorLog(error: Error): boolean {
+  if (!(error instanceof AppError)) {
+    return true;
+  }
+
+  return error.statusCode >= 500 || !error.isOperational;
+}
+
 /**
  * 错误日志记录
  * @param error 错误对象
@@ -69,6 +77,8 @@ function logError(error: Error, req: Request): void {
   const method = req.method;
   const url = req.originalUrl;
   const ip = req.ip;
+  const persistToFile = shouldPersistErrorLog(error);
+  const logFn = persistToFile ? console.error : console.warn;
 
   const detailsForLog = error instanceof AppError ? sanitizeLogPayload(error.details) : undefined;
   const logMessage = `
@@ -82,27 +92,29 @@ ${detailsForLog !== undefined ? `Details: ${JSON.stringify(detailsForLog)}\n` : 
 ================
 `;
 
-  console.error(logMessage);
+  logFn(logMessage);
 
-  // Write to file asynchronously to avoid blocking request processing.
-  const logPath = path.join(process.cwd(), 'error.log');
-  void fs.promises.appendFile(logPath, logMessage).catch((err) => {
-    console.error('Failed to write to error log file:', err);
-  });
+  if (persistToFile) {
+    // Write to file asynchronously to avoid blocking request processing.
+    const logPath = path.join(process.cwd(), 'error.log');
+    void fs.promises.appendFile(logPath, logMessage).catch((err) => {
+      console.error('Failed to write to error log file:', err);
+    });
+  }
 
   if (error instanceof AppError) {
-    console.error(`Code: ${error.code}`);
-    console.error(`Status: ${error.statusCode}`);
+    logFn(`Code: ${error.code}`);
+    logFn(`Status: ${error.statusCode}`);
     if (detailsForLog !== undefined) {
-      console.error(`Details: ${JSON.stringify(detailsForLog)}`);
+      logFn(`Details: ${JSON.stringify(detailsForLog)}`);
     }
   }
 
   if (isDevelopment && error.stack) {
-    console.error(`Stack: ${error.stack}`);
+    logFn(`Stack: ${error.stack}`);
   }
 
-  console.error('================\n');
+  logFn('================\n');
 }
 
 /**
