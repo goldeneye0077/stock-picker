@@ -2,6 +2,10 @@ import asyncio
 import base64
 import hashlib
 import re
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.utils import auth
 from src.utils.sql_compat import convert_sqlite_query
@@ -86,4 +90,3 @@ def test_convert_sqlite_query_does_not_corrupt_strftime():
 
     assert sql_text == "SELECT strftime('%H', created_at) FROM page_views"
     assert "::time" not in sql_text
-
