@@ -202,7 +202,7 @@ router.get('/dashboard', asyncHandler(async (_req, res) => {
     ? Math.round(((curveValues[curveValues.length - 1] / curveValues[curveValues.length - 2] - 1) * 1000)) / 10
     : null;
 
-  let curveSharpe: number | null = null;
+  let curveSharpe: number | null = hasCurve ? 0 : null;
   if (curveValues.length >= 3) {
     const dailyReturns: number[] = [];
     for (let i = 1; i < curveValues.length; i++) {

@@ -14,6 +14,11 @@ type StrategyYieldCurveConfig = {
   signalTable: string;
   signalCreatedAtColumn: string;
   signalStockCodeColumn: string;
+  signalDateIsTimestampTz?: boolean;
+  fallbackSignalTable?: string;
+  fallbackSignalDateColumn?: string;
+  fallbackSignalStockCodeColumn?: string;
+  fallbackSignalDateIsTimestampTz?: boolean;
   stockTable: string;
   stockCodeColumn: string;
   stockNameColumn: string;
@@ -23,6 +28,11 @@ type GetStrategyYieldCurveParams = {
   days: number;
   query: QueryRunner;
   config: StrategyYieldCurveConfig;
+};
+
+type StrategyDailyPoint = {
+  dailyReturn: number;
+  selectedCount: number;
 };
 
 function toFiniteNumber(value: unknown): number | null {
@@ -53,6 +63,114 @@ function assertSqlIdentifier(identifier: string): string {
 
 function q(name: string): string {
   return assertSqlIdentifier(name);
+}
+
+function roundTo(value: number, digits: number): number {
+  const factor = 10 ** digits;
+  return Math.round(value * factor) / factor;
+}
+
+function toSignalDateExpr(tableAlias: string, columnName: string, isTimestampTz: boolean): string {
+  const quotedColumn = q(columnName);
+  if (isTimestampTz) {
+    return `DATE(${tableAlias}.${quotedColumn} AT TIME ZONE 'Asia/Shanghai')`;
+  }
+  return `DATE(${tableAlias}.${quotedColumn})`;
+}
+
+async function loadStrategyDailyPoints(params: {
+  days: number;
+  query: QueryRunner;
+  klineTable: string;
+  klineDateColumn: string;
+  klineStockCodeColumn: string;
+  signalTable: string;
+  signalDateColumn: string;
+  signalStockCodeColumn: string;
+  signalDateIsTimestampTz: boolean;
+}): Promise<Map<string, StrategyDailyPoint>> {
+  const {
+    days,
+    query,
+    klineTable,
+    klineDateColumn,
+    klineStockCodeColumn,
+    signalTable,
+    signalDateColumn,
+    signalStockCodeColumn,
+    signalDateIsTimestampTz,
+  } = params;
+
+  const signalDateExpr = toSignalDateExpr('s', signalDateColumn, signalDateIsTimestampTz);
+  const rows = await query<{
+    trade_date: unknown;
+    strategy_daily_return: unknown;
+    selected_count: unknown;
+  }>(`
+    WITH latest_dates AS (
+      SELECT trade_date
+      FROM (
+        SELECT DISTINCT k.${klineDateColumn} AS trade_date
+        FROM ${klineTable} k
+        ORDER BY trade_date DESC
+        LIMIT $1
+      ) d
+    ),
+    ordered_dates AS (
+      SELECT
+        trade_date,
+        LEAD(trade_date) OVER (ORDER BY trade_date ASC) AS next_trade_date
+      FROM latest_dates
+    ),
+    signal_daily AS (
+      SELECT
+        ${signalDateExpr} AS signal_date,
+        s.${signalStockCodeColumn} AS stock_code
+      FROM ${signalTable} s
+      WHERE ${signalDateExpr} IN (SELECT trade_date FROM latest_dates)
+      GROUP BY ${signalDateExpr}, s.${signalStockCodeColumn}
+    ),
+    strategy_daily AS (
+      SELECT
+        od.next_trade_date AS trade_date,
+        COUNT(*) AS selected_count,
+        AVG(
+          CASE
+            WHEN k.open > 0 AND k.close > 0 THEN (k.close - k.open) / k.open
+            ELSE NULL
+          END
+        ) AS strategy_daily_return
+      FROM signal_daily sd
+      INNER JOIN ordered_dates od ON od.trade_date = sd.signal_date
+      INNER JOIN ${klineTable} k
+        ON k.${klineStockCodeColumn} = sd.stock_code
+       AND k.${klineDateColumn} = od.next_trade_date
+      WHERE od.next_trade_date IS NOT NULL
+      GROUP BY od.next_trade_date
+    )
+    SELECT
+      ld.trade_date,
+      COALESCE(sd.strategy_daily_return, 0) AS strategy_daily_return,
+      COALESCE(sd.selected_count, 0) AS selected_count
+    FROM latest_dates ld
+    LEFT JOIN strategy_daily sd ON sd.trade_date = ld.trade_date
+    ORDER BY ld.trade_date ASC
+  `, [days]);
+
+  const points = new Map<string, StrategyDailyPoint>();
+  rows.forEach((row) => {
+    const tradeDate = normalizeDate(row.trade_date);
+    const dailyReturn = toFiniteNumber(row.strategy_daily_return);
+    const selectedCount = Number(row.selected_count || 0);
+    if (!tradeDate || dailyReturn === null) {
+      return;
+    }
+    points.set(tradeDate, {
+      dailyReturn,
+      selectedCount: Number.isFinite(selectedCount) ? selectedCount : 0,
+    });
+  });
+  return points;
 }
 
 const HS300_REMOTE_CACHE_TTL_MS = 10 * 60 * 1000;
@@ -189,6 +307,9 @@ export async function getStrategyYieldCurveShared({
   const signalTable = q(config.signalTable);
   const signalCreatedAtColumn = q(config.signalCreatedAtColumn);
   const signalStockCodeColumn = q(config.signalStockCodeColumn);
+  const fallbackSignalTable = config.fallbackSignalTable ? q(config.fallbackSignalTable) : null;
+  const fallbackSignalDateColumn = config.fallbackSignalDateColumn ? q(config.fallbackSignalDateColumn) : null;
+  const fallbackSignalStockCodeColumn = config.fallbackSignalStockCodeColumn ? q(config.fallbackSignalStockCodeColumn) : null;
   const stockTable = q(config.stockTable);
   const stockCodeColumn = q(config.stockCodeColumn);
   const stockNameColumn = q(config.stockNameColumn);
@@ -214,66 +335,50 @@ export async function getStrategyYieldCurveShared({
     return { dates: [], values: [], benchmarkValues: [], benchmarkLabel: '\u6CAA\u6DF1300' };
   }
 
-  const strategyDailyRows = await query<{
-    trade_date: unknown;
-    strategy_daily_return: unknown;
-  }>(`
-    WITH latest_dates AS (
-      SELECT trade_date
-      FROM (
-        SELECT DISTINCT k.${klineDateColumn} AS trade_date
-        FROM ${klineTable} k
-        ORDER BY trade_date DESC
-        LIMIT $1
-      ) d
-    ),
-    ordered_dates AS (
-      SELECT
-        trade_date,
-        LEAD(trade_date) OVER (ORDER BY trade_date ASC) AS next_trade_date
-      FROM latest_dates
-    ),
-    signal_daily AS (
-      SELECT
-        DATE(s.${signalCreatedAtColumn} AT TIME ZONE 'Asia/Shanghai') AS signal_date,
-        s.${signalStockCodeColumn} AS stock_code
-      FROM ${signalTable} s
-      WHERE DATE(s.${signalCreatedAtColumn} AT TIME ZONE 'Asia/Shanghai') IN (SELECT trade_date FROM latest_dates)
-      GROUP BY DATE(s.${signalCreatedAtColumn} AT TIME ZONE 'Asia/Shanghai'), s.${signalStockCodeColumn}
-    ),
-    strategy_daily AS (
-      SELECT
-        od.next_trade_date AS trade_date,
-        AVG(
-          CASE
-            WHEN k.open > 0 AND k.close > 0 THEN (k.close - k.open) / k.open
-            ELSE NULL
-          END
-        ) AS strategy_daily_return
-      FROM signal_daily sd
-      INNER JOIN ordered_dates od ON od.trade_date = sd.signal_date
-      INNER JOIN ${klineTable} k
-        ON k.${klineStockCodeColumn} = sd.stock_code
-       AND k.${klineDateColumn} = od.next_trade_date
-      WHERE od.next_trade_date IS NOT NULL
-      GROUP BY od.next_trade_date
-    )
-    SELECT
-      ld.trade_date,
-      COALESCE(sd.strategy_daily_return, 0) AS strategy_daily_return
-    FROM latest_dates ld
-    LEFT JOIN strategy_daily sd ON sd.trade_date = ld.trade_date
-    ORDER BY ld.trade_date ASC
-  `, [days]);
+  const primaryStrategyPoints = await loadStrategyDailyPoints({
+    days,
+    query,
+    klineTable,
+    klineDateColumn,
+    klineStockCodeColumn,
+    signalTable,
+    signalDateColumn: signalCreatedAtColumn,
+    signalStockCodeColumn,
+    signalDateIsTimestampTz: config.signalDateIsTimestampTz ?? true,
+  });
+
+  let fallbackStrategyPoints: Map<string, StrategyDailyPoint> | null = null;
+  if (fallbackSignalTable && fallbackSignalDateColumn && fallbackSignalStockCodeColumn) {
+    try {
+      fallbackStrategyPoints = await loadStrategyDailyPoints({
+        days,
+        query,
+        klineTable,
+        klineDateColumn,
+        klineStockCodeColumn,
+        signalTable: fallbackSignalTable,
+        signalDateColumn: fallbackSignalDateColumn,
+        signalStockCodeColumn: fallbackSignalStockCodeColumn,
+        signalDateIsTimestampTz: config.fallbackSignalDateIsTimestampTz ?? false,
+      });
+    } catch (error) {
+      console.warn('[yield-curve] fallback signal source unavailable:', error);
+      fallbackStrategyPoints = null;
+    }
+  }
 
   const strategyReturnByDate = new Map<string, number>();
-  strategyDailyRows.forEach((row) => {
-    const tradeDate = normalizeDate(row.trade_date);
-    const dailyReturn = toFiniteNumber(row.strategy_daily_return);
-    if (!tradeDate || dailyReturn === null) {
+  dates.forEach((date) => {
+    const primaryPoint = primaryStrategyPoints.get(date);
+    if (primaryPoint && primaryPoint.selectedCount > 0) {
+      strategyReturnByDate.set(date, primaryPoint.dailyReturn);
       return;
     }
-    strategyReturnByDate.set(tradeDate, dailyReturn);
+
+    const fallbackPoint = fallbackStrategyPoints?.get(date);
+    if (fallbackPoint && fallbackPoint.selectedCount > 0) {
+      strategyReturnByDate.set(date, fallbackPoint.dailyReturn);
+    }
   });
 
   const hs300Rows = await query<{
@@ -348,6 +453,7 @@ export async function getStrategyYieldCurveShared({
   }
 
   const hasRealHs300 = dates.filter((date) => hs300CloseByDate.has(date)).length >= 2;
+  const navDigits = 6;
   const values: number[] = [];
   const benchmarkValues: number[] = hasRealHs300 ? [1] : [];
   let strategyNav = 1;
@@ -368,7 +474,7 @@ export async function getStrategyYieldCurveShared({
 
     const strategyDailyReturn = Math.max(-0.2, Math.min(0.2, strategyReturnByDate.get(tradeDate) ?? 0));
     strategyNav = Math.max(strategyNav * (1 + strategyDailyReturn), 0.2);
-    values.push(Math.round(strategyNav * 1000) / 1000);
+    values.push(roundTo(strategyNav, navDigits));
 
     if (!hasRealHs300) {
       return;
@@ -385,7 +491,7 @@ export async function getStrategyYieldCurveShared({
 
     benchmarkDailyReturn = Math.max(-0.12, Math.min(0.12, benchmarkDailyReturn));
     benchmarkNav = Math.max(benchmarkNav * (1 + benchmarkDailyReturn), 0.2);
-    benchmarkValues.push(Math.round(benchmarkNav * 1000) / 1000);
+    benchmarkValues.push(roundTo(benchmarkNav, navDigits));
   });
 
   return {
