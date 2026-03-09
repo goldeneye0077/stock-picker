@@ -321,7 +321,7 @@ export default function TechnicalAnalysisModal({
       }}
       footer={null}
       width={1200}
-      destroyOnClose
+      destroyOnHidden
       styles={{ body: { paddingTop: 12 } }}
     >
       <Tabs

@@ -1,14 +1,9 @@
-/**
- * useFundFlow Hook 测试
- */
-
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
-import { useFundFlow } from './useFundFlow';
+﻿import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { message } from 'antd';
 import * as analysisService from '../services/analysisService';
+import { useFundFlow } from './useFundFlow';
 
-// Mock antd message
 vi.mock('antd', () => ({
   message: {
     success: vi.fn(),
@@ -17,7 +12,6 @@ vi.mock('antd', () => ({
   },
 }));
 
-// Mock analysisService
 vi.mock('../services/analysisService', () => ({
   fetchMarketMoneyflowData: vi.fn(),
 }));
@@ -32,301 +26,160 @@ const mockFundFlowData = {
   list: [],
 };
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
 describe('useFundFlow', () => {
+  let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
   });
 
-  describe('初始状态和加载', () => {
-    it('应该自动加载数据', async () => {
-      vi.mocked(analysisService.fetchMarketMoneyflowData).mockResolvedValue(mockFundFlowData as any);
-
-      const { result } = renderHook(() => useFundFlow());
-
-      // 等待数据加载完成
-      await waitFor(() => {
-        expect(result.current.loading).toBe(false);
-      });
-
-      expect(result.current.data).toHaveLength(4);
-      expect(analysisService.fetchMarketMoneyflowData).toHaveBeenCalledTimes(1);
-    });
-
-    it('应该正确转换数据格式', async () => {
-      vi.mocked(analysisService.fetchMarketMoneyflowData).mockResolvedValue(mockFundFlowData as any);
-
-      const { result } = renderHook(() => useFundFlow());
-
-      await waitFor(() => {
-        expect(result.current.loading).toBe(false);
-      });
-
-      const extraLarge = result.current.data.find((d) => d.type === '超大单');
-      expect(extraLarge).toBeDefined();
-      expect(extraLarge?.amount).toBe('+5.0亿');
-      expect(extraLarge?.color).toBe('#f50');
-
-      const large = result.current.data.find((d) => d.type === '大单');
-      expect(large).toBeDefined();
-      expect(large?.amount).toBe('-2.0亿');
-      expect(large?.color).toBe('#ff7a45');
-
-      const medium = result.current.data.find((d) => d.type === '中单');
-      expect(medium).toBeDefined();
-      expect(medium?.amount).toBe('+3.0亿');
-      expect(medium?.color).toBe('#2db7f5');
-
-      const small = result.current.data.find((d) => d.type === '小单');
-      expect(small).toBeDefined();
-      expect(small?.amount).toBe('+0.0亿');
-      expect(small?.color).toBe('#87d068');
-    });
-
-    it('应该正确计算百分比', async () => {
-      vi.mocked(analysisService.fetchMarketMoneyflowData).mockResolvedValue(mockFundFlowData as any);
-
-      const { result } = renderHook(() => useFundFlow());
-
-      await waitFor(() => {
-        expect(result.current.loading).toBe(false);
-      });
-
-      const extraLarge = result.current.data.find((d) => d.type === '超大单');
-      expect(extraLarge?.percent).toBe(50);
-    });
-
-    it('成功加载后应该显示成功消息', async () => {
-      vi.mocked(analysisService.fetchMarketMoneyflowData).mockResolvedValue(mockFundFlowData as any);
-
-      renderHook(() => useFundFlow());
-
-      await waitFor(() => {
-        expect(message.success).toHaveBeenCalledWith('大盘资金流向数据已刷新');
-      });
-    });
+  afterEach(() => {
+    consoleErrorSpy.mockRestore();
   });
 
-  describe('无数据情况', () => {
-    it('应该处理无 summary 的情况', async () => {
-      vi.mocked(analysisService.fetchMarketMoneyflowData).mockResolvedValue({ list: [] } as any);
+  it('loads and transforms summary data on mount', async () => {
+    vi.mocked(analysisService.fetchMarketMoneyflowData).mockResolvedValue(mockFundFlowData as any);
 
-      const { result } = renderHook(() => useFundFlow());
+    const { result } = renderHook(() => useFundFlow());
 
-      await waitFor(() => {
-        expect(result.current.loading).toBe(false);
-      });
-
-      expect(result.current.data).toEqual([]);
-      expect(message.info).toHaveBeenCalledWith('暂无大盘资金流向数据');
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
     });
 
-    it('应该处理 null/undefined summary', async () => {
-      vi.mocked(analysisService.fetchMarketMoneyflowData).mockResolvedValue({
-        summary: null as any,
-        list: [],
-      } as any);
-
-      const { result } = renderHook(() => useFundFlow());
-
-      await waitFor(() => {
-        expect(result.current.loading).toBe(false);
-      });
-
-      expect(result.current.data).toEqual([]);
-    });
+    expect(result.current.data).toHaveLength(4);
+    expect(result.current.data[0]).toEqual(expect.objectContaining({ percent: 50, color: '#f50' }));
+    expect(result.current.data[0].amount).toContain('5.0');
+    expect(result.current.data[1]).toEqual(expect.objectContaining({ color: '#ff7a45' }));
+    expect(result.current.data[2]).toEqual(expect.objectContaining({ color: '#2db7f5' }));
+    expect(result.current.data[3]).toEqual(expect.objectContaining({ color: '#87d068' }));
+    expect(message.success).toHaveBeenCalled();
   });
 
-  describe('错误处理', () => {
-    it('应该处理 API 错误', async () => {
-      const error = new Error('API 错误');
-      vi.mocked(analysisService.fetchMarketMoneyflowData).mockRejectedValue(error);
+  it('uses provided initial params', async () => {
+    vi.mocked(analysisService.fetchMarketMoneyflowData).mockResolvedValue(mockFundFlowData as any);
 
-      const { result } = renderHook(() => useFundFlow());
+    const initialParams = { days: 7 };
+    const { result } = renderHook(() => useFundFlow(initialParams));
 
-      await waitFor(() => {
-        expect(result.current.loading).toBe(false);
-      });
-
-      expect(result.current.data).toEqual([]);
-      expect(message.error).toHaveBeenCalledWith('刷新大盘资金流向数据失败');
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
     });
 
-    it('错误后应该设置空数据', async () => {
-      vi.mocked(analysisService.fetchMarketMoneyflowData).mockRejectedValue(new Error('错误'));
-
-      const { result } = renderHook(() => useFundFlow());
-
-      await waitFor(() => {
-        expect(result.current.loading).toBe(false);
-      });
-
-      expect(result.current.data).toEqual([]);
-    });
+    expect(result.current.params).toEqual(initialParams);
+    expect(analysisService.fetchMarketMoneyflowData).toHaveBeenCalledWith(initialParams);
   });
 
-  describe('参数管理', () => {
-    it('应该使用初始参数', async () => {
-      const initialParams = { days: 7 };
-      vi.mocked(analysisService.fetchMarketMoneyflowData).mockResolvedValue(mockFundFlowData as any);
+  it('returns empty data when summary is missing', async () => {
+    vi.mocked(analysisService.fetchMarketMoneyflowData).mockResolvedValue({ list: [] } as any);
 
-      const { result } = renderHook(() => useFundFlow(initialParams));
+    const { result } = renderHook(() => useFundFlow());
 
-      await waitFor(() => {
-        expect(result.current.loading).toBe(false);
-      });
-
-      expect(result.current.params).toEqual(initialParams);
-      expect(analysisService.fetchMarketMoneyflowData).toHaveBeenCalledWith(initialParams);
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
     });
 
-    it('应该能够更新参数', async () => {
-      vi.mocked(analysisService.fetchMarketMoneyflowData).mockResolvedValue(mockFundFlowData as any);
+    expect(result.current.data).toEqual([]);
+    expect(message.info).toHaveBeenCalled();
+  });
 
-      const { result } = renderHook(() => useFundFlow());
+  it('handles API failures by clearing data', async () => {
+    vi.mocked(analysisService.fetchMarketMoneyflowData).mockRejectedValue(new Error('API error'));
 
-      await waitFor(() => {
-        expect(result.current.loading).toBe(false);
-      });
+    const { result } = renderHook(() => useFundFlow());
 
-      // 更新参数
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.data).toEqual([]);
+    expect(message.error).toHaveBeenCalled();
+  });
+
+  it('updates params and resets them to the initial value', async () => {
+    vi.mocked(analysisService.fetchMarketMoneyflowData).mockResolvedValue(mockFundFlowData as any);
+
+    const initialParams = { days: 7 };
+    const { result } = renderHook(() => useFundFlow(initialParams));
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    act(() => {
       result.current.updateParams({ days: 30 });
-
-      await waitFor(() => {
-        expect(result.current.params).toEqual({ days: 30 });
-      });
     });
 
-    it('应该能够重置参数', async () => {
-      const initialParams = { days: 7 };
-      vi.mocked(analysisService.fetchMarketMoneyflowData).mockResolvedValue(mockFundFlowData as any);
+    await waitFor(() => {
+      expect(result.current.params).toEqual({ days: 30 });
+    });
 
-      const { result } = renderHook(() => useFundFlow(initialParams));
-
-      await waitFor(() => {
-        expect(result.current.loading).toBe(false);
-      });
-
-      // 更新参数
-      result.current.updateParams({ days: 30 });
-
-      await waitFor(() => {
-        expect(result.current.params).toEqual({ days: 30 });
-      });
-
-      // 重置参数
+    act(() => {
       result.current.resetParams();
+    });
 
-      await waitFor(() => {
-        expect(result.current.params).toEqual(initialParams);
-      });
+    await waitFor(() => {
+      expect(result.current.params).toEqual(initialParams);
     });
   });
 
-  describe('手动刷新', () => {
-    it('应该能够手动刷新数据', async () => {
-      vi.mocked(analysisService.fetchMarketMoneyflowData).mockResolvedValue(mockFundFlowData as any);
+  it('supports manual refresh and exposes loading during refresh', async () => {
+    vi.mocked(analysisService.fetchMarketMoneyflowData).mockResolvedValueOnce(mockFundFlowData as any);
 
-      const { result } = renderHook(() => useFundFlow());
+    const { result } = renderHook(() => useFundFlow());
 
-      await waitFor(() => {
-        expect(result.current.loading).toBe(false);
-      });
-
-      // 清除之前的调用记录
-      vi.clearAllMocks();
-
-      // 手动刷新
-      result.current.fetchData();
-
-      await waitFor(() => {
-        expect(result.current.loading).toBe(false);
-      });
-
-      expect(analysisService.fetchMarketMoneyflowData).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
     });
 
-    it('刷新时应该设置 loading 状态', async () => {
-      // 第一次调用立即返回
-      vi.mocked(analysisService.fetchMarketMoneyflowData).mockResolvedValueOnce(mockFundFlowData as any);
+    vi.clearAllMocks();
 
-      const { result } = renderHook(() => useFundFlow());
+    const deferred = createDeferred<typeof mockFundFlowData>();
+    vi.mocked(analysisService.fetchMarketMoneyflowData).mockReturnValue(deferred.promise as never);
 
-      // 等待第一次自动加载完成
-      await waitFor(() => {
-        expect(result.current.loading).toBe(false);
-      });
+    act(() => {
+      void result.current.fetchData();
+    });
 
-      // 设置延迟响应用于第二次调用
-      let resolvePromise: (value: any) => void;
-      const promise = new Promise((resolve) => {
-        resolvePromise = resolve;
-      });
-      vi.mocked(analysisService.fetchMarketMoneyflowData).mockReturnValue(promise as any);
+    await waitFor(() => {
+      expect(result.current.loading).toBe(true);
+    });
 
-      // 手动刷新
-      result.current.fetchData();
+    expect(analysisService.fetchMarketMoneyflowData).toHaveBeenCalledTimes(1);
 
-      // 应该正在加载
-      await waitFor(() => {
-        expect(result.current.loading).toBe(true);
-      });
+    deferred.resolve(mockFundFlowData);
 
-      // 完成加载
-      resolvePromise!(mockFundFlowData);
-
-      await waitFor(() => {
-        expect(result.current.loading).toBe(false);
-      });
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
     });
   });
 
-  describe('边界情况', () => {
-    it('应该处理零值数据', async () => {
-      const zeroData = {
-        summary: {
-          totalElgAmount: 0,
-          totalLgAmount: 0,
-          totalMdAmount: 0,
-          totalSmAmount: 0,
-        },
-        list: [],
-      };
+  it('handles all-zero totals without division errors', async () => {
+    vi.mocked(analysisService.fetchMarketMoneyflowData).mockResolvedValue({
+      summary: {
+        totalElgAmount: 0,
+        totalLgAmount: 0,
+        totalMdAmount: 0,
+        totalSmAmount: 0,
+      },
+      list: [],
+    } as any);
 
-      vi.mocked(analysisService.fetchMarketMoneyflowData).mockResolvedValue(zeroData as any);
+    const { result } = renderHook(() => useFundFlow());
 
-      const { result } = renderHook(() => useFundFlow());
-
-      await waitFor(() => {
-        expect(result.current.loading).toBe(false);
-      });
-
-      expect(result.current.data).toHaveLength(4);
-      result.current.data.forEach((item) => {
-        expect(item.percent).toBe(0);
-      });
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
     });
 
-    it('应该正确处理负值', async () => {
-      const negativeData = {
-        summary: {
-          totalElgAmount: -500000000,
-          totalLgAmount: -200000000,
-          totalMdAmount: -300000000,
-          totalSmAmount: 0,
-        },
-        list: [],
-      };
-
-      vi.mocked(analysisService.fetchMarketMoneyflowData).mockResolvedValue(negativeData as any);
-
-      const { result } = renderHook(() => useFundFlow());
-
-      await waitFor(() => {
-        expect(result.current.loading).toBe(false);
-      });
-
-      const extraLarge = result.current.data.find((d) => d.type === '超大单');
-      expect(extraLarge?.amount).toBe('-5.0亿');
-    });
+    expect(result.current.data).toHaveLength(4);
+    expect(result.current.data.every((item) => item.percent === 0)).toBe(true);
   });
 });

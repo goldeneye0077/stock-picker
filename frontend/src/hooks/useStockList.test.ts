@@ -68,8 +68,15 @@ const mockStockAnalysis = {
 };
 
 describe('useStockList', () => {
+  let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore();
   });
 
   it('loads paginated data on mount', async () => {
@@ -232,8 +239,15 @@ describe('useStockList', () => {
 });
 
 describe('useStockDetail', () => {
+  let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore();
   });
 
   it('returns initial state', () => {
@@ -318,4 +332,3 @@ describe('useStockDetail', () => {
     expect(result.current.currentCode).toBeNull();
   });
 });
-

@@ -7,15 +7,18 @@ import {
 
 describe('analyticsService', () => {
   const originalFetch = globalThis.fetch;
+  let debugSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => undefined);
   });
 
   afterEach(() => {
     (globalThis as { fetch: typeof fetch }).fetch = originalFetch;
     localStorage.clear();
+    debugSpy.mockRestore();
   });
 
   it('unwraps envelope response and carries auth header', async () => {
