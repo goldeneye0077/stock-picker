@@ -321,8 +321,8 @@ class APITrackingMiddleware(BaseHTTPMiddleware):
                     token_hash = hash_session_token(token)
                     async with get_database() as db:
                         cursor = await db.execute(
-                            "SELECT user_id FROM user_sessions WHERE token = ? OR token = ? LIMIT 1",
-                            (token_hash, token)
+                            "SELECT user_id FROM user_sessions WHERE token = ? LIMIT 1",
+                            (token_hash,)
                         )
                         row = await cursor.fetchone()
                         if row:

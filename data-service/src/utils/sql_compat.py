@@ -215,7 +215,7 @@ def _rewrite_date_time(sql: str) -> str:
         text,
         flags=re.IGNORECASE,
     )
-    text = re.sub(r"time\(\s*([^)]+?)\s*\)", lambda m: f"(({m.group(1)})::time)", text, flags=re.IGNORECASE)
+    text = re.sub(r"\btime\(\s*([^)]+?)\s*\)", lambda m: f"(({m.group(1)})::time)", text, flags=re.IGNORECASE)
     text = re.sub(r"is_volume_surge\s*=\s*1", "is_volume_surge = TRUE", text, flags=re.IGNORECASE)
     return text
 

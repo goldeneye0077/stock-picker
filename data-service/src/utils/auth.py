@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import os
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 
@@ -10,6 +11,8 @@ from .database import get_database
 
 
 SESSION_EXPIRE_DAYS = int(os.getenv("SESSION_EXPIRE_DAYS", "7"))
+BACKEND_PBKDF2_ITERATIONS = 120_000
+LEGACY_BASE64_PBKDF2_ITERATIONS = (200_000, 120_000, 100_000)
 
 
 def _now_utc() -> datetime:
@@ -28,15 +31,50 @@ def _from_iso(value: str | datetime) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def hash_password(password: str, salt_b64: str | None = None) -> tuple[str, str]:
-    salt = base64.b64decode(salt_b64) if salt_b64 else secrets.token_bytes(16)
-    derived = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 200_000)
-    return base64.b64encode(salt).decode("utf-8"), base64.b64encode(derived).decode("utf-8")
+def _is_hex_string(value: str) -> bool:
+    return bool(re.fullmatch(r"[0-9a-fA-F]+", value or "")) and len(value) % 2 == 0
 
 
-def verify_password(password: str, salt_b64: str, expected_hash_b64: str) -> bool:
-    _, computed = hash_password(password, salt_b64=salt_b64)
-    return secrets.compare_digest(computed, expected_hash_b64)
+def _hash_password_hex(password: str, salt_hex: str | None = None) -> tuple[str, str]:
+    normalized_salt = salt_hex or secrets.token_hex(16)
+    derived = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        normalized_salt.encode("utf-8"),
+        BACKEND_PBKDF2_ITERATIONS,
+    )
+    return normalized_salt, derived.hex()
+
+
+def _hash_password_base64(password: str, salt_b64: str, iterations: int) -> str:
+    salt_bytes = base64.b64decode(salt_b64)
+    derived = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt_bytes, iterations)
+    return base64.b64encode(derived).decode("utf-8")
+
+
+def hash_password(password: str, salt_value: str | None = None) -> tuple[str, str]:
+    """
+    Default new hashes to backend-compatible hex format.
+    If an existing non-hex salt is supplied, preserve the legacy base64 path.
+    """
+    if salt_value and not _is_hex_string(salt_value):
+        return salt_value, _hash_password_base64(password, salt_value, LEGACY_BASE64_PBKDF2_ITERATIONS[0])
+    return _hash_password_hex(password, salt_value)
+
+
+def verify_password(password: str, salt_value: str, expected_hash: str) -> bool:
+    if _is_hex_string(salt_value) and _is_hex_string(expected_hash):
+        _, computed = _hash_password_hex(password, salt_value)
+        return secrets.compare_digest(computed, expected_hash)
+
+    for iterations in LEGACY_BASE64_PBKDF2_ITERATIONS:
+        try:
+            computed = _hash_password_base64(password, salt_value, iterations)
+        except Exception:
+            return False
+        if secrets.compare_digest(computed, expected_hash):
+            return True
+    return False
 
 
 def generate_session_token() -> str:
@@ -63,7 +101,7 @@ async def create_session(user_id: int) -> tuple[str, str]:
 async def delete_session(token: str) -> None:
     token_hash = hash_session_token(token)
     async with get_database() as db:
-        await db.execute("DELETE FROM user_sessions WHERE token = ? OR token = ?", (token_hash, token))
+        await db.execute("DELETE FROM user_sessions WHERE token = ?", (token_hash,))
         await db.commit()
 
 
@@ -77,7 +115,7 @@ async def get_user_permissions(user_id: int) -> list[str]:
     return [row["path"] for row in rows]
 
 
-async def _find_session_row(token_hash: str, token: str):
+async def _find_session_row(token_hash: str):
     """
     Resolve session from either data-service (`user_sessions`) or backend (`sessions`) tables.
     This allows unified login token usage across services.
@@ -89,10 +127,10 @@ async def _find_session_row(token_hash: str, token: str):
             SELECT s.token, s.user_id, s.expires_at, u.username, u.is_admin, u.is_active
             FROM user_sessions s
             JOIN users u ON u.id = s.user_id
-            WHERE s.token = ? OR s.token = ?
+            WHERE s.token = ?
             LIMIT 1
             """,
-            (token_hash, token),
+            (token_hash,),
         )
         row = await cursor.fetchone()
         if row:
@@ -105,10 +143,10 @@ async def _find_session_row(token_hash: str, token: str):
                 SELECT s.token, s.user_id, s.expires_at, u.username, u.is_admin, u.is_active
                 FROM sessions s
                 JOIN users u ON u.id = s.user_id
-                WHERE s.token = ? OR s.token = ?
+                WHERE s.token = ?
                 LIMIT 1
                 """,
-                (token_hash, token),
+                (token_hash,),
             )
             row = await cursor.fetchone()
             if row:
@@ -129,7 +167,7 @@ async def require_user(authorization: str | None = Header(None)) -> dict:
         raise HTTPException(status_code=401, detail="Unauthorized")
     token_hash = hash_session_token(token)
 
-    row, session_table = await _find_session_row(token_hash, token)
+    row, session_table = await _find_session_row(token_hash)
     if not row:
         raise HTTPException(status_code=401, detail="Unauthorized")
     if not row["is_active"]:
@@ -175,7 +213,7 @@ async def get_optional_user(authorization: str | None = Header(None)) -> dict | 
     token_hash = hash_session_token(token)
 
     try:
-        row, _ = await _find_session_row(token_hash, token)
+        row, _ = await _find_session_row(token_hash)
         if not row or not row["is_active"]:
             return None
 
