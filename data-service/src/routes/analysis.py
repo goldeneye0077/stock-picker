@@ -1229,69 +1229,113 @@ async def get_auction_super_main_force(
 
             samples: list[dict[str, Any]] = []
             shanghai_tz = ZoneInfo("Asia/Shanghai")
+
+            # --- Batch step 1: resolve best snapshot_time for each trade_day in ONE query ---
+            snapshot_union_parts: list[str] = []
+            snapshot_params: list[Any] = []
             for d in trade_days:
                 day_obj = datetime.strptime(d, "%Y-%m-%d").date()
-                day_window_start = datetime.combine(day_obj, datetime.strptime("09:20:00", "%H:%M:%S").time(), tzinfo=shanghai_tz)
-                day_window_end = datetime.combine(day_obj, datetime.strptime("09:31:00", "%H:%M:%S").time(), tzinfo=shanghai_tz)
-                cursor = await db_conn.execute(
-                    """
-                    SELECT snapshot_time AS st
-                    FROM quote_history
-                    WHERE snapshot_time >= ? AND snapshot_time < ?
-                    GROUP BY snapshot_time
-                    ORDER BY snapshot_time DESC
-                    LIMIT 1
-                    """,
-                    (day_window_start, day_window_end),
+                ws = datetime.combine(day_obj, datetime.strptime("09:20:00", "%H:%M:%S").time(), tzinfo=shanghai_tz)
+                we = datetime.combine(day_obj, datetime.strptime("09:31:00", "%H:%M:%S").time(), tzinfo=shanghai_tz)
+                snapshot_union_parts.append(
+                    "(SELECT ? AS trade_day, snapshot_time AS st FROM quote_history "
+                    "WHERE snapshot_time >= ? AND snapshot_time < ? "
+                    "ORDER BY snapshot_time DESC LIMIT 1)"
                 )
-                st_row = await cursor.fetchone()
-                snapshot_time = st_row["st"] if st_row and st_row["st"] else None
-                if not snapshot_time:
-                    cursor = await db_conn.execute(
-                        """
-                        SELECT snapshot_time AS st
-                        FROM quote_history
-                        WHERE DATE(snapshot_time) = DATE(?)
-                        GROUP BY snapshot_time
-                        ORDER BY snapshot_time DESC
-                        LIMIT 1
-                        """,
-                        (day_obj,),
-                    )
-                    st_row = await cursor.fetchone()
-                    snapshot_time = st_row["st"] if st_row and st_row["st"] else None
-                if not snapshot_time:
-                    continue
+                snapshot_params.extend([d, ws, we])
 
-                cursor = await db_conn.execute(
-                    """
-                    SELECT
-                        q.stock_code,
-                        q.pre_close,
-                        q.open,
-                        q.close AS quote_close,
-                        q.vol,
-                        q.amount,
-                        COALESCE(db.turnover_rate, 0) AS turnover_rate,
-                        COALESCE(db.volume_ratio, 0) AS volume_ratio,
-                        COALESCE(db.float_share, 0) AS float_share,
-                        db.close AS db_close,
-                        k.close AS k_close,
-                        COALESCE(s.name, '') AS stock_name
-                    FROM quote_history q
-                    LEFT JOIN daily_basic db
-                      ON db.stock_code = q.stock_code
-                     AND db.trade_date = ?
-                    LEFT JOIN klines k
-                      ON k.stock_code = q.stock_code
-                     AND k.date = ?
-                    LEFT JOIN stocks s
-                      ON s.code = q.stock_code
-                    WHERE q.snapshot_time = ?
-                    """,
-                    (d, d, snapshot_time),
-                )
-                rows = await cursor.fetchall()
+            day_snapshot_map: dict[str, Any] = {}
+            if snapshot_union_parts:
+                union_sql = " UNION ALL ".join(snapshot_union_parts)
+                cursor = await db_conn.execute(union_sql, snapshot_params)
+                for r in await cursor.fetchall():
+                    td = str(r["trade_day"] or "")
+                    if td and r["st"]:
+                        day_snapshot_map[td] = r["st"]
+
+            # Fallback for days with no snapshot in the auction window
+            missing_days = [d for d in trade_days if d not in day_snapshot_map]
+            if missing_days:
+                fb_parts: list[str] = []
+                fb_params: list[Any] = []
+                for d in missing_days:
+                    day_obj = datetime.strptime(d, "%Y-%m-%d").date()
+                    fb_parts.append(
+                        "(SELECT ? AS trade_day, snapshot_time AS st FROM quote_history "
+                        "WHERE DATE(snapshot_time) = DATE(?) "
+                        "ORDER BY snapshot_time DESC LIMIT 1)"
+                    )
+                    fb_params.extend([d, day_obj])
+                if fb_parts:
+                    cursor = await db_conn.execute(" UNION ALL ".join(fb_parts), fb_params)
+                    for r in await cursor.fetchall():
+                        td = str(r["trade_day"] or "")
+                        if td and r["st"] and td not in day_snapshot_map:
+                            day_snapshot_map[td] = r["st"]
+
+            active_days = [(d, day_snapshot_map[d]) for d in trade_days if d in day_snapshot_map]
+            if not active_days:
+                _SUPER_MAIN_FORCE_TUNE_CACHE[cache_key] = (datetime.now(), default_profile)
+                return default_profile
+
+            # --- Batch step 2: load all quote data across ALL snapshot_times in ONE query ---
+            all_snapshot_times = [st for _, st in active_days]
+            st_placeholders = ",".join(["?"] * len(all_snapshot_times))
+            cursor = await db_conn.execute(
+                f"""
+                SELECT
+                    q.snapshot_time AS q_snapshot_time,
+                    q.stock_code,
+                    q.pre_close,
+                    q.open,
+                    q.close AS quote_close,
+                    q.vol,
+                    q.amount,
+                    COALESCE(s.name, '') AS stock_name
+                FROM quote_history q
+                LEFT JOIN stocks s ON s.code = q.stock_code
+                WHERE q.snapshot_time IN ({st_placeholders})
+                """,
+                all_snapshot_times,
+            )
+            all_quote_rows = await cursor.fetchall()
+            quotes_by_snapshot: dict[str, list] = {}
+            for row in all_quote_rows:
+                st_key = str(row["q_snapshot_time"])
+                quotes_by_snapshot.setdefault(st_key, []).append(row)
+
+            # --- Batch step 3: load daily_basic and klines for all active dates ---
+            active_date_strs = list({d for d, _ in active_days})
+            ad_placeholders = ",".join(["?"] * len(active_date_strs))
+            cursor = await db_conn.execute(
+                f"""
+                SELECT stock_code, trade_date,
+                       COALESCE(turnover_rate, 0) AS turnover_rate,
+                       COALESCE(volume_ratio, 0) AS volume_ratio,
+                       COALESCE(float_share, 0) AS float_share,
+                       close AS db_close
+                FROM daily_basic WHERE trade_date IN ({ad_placeholders})
+                """,
+                active_date_strs,
+            )
+            daily_basic_lookup: dict[tuple[str, str], dict] = {}
+            for row in await cursor.fetchall():
+                daily_basic_lookup[(str(row["stock_code"]), str(row["trade_date"]))] = dict(row)
+
+            cursor = await db_conn.execute(
+                f"SELECT stock_code, date, close AS k_close FROM klines WHERE date IN ({ad_placeholders})",
+                active_date_strs,
+            )
+            kline_close_lookup: dict[tuple[str, str], float] = {}
+            for row in await cursor.fetchall():
+                val = row["k_close"]
+                if val is not None:
+                    kline_close_lookup[(str(row["stock_code"]), str(row["date"]))] = float(val)
+
+            # --- Process each day's data from in-memory lookups ---
+            for d, snapshot_time in active_days:
+                st_key = str(snapshot_time)
+                rows = quotes_by_snapshot.get(st_key, [])
                 day_samples: list[dict[str, Any]] = []
                 for row in rows:
                     stock_code = str(row["stock_code"] or "")
@@ -1312,16 +1356,19 @@ async def get_auction_super_main_force(
                     if vol <= 0 and amount <= 0:
                         continue
 
-                    close_price_raw = row["db_close"] if row["db_close"] is not None else row["k_close"]
+                    db_info = daily_basic_lookup.get((stock_code, d))
+                    db_close = db_info["db_close"] if db_info and db_info.get("db_close") is not None else None
+                    k_close_val = kline_close_lookup.get((stock_code, d))
+                    close_price_raw = db_close if db_close is not None else k_close_val
                     if close_price_raw is None:
                         continue
                     close_price = float(close_price_raw or 0.0)
                     if close_price <= 0:
                         continue
 
-                    volume_ratio = float(row["volume_ratio"] or 0.0)
-                    turnover_rate = float(row["turnover_rate"] or 0.0)
-                    float_share = float(row["float_share"] or 0.0)
+                    volume_ratio = float(db_info["volume_ratio"]) if db_info else 0.0
+                    turnover_rate = float(db_info["turnover_rate"]) if db_info else 0.0
+                    float_share = float(db_info["float_share"]) if db_info else 0.0
 
                     gap_ratio = (price - pre_close) / pre_close if pre_close > 0 else 0.0
                     gap_percent = gap_ratio * 100.0

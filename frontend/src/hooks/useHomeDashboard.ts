@@ -113,11 +113,11 @@ function toWebSocketUrl(): string | null {
   if (trimmedApiBase.startsWith('http://') || trimmedApiBase.startsWith('https://')) {
     const protocol = trimmedApiBase.startsWith('https://') ? 'wss://' : 'ws://';
     const host = trimmedApiBase.replace(/^https?:\/\//, '').replace(/\/+$/, '');
-    return `${protocol}${host}`;
+    return `${protocol}${host}/ws`;
   }
 
   const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  return `${wsProtocol}://${window.location.host}`;
+  return `${wsProtocol}://${window.location.host}/ws`;
 }
 
 function toEventType(raw: unknown): string {
