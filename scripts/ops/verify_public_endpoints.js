@@ -3,6 +3,8 @@
 const http = require('http');
 const https = require('https');
 const { URL } = require('url');
+const REDIRECT_STATUSES = new Set([301, 302, 307, 308]);
+const MAX_REDIRECTS = 5;
 
 const baseUrl = process.argv[2];
 
@@ -124,12 +126,32 @@ function verifyWebSocketUpgrade(target) {
 }
 
 async function main() {
-  const normalizedBaseUrl = baseUrl.replace(/\/+$/, '');
+  let normalizedBaseUrl = baseUrl.replace(/\/+$/, '');
 
-  console.log(`[verify] homepage ${normalizedBaseUrl}/`);
-  const homepage = await requestBuffer(`${normalizedBaseUrl}/`);
-  if (homepage.statusCode !== 200) {
-    throw new Error(`Expected homepage status 200, got ${homepage.statusCode}`);
+  for (let attempt = 0; attempt < MAX_REDIRECTS; attempt += 1) {
+    console.log(`[verify] homepage ${normalizedBaseUrl}/`);
+    const homepage = await requestBuffer(`${normalizedBaseUrl}/`);
+
+    if (!REDIRECT_STATUSES.has(homepage.statusCode)) {
+      if (homepage.statusCode !== 200) {
+        throw new Error(`Expected homepage status 200, got ${homepage.statusCode}`);
+      }
+      break;
+    }
+
+    const locationHeader = homepage.headers.location;
+    if (!locationHeader) {
+      throw new Error(`Homepage returned redirect ${homepage.statusCode} without Location header`);
+    }
+
+    const redirectedUrl = new URL(locationHeader, `${normalizedBaseUrl}/`);
+    const redirectedBaseUrl = `${redirectedUrl.protocol}//${redirectedUrl.host}`;
+    console.log(`[verify] redirect ${homepage.statusCode}: ${normalizedBaseUrl} -> ${redirectedBaseUrl}`);
+    normalizedBaseUrl = redirectedBaseUrl;
+
+    if (attempt === MAX_REDIRECTS - 1) {
+      throw new Error(`Too many redirects while resolving ${baseUrl}`);
+    }
   }
 
   console.log(`[verify] static asset ${normalizedBaseUrl}/logo.png`);
