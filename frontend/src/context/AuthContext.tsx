@@ -41,6 +41,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(res.data.user);
     } catch {
       setStoredToken(null);
+      setStoredRefreshToken(null);
       setToken(null);
       setUser(null);
     } finally {
@@ -85,6 +86,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const doLogout = useCallback(async () => {
     if (!token) {
       setStoredToken(null);
+      setStoredRefreshToken(null);
       setToken(null);
       setUser(null);
       return;

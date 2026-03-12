@@ -831,6 +831,14 @@ jobs:
           echo "Best-effort auction catch-up for ${today_sh}"
           curl -fsS -X POST "http://localhost:8001/api/quotes/update-auction?sync=true&trade_date=${today_sh}" || true
 
+    - name: Deploy phase 6 (verify public endpoints)
+      if: steps.check.outputs.enabled == 'true'
+      env:
+        PUBLIC_BASE_URL: ${{ secrets.DEPLOY_FRONTEND_ORIGIN != '' && secrets.DEPLOY_FRONTEND_ORIGIN || format('http://{0}', secrets.DEPLOY_SSH_HOST) }}
+      run: |
+        set -euo pipefail
+        node scripts/ops/verify_public_endpoints.js "${PUBLIC_BASE_URL}"
+
   notify:
     name: Notify Status
     runs-on: ubuntu-latest

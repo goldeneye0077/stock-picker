@@ -90,6 +90,8 @@ interface UseHomeDashboardReturn {
 }
 
 const WS_RECONNECT_DELAY_MS = 3000;
+const WS_FAST_RETRY_LIMIT = 3;
+const WS_SLOW_RETRY_DELAY_MS = 60000;
 const WS_EVENT_REFRESH_DEBOUNCE_MS = 1200;
 const WS_REFRESH_EVENT_TYPES = new Set([
   'market_insight_updated',
@@ -188,6 +190,7 @@ export function useHomeDashboard(): UseHomeDashboardReturn {
 
     let socket: WebSocket | null = null;
     let reconnectTimer: number | null = null;
+    let reconnectAttempt = 0;
     let stopped = false;
 
     const connect = () => {
@@ -198,6 +201,7 @@ export function useHomeDashboard(): UseHomeDashboardReturn {
       socket = new WebSocket(wsUrl);
 
       socket.onopen = () => {
+        reconnectAttempt = 0;
         setRealtimeConnected(true);
         socket?.send(JSON.stringify({ type: 'subscribe', channels: ['market:events'] }));
       };
@@ -222,7 +226,13 @@ export function useHomeDashboard(): UseHomeDashboardReturn {
       socket.onclose = () => {
         setRealtimeConnected(false);
         if (!stopped) {
-          reconnectTimer = window.setTimeout(connect, WS_RECONNECT_DELAY_MS);
+          reconnectAttempt += 1;
+          // Avoid tight reconnect loops when the public proxy is missing websocket upgrade support.
+          const delay =
+            reconnectAttempt <= WS_FAST_RETRY_LIMIT
+              ? reconnectAttempt * WS_RECONNECT_DELAY_MS
+              : WS_SLOW_RETRY_DELAY_MS;
+          reconnectTimer = window.setTimeout(connect, delay);
         }
       };
     };
