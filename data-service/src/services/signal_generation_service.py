@@ -126,9 +126,9 @@ async def _load_feature_rows(trade_date: str) -> list[dict]:
     return [dict(row) for row in rows]
 
 
-def _build_created_at(trade_date: str) -> str:
+def _build_created_at(trade_date: str) -> datetime:
     # Keep a deterministic timestamp for idempotent daily regeneration.
-    return f"{trade_date} 15:10:00"
+    return datetime.strptime(f"{trade_date} 15:10:00", "%Y-%m-%d %H:%M:%S")
 
 
 async def generate_daily_buy_signals(
@@ -293,7 +293,7 @@ async def generate_daily_buy_signals(
         "featureRows": len(feature_rows),
         "candidateCount": len(candidates),
         "inserted": len(selected),
-        "createdAt": created_at,
+        "createdAt": created_at.strftime("%Y-%m-%d %H:%M:%S"),
         "timescaleSync": sync_stats,
     }
 
