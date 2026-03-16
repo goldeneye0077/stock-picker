@@ -617,12 +617,16 @@ jobs:
     - name: Deploy phase 1 (pull app images)
       if: steps.check.outputs.enabled == 'true'
       uses: appleboy/ssh-action@v1.0.3
+      env:
+        GHCR_DEPLOY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GHCR_DEPLOY_USER: ${{ github.actor }}
       with:
         host: ${{ secrets.DEPLOY_SSH_HOST }}
         username: ${{ secrets.DEPLOY_SSH_USER }}
         key: ${{ secrets.DEPLOY_SSH_KEY }}
         port: ${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}
-        command_timeout: 45m
+        command_timeout: 60m
+        envs: GHCR_DEPLOY_TOKEN,GHCR_DEPLOY_USER
         script: |
           set -euo pipefail
           DEPLOY_DIR="/home/${{ secrets.DEPLOY_SSH_USER }}/stock-picker"
@@ -632,32 +636,58 @@ jobs:
           export BACKEND_IMAGE="ghcr.io/${OWNER}/stock-picker-backend:${TAG}"
           export FRONTEND_IMAGE="ghcr.io/${OWNER}/stock-picker-frontend:${TAG}"
           export DATA_SERVICE_IMAGE="ghcr.io/${OWNER}/stock-picker-data-service:${TAG}"
-          if ! echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin; then
-            echo "warning: ghcr login failed, continuing with anonymous pull"
-          fi
-          pull_ok=0
-          for i in 1 2; do
-            if timeout 20m docker compose -f "${DEPLOY_DIR}/docker-compose.yml" pull backend frontend data-service; then
-              pull_ok=1
+          login_ok=0
+          for i in 1 2 3; do
+            if timeout 60s sh -lc 'printf "%s\n" "$GHCR_DEPLOY_TOKEN" | docker login ghcr.io -u "$GHCR_DEPLOY_USER" --password-stdin'; then
+              login_ok=1
               break
             fi
-            echo "docker compose pull failed (attempt ${i}/2), retrying in 10s..."
+            echo "ghcr login failed (attempt ${i}/3), retrying in 10s..."
             sleep 10
           done
-          if [ "${pull_ok}" -ne 1 ]; then
-            echo "docker compose pull failed after retries"
-            exit 1
+          if [ "${login_ok}" -ne 1 ]; then
+            echo "warning: ghcr login failed after retries, continuing with anonymous pulls"
           fi
+
+          pull_image() {
+            service_name="$1"
+            image_ref="$2"
+            pull_ok=0
+            started_at="$(date +%s)"
+            for i in 1 2; do
+              echo "pulling ${service_name} image ${image_ref} (attempt ${i}/2)"
+              if timeout 20m docker pull "${image_ref}"; then
+                pull_ok=1
+                break
+              fi
+              echo "${service_name} image pull failed (attempt ${i}/2), retrying in 10s..."
+              sleep 10
+            done
+            if [ "${pull_ok}" -ne 1 ]; then
+              echo "${service_name} image pull failed after retries"
+              exit 1
+            fi
+            finished_at="$(date +%s)"
+            echo "pulled ${service_name} image in $((finished_at - started_at))s"
+          }
+
+          pull_image backend "${BACKEND_IMAGE}"
+          pull_image frontend "${FRONTEND_IMAGE}"
+          pull_image data-service "${DATA_SERVICE_IMAGE}"
 
     - name: Deploy phase 2a (prepare infra images)
       if: steps.check.outputs.enabled == 'true'
       uses: appleboy/ssh-action@v1.0.3
+      env:
+        GHCR_DEPLOY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GHCR_DEPLOY_USER: ${{ github.actor }}
       with:
         host: ${{ secrets.DEPLOY_SSH_HOST }}
         username: ${{ secrets.DEPLOY_SSH_USER }}
         key: ${{ secrets.DEPLOY_SSH_KEY }}
         port: ${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}
         command_timeout: 60m
+        envs: GHCR_DEPLOY_TOKEN,GHCR_DEPLOY_USER
         script: |
           set -euo pipefail
           DEPLOY_DIR="/home/${{ secrets.DEPLOY_SSH_USER }}/stock-picker"
@@ -665,8 +695,17 @@ jobs:
           export OWNER="${{ github.repository_owner }}"
           export TIMESCALE_IMAGE="ghcr.io/${OWNER}/stock-picker-timescaledb:latest-pg16"
           export REDIS_IMAGE="${REDIS_IMAGE:-registry.openanolis.cn/openanolis/redis:5.0.3-8.6}"
-          if ! echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin; then
-            echo "warning: ghcr login failed, continuing with anonymous pull"
+          login_ok=0
+          for i in 1 2 3; do
+            if timeout 60s sh -lc 'printf "%s\n" "$GHCR_DEPLOY_TOKEN" | docker login ghcr.io -u "$GHCR_DEPLOY_USER" --password-stdin'; then
+              login_ok=1
+              break
+            fi
+            echo "ghcr login failed (attempt ${i}/3), retrying in 10s..."
+            sleep 10
+          done
+          if [ "${login_ok}" -ne 1 ]; then
+            echo "warning: ghcr login failed after retries, continuing with anonymous pull"
           fi
           tsdb_h="$(docker inspect -f '{{.State.Health.Status}}' stock-picker-timescaledb 2>/dev/null || true)"
           if [ "${tsdb_h}" = "healthy" ]; then
