@@ -94,9 +94,28 @@ class Cursor:
 
 
 class Connection:
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession, database_url: str | None = None):
         self._session = session
+        self._database_url = database_url
         self.row_factory = Row
+
+    @staticmethod
+    def _is_busy_connection_error(exc: Exception) -> bool:
+        return "another operation is in progress" in str(exc).lower()
+
+    async def _reopen_session(self) -> None:
+        try:
+            await self._session.invalidate()
+        except Exception:
+            try:
+                await self._session.rollback()
+            except Exception:
+                pass
+            try:
+                await self._session.close()
+            except Exception:
+                pass
+        self._session = get_session_factory(self._database_url)()
 
     async def execute(self, sql: str, params: Iterable[Any] | None = None) -> Cursor:
         sql_text, bind_params, skip = convert_sqlite_query(sql, list(params or []))
@@ -124,7 +143,14 @@ class Connection:
         try:
             result = await self._session.execute(text(sql_text), coerced_params)
         except Exception as exc:  # pragma: no cover - diagnostics for SQL translation failures
-            raise RuntimeError(f"PG compat execute failed: {exc}\nSQL:\n{sql_text}") from exc
+            if self._is_busy_connection_error(exc):
+                await self._reopen_session()
+                try:
+                    result = await self._session.execute(text(sql_text), coerced_params)
+                except Exception as retry_exc:
+                    raise RuntimeError(f"PG compat execute failed: {retry_exc}\nSQL:\n{sql_text}") from retry_exc
+            else:
+                raise RuntimeError(f"PG compat execute failed: {exc}\nSQL:\n{sql_text}") from exc
         rows: list[Row] = []
         if result.returns_rows:
             rows = [Row(mapping) for mapping in result.mappings().all()]
@@ -177,7 +203,7 @@ class _ConnectFactory:
 
     async def _open(self) -> Connection:
         session = get_session_factory(self._database_url)()
-        return Connection(session)
+        return Connection(session, database_url=self._database_url)
 
     def __await__(self):
         return self._open().__await__()
