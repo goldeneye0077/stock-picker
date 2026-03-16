@@ -1692,6 +1692,8 @@ async def get_auction_super_main_force(
             sort_mode_normalized = str(sort_mode or "heat").strip().lower()
             if sort_mode_normalized not in {"heat", "candidate_first"}:
                 sort_mode_normalized = "heat"
+            candidate_min_gap_pct = 3.0
+            candidate_max_room_to_limit_pct = 5.0
 
             tune_profile = await load_rolling_tune_profile(
                 db_conn=db,
@@ -1947,59 +1949,74 @@ async def get_auction_super_main_force(
                 cons_cnt = int(row["c"] or 0) if row else 0
 
                 if concept_cnt <= 0 or cons_cnt <= 0:
-                    client = TushareClient()
-                    if client.is_available():
-                        df_concept = await client.get_kpl_concept(trade_date_ret)
-                        if df_concept is not None and not df_concept.empty:
-                            for _, r in df_concept.iterrows():
-                                ts_code = str(r.get("ts_code") or "").strip()
-                                if not ts_code:
-                                    continue
-                                name = str(r.get("name") or "").strip()
-                                z_t_num = int(r.get("z_t_num") or 0) if pd.notna(r.get("z_t_num")) else 0
-                                up_num = str(r.get("up_num") or "")
-                                await db.execute(
-                                    """
-                                    INSERT OR REPLACE INTO kpl_concepts
-                                    (trade_date, ts_code, name, z_t_num, up_num, created_at)
-                                    VALUES (?, ?, ?, ?, ?, datetime('now'))
-                                    """,
-                                    (trade_date_ret, ts_code, name, z_t_num, up_num),
-                                )
+                    try:
+                        client = TushareClient()
+                        if client.is_available():
+                            df_concept = await client.get_kpl_concept(trade_date_ret)
+                            if df_concept is not None and not df_concept.empty:
+                                for _, r in df_concept.iterrows():
+                                    ts_code = str(r.get("ts_code") or "").strip()
+                                    if not ts_code:
+                                        continue
+                                    name = str(r.get("name") or "").strip()
+                                    z_t_num = int(r.get("z_t_num") or 0) if pd.notna(r.get("z_t_num")) else 0
+                                    up_num = str(r.get("up_num") or "")
+                                    await db.execute(
+                                        """
+                                        INSERT OR REPLACE INTO kpl_concepts
+                                        (trade_date, ts_code, name, z_t_num, up_num, created_at)
+                                        VALUES (?, ?, ?, ?, ?, datetime('now'))
+                                        """,
+                                        (trade_date_ret, ts_code, name, z_t_num, up_num),
+                                    )
 
-                        df_cons = await client.get_kpl_concept_cons(trade_date_ret)
-                        if df_cons is not None and not df_cons.empty:
-                            for _, r in df_cons.iterrows():
-                                theme_code = str(r.get("ts_code") or "").strip()
-                                if not theme_code:
-                                    continue
-                                theme_name = str(r.get("name") or "").strip()
-                                con_code = str(r.get("con_code") or r.get("stock_code") or "").strip()
-                                if not con_code:
-                                    continue
-                                stock_code = con_code.split(".")[0] if "." in con_code else con_code
-                                con_name = str(r.get("con_name") or "").strip()
-                                description = str(r.get("desc") or "").strip()
-                                hot_num = float(r.get("hot_num") or 0.0) if pd.notna(r.get("hot_num")) else 0.0
-                                await db.execute(
-                                    """
-                                    INSERT OR REPLACE INTO kpl_concept_cons
-                                    (trade_date, ts_code, name, stock_code, con_code, con_name, description, hot_num, created_at)
-                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-                                    """,
-                                    (
-                                        trade_date_ret,
-                                        theme_code,
-                                        theme_name,
-                                        stock_code,
-                                        con_code,
-                                        con_name,
-                                        description,
-                                        hot_num,
-                                    ),
-                                )
+                            df_cons = await client.get_kpl_concept_cons(trade_date_ret)
+                            if df_cons is not None and not df_cons.empty:
+                                for _, r in df_cons.iterrows():
+                                    theme_code = str(r.get("ts_code") or "").strip()
+                                    if not theme_code:
+                                        continue
+                                    theme_name = str(r.get("name") or "").strip()
+                                    con_code = str(r.get("con_code") or r.get("stock_code") or "").strip()
+                                    if not con_code:
+                                        continue
+                                    stock_code = con_code.split(".")[0] if "." in con_code else con_code
+                                    con_name = str(r.get("con_name") or "").strip()
+                                    description = str(r.get("desc") or "").strip()
+                                    hot_num = float(r.get("hot_num") or 0.0) if pd.notna(r.get("hot_num")) else 0.0
+                                    await db.execute(
+                                        """
+                                        INSERT OR REPLACE INTO kpl_concept_cons
+                                        (trade_date, ts_code, name, stock_code, con_code, con_name, description, hot_num, created_at)
+                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                                        """,
+                                        (
+                                            trade_date_ret,
+                                            theme_code,
+                                            theme_name,
+                                            stock_code,
+                                            con_code,
+                                            con_name,
+                                            description,
+                                            hot_num,
+                                        ),
+                                    )
 
-                        await db.commit()
+                            await db.commit()
+                    except Exception as theme_sync_error:
+                        logger.warning(
+                            "Theme concept sync skipped for %s: %s",
+                            trade_date_ret,
+                            theme_sync_error,
+                        )
+                        try:
+                            await db.rollback()
+                        except Exception as rollback_error:
+                            logger.warning(
+                                "Theme concept rollback skipped for %s: %s",
+                                trade_date_ret,
+                                rollback_error,
+                            )
 
                 cursor = await db.execute(
                     "SELECT COUNT(1) as c FROM kpl_concepts WHERE trade_date = ?",
@@ -2269,8 +2286,14 @@ async def get_auction_super_main_force(
             likely_limit_up = (
                 (not auction_limit_up)
                 and room_to_limit_pct >= min_room_to_limit_pct
+                and room_to_limit_pct <= candidate_max_room_to_limit_pct
                 and likely_limit_up_prob >= bucket_breakout_threshold
-                and gap_percent > 0
+                and gap_percent >= candidate_min_gap_pct
+            )
+            quality_qualified = (
+                gap_percent >= candidate_min_gap_pct
+                and room_to_limit_pct >= min_room_to_limit_pct
+                and room_to_limit_pct <= candidate_max_room_to_limit_pct
             )
 
             exchange = info.get("exchange") or ""
@@ -2320,6 +2343,7 @@ async def get_auction_super_main_force(
                 "price": round(price, 3),
                 "preClose": round(pre_close, 3),
                 "gapPercent": round(gap_percent, 2),
+                "roomToLimitPct": round(room_to_limit_pct, 2),
                 "vol": vol,
                 "amount": round(amount, 2),
                 "turnoverRate": round(turnover_rate, 3),
@@ -2329,6 +2353,7 @@ async def get_auction_super_main_force(
                 "peTtm": pe_ttm_value,
                 "likelyLimitUp": likely_limit_up,
                 "likelyLimitUpProb": round(likely_limit_up_prob, 4),
+                "qualityQualified": quality_qualified,
                 "auctionLimitUp": auction_limit_up,
                 "breakoutScore": round(breakout_score, 4),
                 "breakoutThreshold": round(bucket_breakout_threshold, 4),
@@ -2391,9 +2416,27 @@ async def get_auction_super_main_force(
 
             theme_heat = float(item.get("themeHeatScore") or 0.0)
             enhance_factor = 1.0 + effective_theme_alpha * theme_heat
-            final_score = base_heat_score * enhance_factor
+            breakout_prob = float(item.get("likelyLimitUpProb") or 0.0)
+            breakout_threshold = float(item.get("breakoutThreshold") or tuned_breakout_threshold or 0.62)
+            gap_pct = float(item.get("gapPercent") or 0.0)
+            room_pct = float(item.get("roomToLimitPct") or 0.0)
+            breakout_heat_bonus = score_ramp(
+                breakout_prob,
+                max(0.0, breakout_threshold - 0.08),
+                min(1.0, breakout_threshold + 0.12),
+            ) * 4.0
+            heat_quality_penalty = 0.0
+            if gap_pct < candidate_min_gap_pct:
+                heat_quality_penalty += score_ramp(candidate_min_gap_pct - gap_pct, 0.0, candidate_min_gap_pct) * 10.0
+            if room_pct > candidate_max_room_to_limit_pct:
+                heat_quality_penalty += score_ramp(room_pct, candidate_max_room_to_limit_pct, 9.0) * 12.0
+            if room_pct < float(min_room_to_limit_pct):
+                heat_quality_penalty += score_ramp(float(min_room_to_limit_pct) - room_pct, 0.0, float(min_room_to_limit_pct)) * 4.0
+            final_score = max(0.0, base_heat_score * enhance_factor + breakout_heat_bonus - heat_quality_penalty)
 
             item["baseHeatScore"] = round(base_heat_score, 2)
+            item["breakoutHeatBonus"] = round(breakout_heat_bonus, 2)
+            item["heatQualityPenalty"] = round(heat_quality_penalty, 2)
             item["themeAlpha"] = round(effective_theme_alpha, 4)
             item["themeEnhanceFactor"] = round(enhance_factor, 6)
             item["heatScore"] = round(final_score, 2)
@@ -2458,6 +2501,7 @@ async def get_auction_super_main_force(
         if sort_mode_normalized == "candidate_first":
             items.sort(
                 key=lambda x: (
+                    1 if bool(x.get("qualityQualified")) else 0,
                     1 if bool(x.get("likelyLimitUp")) else 0,
                     float(x.get("likelyLimitUpProb") or 0.0),
                     float(x.get("heatScore") or 0.0),
@@ -2465,7 +2509,13 @@ async def get_auction_super_main_force(
                 reverse=True,
             )
         else:
-            items.sort(key=lambda x: float(x.get("heatScore") or 0.0), reverse=True)
+            items.sort(
+                key=lambda x: (
+                    1 if bool(x.get("qualityQualified")) else 0,
+                    float(x.get("heatScore") or 0.0),
+                ),
+                reverse=True,
+            )
         unique_items: list[dict] = []
         seen_codes: set[str] = set()
         for item in items:
@@ -2504,7 +2554,7 @@ async def get_auction_super_main_force(
                     "rollingWindowDays": int(rolling_window_days),
                     "rollingWindowDaysUsed": int(tune_profile.get("window_days_used") or 0),
                     "candidateThreshold": round(float(tuned_breakout_threshold), 4),
-                    "algorithmVersion": "super_main_force_v3",
+                    "algorithmVersion": "super_main_force_v4",
                 }
             }
         }
