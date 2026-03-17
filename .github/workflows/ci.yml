@@ -81,6 +81,7 @@ jobs:
             - '.github/workflows/ci.yml'
           ops_runtime:
             - 'docker-compose.yml'
+            - 'scripts/stock-picker-cron.sh'
             - 'backend/Dockerfile'
             - 'frontend/Dockerfile'
             - 'data-service/Dockerfile'
@@ -574,11 +575,15 @@ jobs:
             cors_allow_origins="${frontend_origin},http://${SSH_HOST}:3101,https://${SSH_HOST}:3101,http://${SSH_HOST},https://${SSH_HOST},http://localhost:3101,http://127.0.0.1:3101"
           fi
           tmp_env="$(mktemp)"
-          grep -vE '^(ADMIN_USERNAME|ADMIN_PASSWORD|FRONTEND_URL|CORS_ALLOW_ORIGINS)=' "${ROOT_ENV}" > "${tmp_env}" || true
+          grep -vE '^(ADMIN_USERNAME|ADMIN_PASSWORD|FRONTEND_URL|CORS_ALLOW_ORIGINS|ENABLE_SCHEDULED_AUCTION_COLLECTION|ENABLE_SCHEDULED_DAILY_KLINES|CLOSE_COLLECT_MAX_ATTEMPTS|CLOSE_COLLECT_RETRY_INTERVAL_SEC)=' "${ROOT_ENV}" > "${tmp_env}" || true
           printf 'ADMIN_USERNAME=admin\n' >> "${tmp_env}"
           printf 'ADMIN_PASSWORD=%s\n' "${pw}" >> "${tmp_env}"
           printf 'FRONTEND_URL=%s\n' "${frontend_origin}" >> "${tmp_env}"
           printf 'CORS_ALLOW_ORIGINS=%s\n' "${cors_allow_origins}" >> "${tmp_env}"
+          printf 'ENABLE_SCHEDULED_AUCTION_COLLECTION=false\n' >> "${tmp_env}"
+          printf 'ENABLE_SCHEDULED_DAILY_KLINES=false\n' >> "${tmp_env}"
+          printf 'CLOSE_COLLECT_MAX_ATTEMPTS=5\n' >> "${tmp_env}"
+          printf 'CLOSE_COLLECT_RETRY_INTERVAL_SEC=300\n' >> "${tmp_env}"
           mv "${tmp_env}" "${ROOT_ENV}"
           chmod 600 "${ROOT_ENV}"
           if [ ! -f "${DEPLOY_DIR}/data-service/.env" ]; then
@@ -602,6 +607,7 @@ jobs:
         upload_ok=0
         for i in 1 2 3; do
           if scp -P "${PORT}" -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no docker-compose.yml "${USER}@${HOST}:${DEPLOY_DIR}/docker-compose.yml" \
+            && scp -P "${PORT}" -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no scripts/stock-picker-cron.sh "${USER}@${HOST}:${DEPLOY_DIR}/scripts/stock-picker-cron.sh" \
             && scp -P "${PORT}" -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no scripts/migrate/timescaledb_schema.sql "${USER}@${HOST}:${DEPLOY_DIR}/scripts/migrate/timescaledb_schema.sql"; then
             upload_ok=1
             break
@@ -614,6 +620,25 @@ jobs:
           echo "scp upload failed after retries"
           exit 1
         fi
+    - name: Ensure host cron schedule
+      if: steps.check.outputs.enabled == 'true'
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.DEPLOY_SSH_HOST }}
+        username: ${{ secrets.DEPLOY_SSH_USER }}
+        key: ${{ secrets.DEPLOY_SSH_KEY }}
+        port: ${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}
+        script: |
+          set -euo pipefail
+          DEPLOY_DIR="/home/${{ secrets.DEPLOY_SSH_USER }}/stock-picker"
+          chmod 755 "${DEPLOY_DIR}/scripts/stock-picker-cron.sh"
+          tmp_cron="$(mktemp)"
+          (crontab -l 2>/dev/null || true) | grep -v 'stock-picker-cron.sh open_auction' | grep -v 'stock-picker-cron.sh close_collect' > "${tmp_cron}" || true
+          printf '26 9 * * 1-5 cd %s && /usr/bin/env bash %s/scripts/stock-picker-cron.sh open_auction >> %s/cron.log 2>&1\n' "${DEPLOY_DIR}" "${DEPLOY_DIR}" "${DEPLOY_DIR}" >> "${tmp_cron}"
+          printf '30 15 * * 1-5 cd %s && /usr/bin/env bash %s/scripts/stock-picker-cron.sh close_collect >> %s/cron.log 2>&1\n' "${DEPLOY_DIR}" "${DEPLOY_DIR}" "${DEPLOY_DIR}" >> "${tmp_cron}"
+          crontab "${tmp_cron}"
+          rm -f "${tmp_cron}"
+          crontab -l
     - name: Deploy phase 1 (pull app images)
       if: steps.check.outputs.enabled == 'true'
       uses: appleboy/ssh-action@v1.0.3

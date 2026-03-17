@@ -108,6 +108,10 @@ services:
       - TIMESCALE_URL=${TIMESCALE_URL:-postgresql://postgres:postgres@timescaledb:5432/stock_picker}
       - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@timescaledb:5432/stock_picker}
       - SESSION_EXPIRE_DAYS=${SESSION_EXPIRE_DAYS:-7}
+      - ENABLE_SCHEDULED_AUCTION_COLLECTION=${ENABLE_SCHEDULED_AUCTION_COLLECTION:-true}
+      - ENABLE_SCHEDULED_DAILY_KLINES=${ENABLE_SCHEDULED_DAILY_KLINES:-true}
+      - CLOSE_COLLECT_MAX_ATTEMPTS=${CLOSE_COLLECT_MAX_ATTEMPTS:-5}
+      - CLOSE_COLLECT_RETRY_INTERVAL_SEC=${CLOSE_COLLECT_RETRY_INTERVAL_SEC:-300}
     command:
       [
         "sh",

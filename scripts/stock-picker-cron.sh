@@ -46,11 +46,10 @@ async def run_open_auction() -> None:
 
 
 async def run_close_collect() -> None:
-    from src.routes.data_collection import collect_trade_date_klines_data, fetch_stocks_task
+    from src.scheduler import collect_daily_klines_with_retry
 
     trade_date = task_date or datetime.now(task_tz).strftime("%Y-%m-%d")
-    await fetch_stocks_task()
-    kline_result = await collect_trade_date_klines_data(trade_date)
+    kline_result = await collect_daily_klines_with_retry(trade_date=trade_date, source="host-cron")
     print(f"kline_result={kline_result}")
 
 

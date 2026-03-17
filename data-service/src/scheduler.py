@@ -41,6 +41,25 @@ def _env_int(name: str, default: int, minimum: int = 0) -> int:
     return max(minimum, value)
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = str(os.getenv(name, "")).strip().lower()
+    if not raw:
+        return default
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def _should_retry_missing_kline(result) -> bool:
+    if not isinstance(result, dict):
+        return False
+    if result.get("success"):
+        return False
+    return "No K-line data for" in str(result.get("message", ""))
+
+
 async def collect_daily_data_task():
     try:
         if not is_trading_day():
@@ -224,16 +243,13 @@ async def collect_daily_klines_task():
 
         logger.info("Scheduled task triggered: collect daily K-lines")
         today_sh = datetime.now(scheduler_tz).strftime("%Y-%m-%d")
-        try:
-            from .routes.data_collection import collect_trade_date_klines_data
-        except ImportError:
-            from routes.data_collection import collect_trade_date_klines_data
-
-        result = await collect_trade_date_klines_data(today_sh)
+        result = await collect_daily_klines_with_retry(today_sh, source="scheduler")
+        attempt = int(result.get("retry", {}).get("attempt", 1) or 1)
         if result.get("success"):
             logger.info(
                 f"Daily K-line collection finished: {result.get('stats', {}).get('trade_date')} "
-                f"inserted={result.get('stats', {}).get('inserted', 0)}"
+                f"inserted={result.get('stats', {}).get('inserted', 0)} "
+                f"attempts={attempt}"
             )
             try:
                 try:
@@ -249,15 +265,66 @@ async def collect_daily_klines_task():
                         f"inserted={signal_result.get('inserted', 0)}"
                     )
                 else:
-                    logger.warning(
-                        f"Daily signal generation skipped: {signal_result.get('message')}"
-                    )
+                    logger.warning(f"Daily signal generation skipped: {signal_result.get('message')}")
             except Exception as signal_error:
                 logger.warning(f"Daily signal generation failed: {signal_error}")
         else:
-            logger.warning(f"Daily K-line collection skipped/failed: {result.get('message')}")
+            logger.warning(
+                f"Daily K-line collection skipped/failed after {attempt} attempt(s): {result.get('message')}"
+            )
     except Exception as e:
         logger.error(f"Daily K-line scheduler execution failed: {e}")
+
+
+async def collect_daily_klines_with_retry(trade_date: str | None = None, source: str = "scheduler"):
+    try:
+        from .routes.data_collection import collect_trade_date_klines_data, fetch_stocks_task
+    except ImportError:
+        from routes.data_collection import collect_trade_date_klines_data, fetch_stocks_task
+
+    resolved_trade_date = trade_date or datetime.now(scheduler_tz).strftime("%Y-%m-%d")
+    max_attempts = _env_int("CLOSE_COLLECT_MAX_ATTEMPTS", 5, minimum=1)
+    retry_interval_sec = _env_int("CLOSE_COLLECT_RETRY_INTERVAL_SEC", 300, minimum=60)
+
+    await fetch_stocks_task()
+
+    last_result = {
+        "success": False,
+        "message": f"No K-line data for {resolved_trade_date}",
+        "stats": {"trade_date": resolved_trade_date, "inserted": 0},
+    }
+
+    for attempt in range(1, max_attempts + 1):
+        result = await collect_trade_date_klines_data(resolved_trade_date)
+        if not isinstance(result, dict):
+            result = {
+                "success": False,
+                "message": f"Unexpected K-line collection result: {result!r}",
+                "stats": {"trade_date": resolved_trade_date, "inserted": 0},
+            }
+
+        last_result = dict(result)
+        last_result["retry"] = {
+            "attempt": attempt,
+            "max_attempts": max_attempts,
+            "interval_sec": retry_interval_sec,
+            "source": source,
+        }
+
+        if last_result.get("success"):
+            return last_result
+
+        if attempt < max_attempts and _should_retry_missing_kline(last_result):
+            logger.warning(
+                f"{source} close collect returned no K-line data for {resolved_trade_date} "
+                f"on attempt {attempt}/{max_attempts}, retry in {retry_interval_sec}s"
+            )
+            await asyncio.sleep(retry_interval_sec)
+            continue
+
+        return last_result
+
+    return last_result
 
 
 def schedule_sync_wrapper():
@@ -354,20 +421,26 @@ def start_scheduler():
         return
 
     try:
-        scheduler.add_job(
-            func=daily_kline_schedule_sync_wrapper,
-            trigger=CronTrigger(
-                hour=15,
-                minute=10,
-                second=0,
-                day_of_week="mon-fri",
-                timezone=scheduler_tz,
-            ),
-            id="daily_kline_collection",
-            name="Daily K-line collection",
-            replace_existing=True,
-            misfire_grace_time=3600,
-        )
+        enable_daily_kline_collection = _env_bool("ENABLE_SCHEDULED_DAILY_KLINES", True)
+        enable_auction_collection = _env_bool("ENABLE_SCHEDULED_AUCTION_COLLECTION", True)
+
+        if enable_daily_kline_collection:
+            scheduler.add_job(
+                func=daily_kline_schedule_sync_wrapper,
+                trigger=CronTrigger(
+                    hour=15,
+                    minute=30,
+                    second=0,
+                    day_of_week="mon-fri",
+                    timezone=scheduler_tz,
+                ),
+                id="daily_kline_collection",
+                name="Daily K-line collection",
+                replace_existing=True,
+                misfire_grace_time=3600,
+            )
+        else:
+            logger.info("Daily K-line scheduler disabled by ENABLE_SCHEDULED_DAILY_KLINES=false")
 
         scheduler.add_job(
             func=realtime_schedule_sync_wrapper,
@@ -384,20 +457,23 @@ def start_scheduler():
             misfire_grace_time=10,
         )
 
-        scheduler.add_job(
-            func=auction_schedule_sync_wrapper,
-            trigger=CronTrigger(
-                hour=9,
-                minute=26,
-                second=0,
-                day_of_week="mon-fri",
-                timezone=scheduler_tz,
-            ),
-            id="auction_stk_auction",
-            name="Auction collection (Tushare)",
-            replace_existing=True,
-            misfire_grace_time=21600,
-        )
+        if enable_auction_collection:
+            scheduler.add_job(
+                func=auction_schedule_sync_wrapper,
+                trigger=CronTrigger(
+                    hour=9,
+                    minute=26,
+                    second=0,
+                    day_of_week="mon-fri",
+                    timezone=scheduler_tz,
+                ),
+                id="auction_stk_auction",
+                name="Auction collection (Tushare)",
+                replace_existing=True,
+                misfire_grace_time=21600,
+            )
+        else:
+            logger.info("Auction scheduler disabled by ENABLE_SCHEDULED_AUCTION_COLLECTION=false")
 
         scheduler.add_job(
             func=market_insight_schedule_sync_wrapper,
@@ -417,18 +493,23 @@ def start_scheduler():
         _is_running = True
 
         logger.info("Scheduler started")
-        logger.info("Auction collection time: 09:26 (Mon-Fri)")
-        logger.info("Daily K-line collection time: 15:10 (Mon-Fri)")
+        if enable_auction_collection:
+            logger.info("Auction collection time: 09:26 (Mon-Fri)")
+        if enable_daily_kline_collection:
+            logger.info("Daily K-line collection time: 15:30 (Mon-Fri)")
         logger.info("Daily market insight generation time: 15:40 (Mon-Fri)")
 
-        next_run = scheduler.get_job("daily_kline_collection").next_run_time
-        if next_run:
+        daily_kline_job = scheduler.get_job("daily_kline_collection")
+        if daily_kline_job and daily_kline_job.next_run_time:
+            next_run = daily_kline_job.next_run_time
             logger.info(f"Next run time: {next_run.strftime('%Y-%m-%d %H:%M:%S')}")
-        insight_next_run = scheduler.get_job("daily_market_insight_generation").next_run_time
-        if insight_next_run:
+        insight_job = scheduler.get_job("daily_market_insight_generation")
+        if insight_job and insight_job.next_run_time:
+            insight_next_run = insight_job.next_run_time
             logger.info(f"Next insight generation time: {insight_next_run.strftime('%Y-%m-%d %H:%M:%S')}")
 
-        auction_startup_catchup_wrapper()
+        if enable_auction_collection:
+            auction_startup_catchup_wrapper()
 
     except Exception as e:
         logger.error(f"Failed to start scheduler: {e}")
