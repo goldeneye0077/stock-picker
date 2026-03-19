@@ -636,6 +636,7 @@ jobs:
           (crontab -l 2>/dev/null || true) | grep -v 'stock-picker-cron.sh open_auction' | grep -v 'stock-picker-cron.sh close_collect' > "${tmp_cron}" || true
           printf '26 9 * * 1-5 cd %s && /usr/bin/env bash %s/scripts/stock-picker-cron.sh open_auction >> %s/cron.log 2>&1\n' "${DEPLOY_DIR}" "${DEPLOY_DIR}" "${DEPLOY_DIR}" >> "${tmp_cron}"
           printf '30 15 * * 1-5 cd %s && /usr/bin/env bash %s/scripts/stock-picker-cron.sh close_collect >> %s/cron.log 2>&1\n' "${DEPLOY_DIR}" "${DEPLOY_DIR}" "${DEPLOY_DIR}" >> "${tmp_cron}"
+          printf '0 16 * * 1-5 cd %s && /usr/bin/env bash %s/scripts/stock-picker-cron.sh close_collect >> %s/cron.log 2>&1\n' "${DEPLOY_DIR}" "${DEPLOY_DIR}" "${DEPLOY_DIR}" >> "${tmp_cron}"
           crontab "${tmp_cron}"
           rm -f "${tmp_cron}"
           crontab -l
