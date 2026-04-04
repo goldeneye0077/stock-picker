@@ -776,7 +776,7 @@ jobs:
           cd "${DEPLOY_DIR}"
           export OWNER="${{ github.repository_owner }}"
           export TIMESCALE_IMAGE="ghcr.io/${OWNER}/stock-picker-timescaledb:latest-pg16"
-          export REDIS_IMAGE="${REDIS_IMAGE:-registry.openanolis.cn/openanolis/redis:5.0.3-8.6}"
+          export REDIS_IMAGE="${REDIS_IMAGE:-redis:7-alpine}"
           login_ok=0
           for i in 1 2 3; do
             if timeout 60s sh -lc 'printf "%s\n" "$GHCR_DEPLOY_TOKEN" | docker login ghcr.io -u "$GHCR_DEPLOY_USER" --password-stdin'; then
@@ -853,7 +853,7 @@ jobs:
           cd "${DEPLOY_DIR}"
           export OWNER="${{ github.repository_owner }}"
           export TIMESCALE_IMAGE="ghcr.io/${OWNER}/stock-picker-timescaledb:latest-pg16"
-          export REDIS_IMAGE="${REDIS_IMAGE:-registry.openanolis.cn/openanolis/redis:5.0.3-8.6}"
+          export REDIS_IMAGE="${REDIS_IMAGE:-redis:7-alpine}"
           if ! timeout 10m docker compose -f "${DEPLOY_DIR}/docker-compose.yml" up -d --no-build --pull never redis timescaledb; then
             echo "failed to start infra services"
             docker compose -f "${DEPLOY_DIR}/docker-compose.yml" ps || true
@@ -930,7 +930,7 @@ jobs:
           export FRONTEND_IMAGE="ghcr.io/${OWNER}/stock-picker-frontend:${TAG}"
           export DATA_SERVICE_IMAGE="ghcr.io/${OWNER}/stock-picker-data-service:${TAG}"
           export TIMESCALE_IMAGE="ghcr.io/${OWNER}/stock-picker-timescaledb:latest-pg16"
-          export REDIS_IMAGE="${REDIS_IMAGE:-registry.openanolis.cn/openanolis/redis:5.0.3-8.6}"
+          export REDIS_IMAGE="${REDIS_IMAGE:-redis:7-alpine}"
           docker compose -f "${DEPLOY_DIR}/docker-compose.yml" up -d --remove-orphans --no-build --no-deps backend data-service frontend
           docker compose -f "${DEPLOY_DIR}/docker-compose.yml" ps
           for i in $(seq 1 150); do
