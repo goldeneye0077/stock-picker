@@ -522,6 +522,26 @@ jobs:
     concurrency:
       group: stock-picker-deploy-${{ github.ref }}
       cancel-in-progress: true
+    env:
+      DEPLOY_HOST: ${{ vars.DEPLOY_SSH_HOST != '' && vars.DEPLOY_SSH_HOST || secrets.DEPLOY_SSH_HOST }}
+      DEPLOY_USER: ${{ vars.DEPLOY_SSH_USER != '' && vars.DEPLOY_SSH_USER || secrets.DEPLOY_SSH_USER }}
+      DEPLOY_PORT: ${{ vars.DEPLOY_SSH_PORT != '' && vars.DEPLOY_SSH_PORT || secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}
+      DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}
+      DEPLOY_FRONTEND_ORIGIN: ${{ vars.DEPLOY_FRONTEND_ORIGIN != '' && vars.DEPLOY_FRONTEND_ORIGIN || secrets.DEPLOY_FRONTEND_ORIGIN }}
+      DEPLOY_CORS_ALLOW_ORIGINS: ${{ vars.DEPLOY_CORS_ALLOW_ORIGINS != '' && vars.DEPLOY_CORS_ALLOW_ORIGINS || secrets.DEPLOY_CORS_ALLOW_ORIGINS }}
+      DEPLOY_ADMIN_USERNAME: ${{ vars.DEPLOY_ADMIN_USERNAME != '' && vars.DEPLOY_ADMIN_USERNAME || 'admin' }}
+      DEPLOY_FRONTEND_BIND_HOST: ${{ vars.DEPLOY_FRONTEND_BIND_HOST != '' && vars.DEPLOY_FRONTEND_BIND_HOST || '127.0.0.1' }}
+      DEPLOY_FRONTEND_PORT: ${{ vars.DEPLOY_FRONTEND_PORT != '' && vars.DEPLOY_FRONTEND_PORT || '3101' }}
+      DEPLOY_BACKEND_BIND_HOST: ${{ vars.DEPLOY_BACKEND_BIND_HOST != '' && vars.DEPLOY_BACKEND_BIND_HOST || '127.0.0.1' }}
+      DEPLOY_BACKEND_PORT: ${{ vars.DEPLOY_BACKEND_PORT != '' && vars.DEPLOY_BACKEND_PORT || '3100' }}
+      DEPLOY_DATA_SERVICE_BIND_HOST: ${{ vars.DEPLOY_DATA_SERVICE_BIND_HOST != '' && vars.DEPLOY_DATA_SERVICE_BIND_HOST || '127.0.0.1' }}
+      DEPLOY_DATA_SERVICE_PORT: ${{ vars.DEPLOY_DATA_SERVICE_PORT != '' && vars.DEPLOY_DATA_SERVICE_PORT || '8001' }}
+      DEPLOY_TIMESCALE_BIND_HOST: ${{ vars.DEPLOY_TIMESCALE_BIND_HOST != '' && vars.DEPLOY_TIMESCALE_BIND_HOST || '127.0.0.1' }}
+      DEPLOY_TIMESCALE_PORT: ${{ vars.DEPLOY_TIMESCALE_PORT != '' && vars.DEPLOY_TIMESCALE_PORT || '5432' }}
+      DEPLOY_ENABLE_SCHEDULED_AUCTION_COLLECTION: ${{ vars.DEPLOY_ENABLE_SCHEDULED_AUCTION_COLLECTION != '' && vars.DEPLOY_ENABLE_SCHEDULED_AUCTION_COLLECTION || 'false' }}
+      DEPLOY_ENABLE_SCHEDULED_DAILY_KLINES: ${{ vars.DEPLOY_ENABLE_SCHEDULED_DAILY_KLINES != '' && vars.DEPLOY_ENABLE_SCHEDULED_DAILY_KLINES || 'false' }}
+      DEPLOY_CLOSE_COLLECT_MAX_ATTEMPTS: ${{ vars.DEPLOY_CLOSE_COLLECT_MAX_ATTEMPTS != '' && vars.DEPLOY_CLOSE_COLLECT_MAX_ATTEMPTS || '5' }}
+      DEPLOY_CLOSE_COLLECT_RETRY_INTERVAL_SEC: ${{ vars.DEPLOY_CLOSE_COLLECT_RETRY_INTERVAL_SEC != '' && vars.DEPLOY_CLOSE_COLLECT_RETRY_INTERVAL_SEC || '300' }}
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -531,7 +551,7 @@ jobs:
     - name: Check deploy secrets
       id: check
       run: |
-        if [ -n "${{ secrets.DEPLOY_SSH_HOST }}" ] && [ -n "${{ secrets.DEPLOY_SSH_USER }}" ] && [ -n "${{ secrets.DEPLOY_SSH_KEY }}" ] && [ -n "${{ secrets.DEPLOY_ADMIN_PASSWORD }}" ]; then
+        if [ -n "${DEPLOY_HOST}" ] && [ -n "${DEPLOY_USER}" ] && [ -n "${{ secrets.DEPLOY_SSH_KEY }}" ] && [ -n "${{ secrets.DEPLOY_ADMIN_PASSWORD }}" ]; then
           echo "enabled=true" >> "$GITHUB_OUTPUT"
           exit 0
         fi
@@ -542,18 +562,33 @@ jobs:
       uses: appleboy/ssh-action@v1.0.3
       env:
         DEPLOY_ADMIN_PASSWORD: ${{ secrets.DEPLOY_ADMIN_PASSWORD }}
-        DEPLOY_FRONTEND_ORIGIN: ${{ secrets.DEPLOY_FRONTEND_ORIGIN }}
-        DEPLOY_CORS_ALLOW_ORIGINS: ${{ secrets.DEPLOY_CORS_ALLOW_ORIGINS }}
+        DEPLOY_TUSHARE_TOKEN: ${{ secrets.DEPLOY_TUSHARE_TOKEN }}
       with:
-        host: ${{ secrets.DEPLOY_SSH_HOST }}
-        username: ${{ secrets.DEPLOY_SSH_USER }}
+        host: ${{ env.DEPLOY_HOST }}
+        username: ${{ env.DEPLOY_USER }}
         key: ${{ secrets.DEPLOY_SSH_KEY }}
-        port: ${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}
-        envs: DEPLOY_ADMIN_PASSWORD,DEPLOY_FRONTEND_ORIGIN,DEPLOY_CORS_ALLOW_ORIGINS
+        port: ${{ env.DEPLOY_PORT }}
+        envs: DEPLOY_ADMIN_PASSWORD,DEPLOY_TUSHARE_TOKEN
         script: |
           set -euo pipefail
-          DEPLOY_DIR="/home/${{ secrets.DEPLOY_SSH_USER }}/stock-picker"
-          SSH_HOST="${{ secrets.DEPLOY_SSH_HOST }}"
+          DEPLOY_DIR="${{ env.DEPLOY_DIR }}"
+          if [ -z "${DEPLOY_DIR}" ]; then
+            DEPLOY_DIR="/home/${{ env.DEPLOY_USER }}/stock-picker"
+          fi
+          SSH_HOST="${{ env.DEPLOY_HOST }}"
+          ADMIN_USERNAME="${{ env.DEPLOY_ADMIN_USERNAME }}"
+          FRONTEND_BIND_HOST="${{ env.DEPLOY_FRONTEND_BIND_HOST }}"
+          FRONTEND_PORT="${{ env.DEPLOY_FRONTEND_PORT }}"
+          BACKEND_BIND_HOST="${{ env.DEPLOY_BACKEND_BIND_HOST }}"
+          BACKEND_PORT="${{ env.DEPLOY_BACKEND_PORT }}"
+          DATA_SERVICE_BIND_HOST="${{ env.DEPLOY_DATA_SERVICE_BIND_HOST }}"
+          DATA_SERVICE_PORT="${{ env.DEPLOY_DATA_SERVICE_PORT }}"
+          TIMESCALE_BIND_HOST="${{ env.DEPLOY_TIMESCALE_BIND_HOST }}"
+          TIMESCALE_PORT="${{ env.DEPLOY_TIMESCALE_PORT }}"
+          ENABLE_AUCTION_COLLECTION="${{ env.DEPLOY_ENABLE_SCHEDULED_AUCTION_COLLECTION }}"
+          ENABLE_DAILY_KLINES="${{ env.DEPLOY_ENABLE_SCHEDULED_DAILY_KLINES }}"
+          CLOSE_COLLECT_MAX_ATTEMPTS="${{ env.DEPLOY_CLOSE_COLLECT_MAX_ATTEMPTS }}"
+          CLOSE_COLLECT_RETRY_INTERVAL_SEC="${{ env.DEPLOY_CLOSE_COLLECT_RETRY_INTERVAL_SEC }}"
           mkdir -p "${DEPLOY_DIR}"
           mkdir -p "${DEPLOY_DIR}/scripts"
           mkdir -p "${DEPLOY_DIR}/scripts/migrate"
@@ -566,39 +601,51 @@ jobs:
             echo "DEPLOY_ADMIN_PASSWORD does not meet production password complexity requirements"
             exit 1
           fi
-          frontend_origin="${DEPLOY_FRONTEND_ORIGIN:-}"
+          frontend_origin="${{ env.DEPLOY_FRONTEND_ORIGIN }}"
           if [ -z "${frontend_origin}" ]; then
-            frontend_origin="http://${SSH_HOST}:3101"
+            frontend_origin="http://${SSH_HOST}:${FRONTEND_PORT}"
           fi
-          cors_allow_origins="${DEPLOY_CORS_ALLOW_ORIGINS:-}"
+          cors_allow_origins="${{ env.DEPLOY_CORS_ALLOW_ORIGINS }}"
           if [ -z "${cors_allow_origins}" ]; then
-            cors_allow_origins="${frontend_origin},http://${SSH_HOST}:3101,https://${SSH_HOST}:3101,http://${SSH_HOST},https://${SSH_HOST},http://localhost:3101,http://127.0.0.1:3101"
+            cors_allow_origins="${frontend_origin},http://${SSH_HOST}:${FRONTEND_PORT},https://${SSH_HOST}:${FRONTEND_PORT},http://${SSH_HOST},https://${SSH_HOST},http://localhost:${FRONTEND_PORT},http://127.0.0.1:${FRONTEND_PORT}"
           fi
           tmp_env="$(mktemp)"
-          grep -vE '^(ADMIN_USERNAME|ADMIN_PASSWORD|FRONTEND_URL|CORS_ALLOW_ORIGINS|ENABLE_SCHEDULED_AUCTION_COLLECTION|ENABLE_SCHEDULED_DAILY_KLINES|CLOSE_COLLECT_MAX_ATTEMPTS|CLOSE_COLLECT_RETRY_INTERVAL_SEC)=' "${ROOT_ENV}" > "${tmp_env}" || true
-          printf 'ADMIN_USERNAME=admin\n' >> "${tmp_env}"
+          grep -vE '^(ADMIN_USERNAME|ADMIN_PASSWORD|FRONTEND_URL|CORS_ALLOW_ORIGINS|TIMESCALE_BIND_HOST|TIMESCALE_PORT|BACKEND_BIND_HOST|BACKEND_PORT|DATA_SERVICE_BIND_HOST|DATA_SERVICE_PORT|FRONTEND_BIND_HOST|FRONTEND_PORT|ENABLE_SCHEDULED_AUCTION_COLLECTION|ENABLE_SCHEDULED_DAILY_KLINES|CLOSE_COLLECT_MAX_ATTEMPTS|CLOSE_COLLECT_RETRY_INTERVAL_SEC)=' "${ROOT_ENV}" > "${tmp_env}" || true
+          printf 'ADMIN_USERNAME=%s\n' "${ADMIN_USERNAME}" >> "${tmp_env}"
           printf 'ADMIN_PASSWORD=%s\n' "${pw}" >> "${tmp_env}"
           printf 'FRONTEND_URL=%s\n' "${frontend_origin}" >> "${tmp_env}"
           printf 'CORS_ALLOW_ORIGINS=%s\n' "${cors_allow_origins}" >> "${tmp_env}"
-          printf 'ENABLE_SCHEDULED_AUCTION_COLLECTION=false\n' >> "${tmp_env}"
-          printf 'ENABLE_SCHEDULED_DAILY_KLINES=false\n' >> "${tmp_env}"
-          printf 'CLOSE_COLLECT_MAX_ATTEMPTS=5\n' >> "${tmp_env}"
-          printf 'CLOSE_COLLECT_RETRY_INTERVAL_SEC=300\n' >> "${tmp_env}"
+          printf 'TIMESCALE_BIND_HOST=%s\n' "${TIMESCALE_BIND_HOST}" >> "${tmp_env}"
+          printf 'TIMESCALE_PORT=%s\n' "${TIMESCALE_PORT}" >> "${tmp_env}"
+          printf 'BACKEND_BIND_HOST=%s\n' "${BACKEND_BIND_HOST}" >> "${tmp_env}"
+          printf 'BACKEND_PORT=%s\n' "${BACKEND_PORT}" >> "${tmp_env}"
+          printf 'DATA_SERVICE_BIND_HOST=%s\n' "${DATA_SERVICE_BIND_HOST}" >> "${tmp_env}"
+          printf 'DATA_SERVICE_PORT=%s\n' "${DATA_SERVICE_PORT}" >> "${tmp_env}"
+          printf 'FRONTEND_BIND_HOST=%s\n' "${FRONTEND_BIND_HOST}" >> "${tmp_env}"
+          printf 'FRONTEND_PORT=%s\n' "${FRONTEND_PORT}" >> "${tmp_env}"
+          printf 'ENABLE_SCHEDULED_AUCTION_COLLECTION=%s\n' "${ENABLE_AUCTION_COLLECTION}" >> "${tmp_env}"
+          printf 'ENABLE_SCHEDULED_DAILY_KLINES=%s\n' "${ENABLE_DAILY_KLINES}" >> "${tmp_env}"
+          printf 'CLOSE_COLLECT_MAX_ATTEMPTS=%s\n' "${CLOSE_COLLECT_MAX_ATTEMPTS}" >> "${tmp_env}"
+          printf 'CLOSE_COLLECT_RETRY_INTERVAL_SEC=%s\n' "${CLOSE_COLLECT_RETRY_INTERVAL_SEC}" >> "${tmp_env}"
           mv "${tmp_env}" "${ROOT_ENV}"
           chmod 600 "${ROOT_ENV}"
-          if [ ! -f "${DEPLOY_DIR}/data-service/.env" ]; then
-            printf 'TUSHARE_TOKEN=\n' > "${DEPLOY_DIR}/data-service/.env"
-          fi
+          DATA_SERVICE_ENV="${DEPLOY_DIR}/data-service/.env"
+          touch "${DATA_SERVICE_ENV}"
+          tmp_ds_env="$(mktemp)"
+          grep -vE '^TUSHARE_TOKEN=' "${DATA_SERVICE_ENV}" > "${tmp_ds_env}" || true
+          printf 'TUSHARE_TOKEN=%s\n' "${DEPLOY_TUSHARE_TOKEN:-}" >> "${tmp_ds_env}"
+          mv "${tmp_ds_env}" "${DATA_SERVICE_ENV}"
+          chmod 600 "${DATA_SERVICE_ENV}"
           ls -la "${DEPLOY_DIR}"
     - name: Upload deploy files (scp with retry)
       if: steps.check.outputs.enabled == 'true'
       shell: bash
       run: |
         set -euo pipefail
-        HOST="${{ secrets.DEPLOY_SSH_HOST }}"
-        USER="${{ secrets.DEPLOY_SSH_USER }}"
-        PORT="${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}"
-        DEPLOY_DIR="/home/${USER}/stock-picker"
+        HOST="${DEPLOY_HOST}"
+        USER="${DEPLOY_USER}"
+        PORT="${DEPLOY_PORT}"
+        DEPLOY_DIR="${DEPLOY_DIR:-/home/${USER}/stock-picker}"
 
         install -m 700 -d ~/.ssh
         printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
@@ -624,13 +671,16 @@ jobs:
       if: steps.check.outputs.enabled == 'true'
       uses: appleboy/ssh-action@v1.0.3
       with:
-        host: ${{ secrets.DEPLOY_SSH_HOST }}
-        username: ${{ secrets.DEPLOY_SSH_USER }}
+        host: ${{ env.DEPLOY_HOST }}
+        username: ${{ env.DEPLOY_USER }}
         key: ${{ secrets.DEPLOY_SSH_KEY }}
-        port: ${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}
+        port: ${{ env.DEPLOY_PORT }}
         script: |
           set -euo pipefail
-          DEPLOY_DIR="/home/${{ secrets.DEPLOY_SSH_USER }}/stock-picker"
+          DEPLOY_DIR="${{ env.DEPLOY_DIR }}"
+          if [ -z "${DEPLOY_DIR}" ]; then
+            DEPLOY_DIR="/home/${{ env.DEPLOY_USER }}/stock-picker"
+          fi
           chmod 755 "${DEPLOY_DIR}/scripts/stock-picker-cron.sh"
           tmp_cron="$(mktemp)"
           (crontab -l 2>/dev/null || true) | grep -v 'stock-picker-cron.sh open_auction' | grep -v 'stock-picker-cron.sh close_collect' > "${tmp_cron}" || true
@@ -647,15 +697,18 @@ jobs:
         GHCR_DEPLOY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         GHCR_DEPLOY_USER: ${{ github.actor }}
       with:
-        host: ${{ secrets.DEPLOY_SSH_HOST }}
-        username: ${{ secrets.DEPLOY_SSH_USER }}
+        host: ${{ env.DEPLOY_HOST }}
+        username: ${{ env.DEPLOY_USER }}
         key: ${{ secrets.DEPLOY_SSH_KEY }}
-        port: ${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}
+        port: ${{ env.DEPLOY_PORT }}
         command_timeout: 60m
         envs: GHCR_DEPLOY_TOKEN,GHCR_DEPLOY_USER
         script: |
           set -euo pipefail
-          DEPLOY_DIR="/home/${{ secrets.DEPLOY_SSH_USER }}/stock-picker"
+          DEPLOY_DIR="${{ env.DEPLOY_DIR }}"
+          if [ -z "${DEPLOY_DIR}" ]; then
+            DEPLOY_DIR="/home/${{ env.DEPLOY_USER }}/stock-picker"
+          fi
           cd "${DEPLOY_DIR}"
           export OWNER="${{ github.repository_owner }}"
           export TAG="sha-${{ github.sha }}"
@@ -708,15 +761,18 @@ jobs:
         GHCR_DEPLOY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         GHCR_DEPLOY_USER: ${{ github.actor }}
       with:
-        host: ${{ secrets.DEPLOY_SSH_HOST }}
-        username: ${{ secrets.DEPLOY_SSH_USER }}
+        host: ${{ env.DEPLOY_HOST }}
+        username: ${{ env.DEPLOY_USER }}
         key: ${{ secrets.DEPLOY_SSH_KEY }}
-        port: ${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}
+        port: ${{ env.DEPLOY_PORT }}
         command_timeout: 60m
         envs: GHCR_DEPLOY_TOKEN,GHCR_DEPLOY_USER
         script: |
           set -euo pipefail
-          DEPLOY_DIR="/home/${{ secrets.DEPLOY_SSH_USER }}/stock-picker"
+          DEPLOY_DIR="${{ env.DEPLOY_DIR }}"
+          if [ -z "${DEPLOY_DIR}" ]; then
+            DEPLOY_DIR="/home/${{ env.DEPLOY_USER }}/stock-picker"
+          fi
           cd "${DEPLOY_DIR}"
           export OWNER="${{ github.repository_owner }}"
           export TIMESCALE_IMAGE="ghcr.io/${OWNER}/stock-picker-timescaledb:latest-pg16"
@@ -783,14 +839,17 @@ jobs:
       if: steps.check.outputs.enabled == 'true'
       uses: appleboy/ssh-action@v1.0.3
       with:
-        host: ${{ secrets.DEPLOY_SSH_HOST }}
-        username: ${{ secrets.DEPLOY_SSH_USER }}
+        host: ${{ env.DEPLOY_HOST }}
+        username: ${{ env.DEPLOY_USER }}
         key: ${{ secrets.DEPLOY_SSH_KEY }}
-        port: ${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}
+        port: ${{ env.DEPLOY_PORT }}
         command_timeout: 30m
         script: |
           set -euo pipefail
-          DEPLOY_DIR="/home/${{ secrets.DEPLOY_SSH_USER }}/stock-picker"
+          DEPLOY_DIR="${{ env.DEPLOY_DIR }}"
+          if [ -z "${DEPLOY_DIR}" ]; then
+            DEPLOY_DIR="/home/${{ env.DEPLOY_USER }}/stock-picker"
+          fi
           cd "${DEPLOY_DIR}"
           export OWNER="${{ github.repository_owner }}"
           export TIMESCALE_IMAGE="ghcr.io/${OWNER}/stock-picker-timescaledb:latest-pg16"
@@ -819,14 +878,17 @@ jobs:
       if: steps.check.outputs.enabled == 'true'
       uses: appleboy/ssh-action@v1.0.3
       with:
-        host: ${{ secrets.DEPLOY_SSH_HOST }}
-        username: ${{ secrets.DEPLOY_SSH_USER }}
+        host: ${{ env.DEPLOY_HOST }}
+        username: ${{ env.DEPLOY_USER }}
         key: ${{ secrets.DEPLOY_SSH_KEY }}
-        port: ${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}
+        port: ${{ env.DEPLOY_PORT }}
         command_timeout: 180m
         script: |
           set -euo pipefail
-          DEPLOY_DIR="/home/${{ secrets.DEPLOY_SSH_USER }}/stock-picker"
+          DEPLOY_DIR="${{ env.DEPLOY_DIR }}"
+          if [ -z "${DEPLOY_DIR}" ]; then
+            DEPLOY_DIR="/home/${{ env.DEPLOY_USER }}/stock-picker"
+          fi
           cd "${DEPLOY_DIR}"
           SCHEMA_FILE="${DEPLOY_DIR}/scripts/migrate/timescaledb_schema.sql"
           if [ ! -f "${SCHEMA_FILE}" ]; then
@@ -850,14 +912,17 @@ jobs:
       if: steps.check.outputs.enabled == 'true'
       uses: appleboy/ssh-action@v1.0.3
       with:
-        host: ${{ secrets.DEPLOY_SSH_HOST }}
-        username: ${{ secrets.DEPLOY_SSH_USER }}
+        host: ${{ env.DEPLOY_HOST }}
+        username: ${{ env.DEPLOY_USER }}
         key: ${{ secrets.DEPLOY_SSH_KEY }}
-        port: ${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}
+        port: ${{ env.DEPLOY_PORT }}
         command_timeout: 180m
         script: |
           set -euo pipefail
-          DEPLOY_DIR="/home/${{ secrets.DEPLOY_SSH_USER }}/stock-picker"
+          DEPLOY_DIR="${{ env.DEPLOY_DIR }}"
+          if [ -z "${DEPLOY_DIR}" ]; then
+            DEPLOY_DIR="/home/${{ env.DEPLOY_USER }}/stock-picker"
+          fi
           cd "${DEPLOY_DIR}"
           export OWNER="${{ github.repository_owner }}"
           export TAG="sha-${{ github.sha }}"
@@ -882,26 +947,28 @@ jobs:
       if: steps.check.outputs.enabled == 'true'
       uses: appleboy/ssh-action@v1.0.3
       with:
-        host: ${{ secrets.DEPLOY_SSH_HOST }}
-        username: ${{ secrets.DEPLOY_SSH_USER }}
+        host: ${{ env.DEPLOY_HOST }}
+        username: ${{ env.DEPLOY_USER }}
         key: ${{ secrets.DEPLOY_SSH_KEY }}
-        port: ${{ secrets.DEPLOY_SSH_PORT != '' && secrets.DEPLOY_SSH_PORT || '22' }}
+        port: ${{ env.DEPLOY_PORT }}
         command_timeout: 180m
         script: |
           set -euo pipefail
-          curl -fsS http://localhost:3100/health >/dev/null
-          curl -fsS http://localhost:8001/health >/dev/null
-          curl -fsS http://localhost:3101/ >/dev/null
+          curl -fsS "http://localhost:${{ env.DEPLOY_BACKEND_PORT }}/health" >/dev/null
+          curl -fsS "http://localhost:${{ env.DEPLOY_DATA_SERVICE_PORT }}/health" >/dev/null
+          curl -fsS "http://localhost:${{ env.DEPLOY_FRONTEND_PORT }}/" >/dev/null
           today_sh="$(TZ=Asia/Shanghai date +%F)"
           echo "Best-effort auction catch-up for ${today_sh}"
-          curl -fsS -X POST "http://localhost:8001/api/quotes/update-auction?sync=true&trade_date=${today_sh}" || true
+          curl -fsS -X POST "http://localhost:${{ env.DEPLOY_DATA_SERVICE_PORT }}/api/quotes/update-auction?sync=true&trade_date=${today_sh}" || true
 
     - name: Deploy phase 6 (verify public endpoints)
       if: steps.check.outputs.enabled == 'true'
-      env:
-        PUBLIC_BASE_URL: ${{ secrets.DEPLOY_FRONTEND_ORIGIN != '' && secrets.DEPLOY_FRONTEND_ORIGIN || format('http://{0}', secrets.DEPLOY_SSH_HOST) }}
       run: |
         set -euo pipefail
+        PUBLIC_BASE_URL="${DEPLOY_FRONTEND_ORIGIN}"
+        if [ -z "${PUBLIC_BASE_URL}" ]; then
+          PUBLIC_BASE_URL="http://${DEPLOY_HOST}:${DEPLOY_FRONTEND_PORT}"
+        fi
         node scripts/ops/verify_public_endpoints.js "${PUBLIC_BASE_URL}"
 
   notify:
